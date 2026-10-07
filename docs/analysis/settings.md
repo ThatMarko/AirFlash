@@ -1,5 +1,7 @@
 # Settings and the desktop shell
 
+The runtime analysis below retains the audited original behavior. The subsequently reported Settings scrollbar overlap and Equalizer wheel routing are documented separately in [local scrolling acceptance](../issues/SETTINGS-SCROLL-ACCEPTANCE.md). Those UI changes are verified locally with A+B, and remain outside fork/upstream main.
+
 The desktop panel and discovery configuration use the view model's live `AppSettings`. That object is loaded from `%APPDATA%\AirFlash\config.json` and written back by identity migration, by the 200 ms panel-edit timer, and by Settings → Apply. Settings edits a separate draft and the session controller clones playback settings. The native engine receives selected values through JSONL commands; it shares no `AppSettings` object and never reads this file.
 
 ## Load and the two backups
