@@ -6,10 +6,10 @@
 - **Severity**: HIGH — an unrelated discovery transaction can cancel a new user-selected pairing session or overwrite its receiver.
 - **Kind**: Defect
 - **Subsystem**: Desktop discovery/session concurrency
-- **Status**: Open — source-verified race possibility; proposed change, not implemented
+- **Status**: Implemented and verified locally on `codex/fix-session-lifecycle`; not integrated into original stable main.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
-- **Evidence status**: The interleaving below follows existing asynchronous boundaries. A deterministic mock reproduction is specified but was not executed; no field incident is attributed to it.
-- **Implementation status**: Proposal only; no runtime change applied
+- **Evidence status**: The original audit specified the asynchronous interleaving without executing it. Subsequent isolated baseline observations reproduced both stale-control branches; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No field incident is attributed to it.
+- **Implementation status**: Local head `342aeb7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
 - **Target files**: [AppViewModel.cs](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166), [SettingsWindow.xaml.cs](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs#L20), [SessionController.cs](../../desktop/AirFlash.Core/SessionController.cs#L212)
 - **Analysis context**: [Playback coupling](../analysis/playback-coupling.md), [After discovery](../analysis/after-discovery.md), [Session](../analysis/session.md)
 
@@ -58,3 +58,7 @@ Do not rely on rereading `Session.Snapshot` in the view model alone; a replaceme
 Existing [identity-save harness coverage](../../desktop/AirFlash.App/Verification/UiRegression.cs#L163) exercises failure preservation and open drafts, not replacement during a delayed save. [SessionTests](../../desktop/AirFlash.Tests/SessionTests.cs#L153) covers stale worker events across switching, not a stale caller invoking an unconditional stop/update. A delayed-save/direct-Pair ownership regression is missing.
 
 Safety: mocks only; no credential files, PINs, device pairing, or audio probes. Any later authorized audio probe is limited to gain ≤0.1 and ≤5 seconds. No correspondence to upstream issues #6/#7 or dev is claimed.
+
+## Executed local implementation
+
+The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. Original stable main remains unchanged; no hardware incident is attributed to this defect.

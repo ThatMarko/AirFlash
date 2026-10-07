@@ -1,6 +1,6 @@
 # AirFlash implementation plan
 
-This plan covers all **17 current reports in eight coherent PR groups**. It describes future implementation; no runtime fix or new regression fixture has been executed by this documentation work. Issue numbers organize the backlog by severity; they are not the execution order.
+This plan covers all **17 current reports in eight coherent PR groups**. Its original work packages described future implementation. Subsequent execution is recorded separately in [Group B local acceptance](GROUP-B-ACCEPTANCE.md): reports 01, 02, 03, 10 and 11 are implemented and tested on a local original-base branch, without changing original stable main. Issue numbers organize the backlog by severity; they are not the execution order.
 
 Read the linked report and dedicated analysis page before changing an area. Evidence currently describes runtime `41190e0`. Recheck each trigger against the actual original-repository base used for implementation: a newer stable base may already fix or change a case. Do not import excluded development-preview behavior.
 

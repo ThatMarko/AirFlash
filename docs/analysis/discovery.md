@@ -137,3 +137,12 @@ The audited code is the `41190e0` runtime baseline retained by `c077a05`; see [t
 | x64 target | [`AirFlash.App.csproj:10`](../../desktop/AirFlash.App/AirFlash.App.csproj#L10) |
 
 [`DiscoveryTests.SelectedInterfaceNeverFallsBackToAllWhenMissingOrDisconnected`](../../desktop/AirFlash.Tests/DiscoveryTests.cs#L9) covers pure interface selection. `AirFlash.Tests` references Core, not the WPF project; its discovery tests do not exercise `dnsapi.dll`, native cancellation races, the 20-second timer, hung callbacks, or flags-zero removal delivery. Those behavior paths are verified by source inspection here, not by a live receiver experiment.
+
+
+## Locally tested Group B behavior
+
+The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. Group B has not been pushed or integrated. See the [acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md).
+
+Group B changes desktop handling after publication. Empty, incomplete or repeated browse results, including adapter restart, preserve the active handshake/transport while catalog rows continue to describe current discovery availability. The panel overlays an owned active card with an availability label and Stop; it does not claim that an absent receiver was rediscovered.
+
+Browse, resolve, expiry and native DNS cancellation code are unchanged; DNS deadlines remain separate Group D work. The selected discovery interface still has no fallback when unavailable and still does not bind playback egress. The retained transport remains governed by worker health, explicit user actions and controller cleanup. The checklist records mock publication/adapter cases, without claiming live DNS, route or receiver validation.

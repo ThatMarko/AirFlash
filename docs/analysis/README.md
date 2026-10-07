@@ -6,6 +6,8 @@ Every original page was audited against source on **2026-10-06**. [Audit results
 
 Read the table from top to bottom. The later pages describe mechanisms that cut across those stages, followed by a check of earlier investigation claims against this tree.
 
+Group B's session/receiver changes were subsequently implemented and verified locally on `codex/fix-session-lifecycle` at `342aeb7`, based directly on original stable `41190e0`. [Acceptance and actual checks](../issues/GROUP-B-ACCEPTANCE.md) distinguish that tested feature behavior from this index's unchanged stable-source audit. Affected pages retain their baseline descriptions and add an explicit local-branch section; Group B is not yet published or integrated.
+
 | Document | What it covers |
 | --- | --- |
 | [Discovery](discovery.md) | Windows DNS-SD browse and resolve, the record cache, and adapter filtering |

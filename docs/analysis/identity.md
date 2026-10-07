@@ -85,3 +85,12 @@ The target key receives that merged record. The other keys are removed from `set
 | Separate credential key and filename | [`session.rs:231–238`](../../native/airflash-engine/src/session.rs#L231), [`credentials.rs:25–33`](../../native/airflash-engine/src/credentials.rs#L25) |
 
 [`ReceiverIdentityTests`](../../desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L16) supplies direct tests of these pure catalog paths, including alias persistence across service loss/address change (line 119), canonical versus preference priority (lines 148–175), manual/ambiguous endpoint protection (lines 178–213), stale live-owner protection (line 224), address reuse (line 233), and both backup outcomes (lines 242–272). The tests do not establish that arbitrary malformed or hand-written settings satisfy every invariant; `Load` sanitizes aliases, but manual ids and preference keys are not all normalized on load. The catalog, not the credential store, owns these migrations.
+
+
+## Locally tested Group B behavior
+
+The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. Group B has not been pushed or integrated. See the [acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md).
+
+Manual selection preserves its exact host, port, id and independent options beside complete, incomplete or hidden discovered groups. An explicitly selected group stays selected. A discovered member resolves only through its canonical id or confirmed broadcast alias with one live physical owner and one group owner across online non-manual peers. A conflicting standalone owner also makes the selection ambiguous and rejects it before an engine command.
+
+Address or endpoint equality is not a routing fallback; endpoint aliases alone do not prove ownership. Catalog alias migration, permitted automatic-attempt resets, independent manual persistence and schema 2 remain intact. Credentials still use the accessory `/info deviceID` and current-user DPAPI; selection creates no new credential namespace. Pure selection tests and fake command-capture cases are recorded in the checklist.

@@ -75,3 +75,12 @@ Force reconnect defaults off. It does not apply to a discovery stop anyway, beca
 | First mute and restore handling | [`SessionController.cs:325–329, 461–464`](../../desktop/AirFlash.Core/SessionController.cs#L325), [`AudioService.cs:63–82`](../../desktop/AirFlash.App/Services/AudioService.cs#L63) |
 
 [`SessionTests`](../../desktop/AirFlash.Tests/SessionTests.cs#L126) covers pending-start cancellation, fresh-process retries (line 169), mute restore (lines 199–208), incomplete-group rejection (line 220), and preserving diagnostics until a fresh playback (line 260). The WPF [`UiRegression` harness](../../desktop/AirFlash.App/Verification/UiRegression.cs#L163) checks failed identity-save preservation, offline-to-online auto-attempt recovery (line 202), and stereo-member disappearance stopping playback (line 223), using mock services. Neither those tests nor this source audit establishes the cause of any particular real-world dropout or guarantees mute restoration on unavailable hardware.
+
+
+## Locally tested Group B behavior
+
+The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. Group B has not been pushed or integrated. See the [acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md).
+
+Empty, partial, overfull or repeated discovery results do not cancel an owned handshake/stream or reopen its engine. Catalog availability remains truthful while the full active transport stays in the session. An active card remains visible, including when hidden or removed from the selected-adapter catalog, with an availability label and a bound Stop button. After stop or terminal completion, a card retained solely by ownership disappears.
+
+A complete online reappearance can still trigger a guarded receiver update, including a restart when its effective signature changes; stale saved discovery work cannot retarget a newer owner. Adapter browse restart retains playback without making the selected discovery interface an egress binding. Existing worker failures, explicit stop, PIN cancellation and retry/mute cleanup remain effective. The mock evidence establishes these desktop contracts, not a cause for a particular hardware dropout.

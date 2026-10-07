@@ -162,3 +162,12 @@ Verified against runtime source corresponding to upstream `41190e0`, in the `c07
 | Defaults/ranges, UI coupling and default-endpoint restart | [Settings.cs:33–99](../../desktop/AirFlash.Core/Settings.cs#L33); [AppViewModel.cs:135–220,292–323,396–415](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L135); details in [Playback coupling](playback-coupling.md) |
 
 These desktop tests use fake engine/audio connections. They verify controller semantics, not actual OS mute restoration, WASAPI, DNS latency, RTSP, or HomePod behavior. No network probes were performed as part of this documentation audit.
+
+
+## Locally tested Group B behavior
+
+The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. Group B has not been pushed or integrated. See the [acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md).
+
+`SessionCapture` atomically returns the snapshot, desktop lifecycle owner, and automatic-intent token. Metrics and native retries retain that owner; retries still open a fresh native process/session id. A new lifecycle, including replacement with the same receiver id, has a different owner. Guarded receiver updates reject stale owners under controller serialization.
+
+Automatic admission checks the captured owner, inactive state and intent under serialization, then checks intent again after awaited cleanup. Explicit Play, Pair, Stop and shutdown invalidate older automatic intent before waiting. Offline/incomplete new starts remain rejected. Passive discovery loss retains Connecting, Pairing, Streaming and Standby; explicit stop, PIN cancellation, terminal faults and applicable settings/transport restarts retain their controller cleanup paths. Config schema 2 and JSONL v1 are unchanged. Executed mock coverage and independent review are recorded centrally.

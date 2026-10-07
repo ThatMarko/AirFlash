@@ -6,10 +6,10 @@
 - **Severity**: HIGH — a passive discovery refresh can interrupt an otherwise running stream; no data loss or security failure is established.
 - **Kind**: Defect
 - **Subsystem**: Desktop discovery/catalog/session orchestration
-- **Status**: Open — source-verified behavior; proposed change, not implemented
+- **Status**: Implemented and verified locally on `codex/fix-session-lifecycle`; not integrated into original stable main.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
-- **Evidence status**: Source and existing mock-harness assertions inspected. The reproduction below was not executed; no real-device dropout or network trigger was reproduced.
-- **Implementation status**: Proposal only; no runtime change applied
+- **Evidence status**: The original audit inspected source and existing mock-harness assertions without executing the proposed reproduction. Subsequent isolated baseline observations reproduced empty/partial-discovery interruption; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No real-device dropout or network trigger was reproduced.
+- **Implementation status**: Local head `342aeb7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
 - **Target files**: [AppViewModel.cs](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166), [WindowsDiscovery.cs](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47)
 - **Analysis context**: [Playback coupling](../analysis/playback-coupling.md), [Discovery](../analysis/discovery.md), [After discovery](../analysis/after-discovery.md)
 
@@ -66,3 +66,7 @@ Keep JSONL v1 and config schema 2 unchanged. Session ownership guards from ISSUE
 Existing coverage: the [stereo identity regression](../../desktop/AirFlash.App/Verification/UiRegression.cs#L222) currently asserts that member disappearance stops playback; that assertion would intentionally change under this proposal. [SessionTests](../../desktop/AirFlash.Tests/SessionTests.cs#L126) covers cancellation and [incomplete-group rejection](../../desktop/AirFlash.Tests/SessionTests.cs#L220). A dedicated healthy-stream/empty-snapshot retention assertion and active-row rendering assertion are missing.
 
 Safety: perform these checks with mocks only. Hardware qualification is separate authorized work; any later audio probe must remain at gain ≤0.1 and duration ≤5 seconds. No correspondence to upstream issues #6/#7 or `upstream/dev` is claimed.
+
+## Executed local implementation
+
+The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. Original stable main remains unchanged; no hardware incident is attributed to this defect.

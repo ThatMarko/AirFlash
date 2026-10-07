@@ -6,10 +6,10 @@
 - **Severity**: HIGH — a stale automatic action can cancel a newly selected manual pairing session and start another receiver after an explicit Stop.
 - **Kind**: Defect
 - **Subsystem**: Desktop automatic-start admission and session ownership
-- **Status**: Open — source-verified interleaving; proposal not implemented
-- **Evidence status**: Relevant view-model, Settings Pair, controller, and existing fake-harness/test sources inspected on 2026-10-07. The deterministic reproductions below are planned and were not executed. No receiver incident, audio output, or frequency of occurrence was measured.
+- **Status**: Implemented and verified locally on `codex/fix-session-lifecycle`; not integrated into original stable main.
+- **Evidence status**: The original audit inspected relevant view-model, Settings Pair, controller and fake-harness/test sources on 2026-10-07 without executing the proposed reproductions. Subsequent isolated baseline observation reproduced stale automatic replacement; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No receiver incident, audio output or frequency was measured.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation baseline `c077a05` and the audited [analysis index](../analysis/README.md)
-- **Implementation status**: Proposal only; no runtime change applied
+- **Implementation status**: Local head `342aeb7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
 - **Analysis context**: [After discovery](../analysis/after-discovery.md), [Session](../analysis/session.md), [Settings](../analysis/settings.md), [Control and mute](../analysis/control-and-mute.md)
 - **Target files**: [AppViewModel.cs:292–355](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292-L355), [SettingsWindow.xaml.cs:20–24](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs#L20-L24), [SessionController.cs:176–224](../../desktop/AirFlash.Core/SessionController.cs#L176-L224)
 - **Related items**: [ISSUE-01](ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md) covers stale discovery stop/update ownership; [ISSUE-10](ISSUE-10-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md) covers candidate filtering, a separate defect.
@@ -93,3 +93,7 @@ This is a managed desktop ownership change. `config.json` schema 2 and JSONL v1 
 Existing [automatic-attempt identity harness](../../desktop/AirFlash.App/Verification/UiRegression.cs#L202-L220) covers failed attempts, alias promotion, and offline recovery; it does not overlap an automatic admission with Pair or Stop. The [gated-save harness](../../desktop/AirFlash.App/Verification/UiRegression.cs#L35-L59) contains responsive-save assertions, not this ownership interleaving. [Controller tests](../../desktop/AirFlash.Tests/SessionTests.cs#L126-L174) cover nonblocking start, cleanup serialization, and stale engine-event rejection; [pairing tests](../../desktop/AirFlash.Tests/SessionTests.cs#L226-L238) cover cancellation and pair-then-stream. None asserts rejection of a stale automatic caller. These sources were inspected, not executed for this report.
 
 Add both dispatcher/save-gate cases and focused controller admission tests before verifying an implementation. Later verification should run the relevant core xUnit tests and the separate WPF `--ui-smoke` harness with these fake assertions; Rust/hardware tests are unnecessary for this desktop-only ownership repair unless implementation scope changes. Any separately authorized finite audio probe must remain at gain at most 0.1 and duration at most five seconds; no probe or soak is needed to reproduce this race. No upstream issue #6/#7 or dev-branch relationship is claimed.
+
+## Executed local implementation
+
+The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. Original stable main remains unchanged; no hardware incident is attributed to this defect.

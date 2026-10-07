@@ -68,3 +68,12 @@ The NTP responder binds wildcard IPv4 on an ephemeral port for each worker attem
 ## Verification coverage
 
 [SessionTests.cs, lines 199–217](../../desktop/AirFlash.Tests/SessionTests.cs#L199-L217) checks failure restoration, disabling mute, and standby using fake audio/engine services. It does not test real endpoint mute-bit preservation, COM failures, forced desktop termination, or restoration wall time. [volume.rs, lines 162–225](../../native/airflash-engine/src/volume.rs#L162-L225) tests conversion and confirmation state; [tests/volume.rs](../../native/airflash-engine/tests/volume.rs) tests localhost RTSP reads, two-member writes, delayed confirmation, and unavailable volume. [tests/continuity.rs, lines 54–185](../../native/airflash-engine/tests/continuity.rs#L54-L185) tests encrypted delayed feedback, transient status handling, hard timeout, and cancellation with shortened test timings. These do not validate real receiver round-trip time, volume/feedback mutex contention on hardware, Windows route choice, or PTP accuracy.
+
+
+## Locally tested Group B behavior
+
+The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. Group B has not been pushed or integrated. See the [acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md).
+
+Passive empty or incomplete discovery no longer stops an owned session or requests mute restoration. Its active card retains an accessible Stop button and reports unavailable discovery while the transport/handshake continues. Explicit stop, terminal faults, PIN cancellation and retries still run the existing cancellation/disposal and audio-restoration paths.
+
+Mock cases exercise both previously muted and unmuted endpoint bits, including retained playback, terminal failure, retry and explicit cleanup; restoration preserves the exact prior bit. Production audio-service and native control/PTP code are unchanged. This is neither a process-crash recovery journal nor verification of physical COM restoration, timing or egress choice; those limits and executed checks are recorded centrally.

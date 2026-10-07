@@ -4,7 +4,7 @@ The **17 active reports** are now numbered continuously from **ISSUE-01 through 
 
 [Implementation plan](IMPLEMENTATION_PLAN.md) defines a small set of coherent PR groups, the work for every issue, dependencies, parallel work, regression fixtures, and completion gates. **The next new report is ISSUE-18.**
 
-The runtime evidence remains pinned to `41190e0`, unchanged by documentation baseline `c077a05`. Read [docs/analysis](../analysis/README.md) before investigating an area. Source-supported means the control flow or missing mechanism is visible in that source; it does not mean a planned fixture ran or a real receiver incident was attributed to it. **All runtime fixes remain proposals.**
+The original runtime evidence remains pinned to `41190e0`, unchanged by documentation baseline `c077a05`. Read [docs/analysis](../analysis/README.md) before investigating an area. Source-supported means the control flow or missing mechanism is visible in that source; it does not attribute a real receiver incident. Subsequent tested feature branches are recorded separately from original stable behavior: [Group B local acceptance](GROUP-B-ACCEPTANCE.md) covers the completed local session/receiver package. Unimplemented groups remain proposals.
 
 ## Active reports
 

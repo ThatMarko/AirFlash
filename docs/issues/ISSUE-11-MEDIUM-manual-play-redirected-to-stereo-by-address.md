@@ -6,10 +6,10 @@
 - **Severity**: MEDIUM — an explicit manual-row selection can target a different receiver/group and port.
 - **Kind**: Defect
 - **Subsystem**: Desktop receiver selection
-- **Status**: Open — source-verified routing defect; proposed fix, not implemented
+- **Status**: Implemented and verified locally on `codex/fix-session-lifecycle`; not integrated into original stable main.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
-- **Evidence status**: Source inspected. The minimal mock command-capture scenario below was not executed; no real receiver was contacted.
-- **Implementation status**: Proposal only; no runtime change applied
+- **Evidence status**: The original audit inspected source without executing the proposed command-capture scenario. Subsequent isolated baseline observation reproduced manual endpoint redirection; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No real receiver was contacted.
+- **Implementation status**: Local head `342aeb7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
 - **Target file**: [AppViewModel.cs](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292)
 - **Analysis context**: [After discovery](../analysis/after-discovery.md), [Identity](../analysis/identity.md)
 
@@ -61,3 +61,7 @@ Keep manual preferences independent of discovered preference records, and do not
 The [manual identity test](../../desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L178) and [UI identity harness](../../desktop/AirFlash.App/Verification/UiRegression.cs#L197) establish coexistence, not selection behavior at a shared stereo-member address. The [stereo harness](../../desktop/AirFlash.App/Verification/UiRegression.cs#L222) starts the group itself. A manual-click command-capture assertion and an incomplete-group negative case are missing.
 
 Safety: fake engine only; no discovery service, receiver pairing, real addresses, or credentials. Any later authorized audio probe retains gain ≤0.1 and duration ≤5 seconds. No upstream issue #6/#7 or dev relationship is claimed.
+
+## Executed local implementation
+
+The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. Original stable main remains unchanged; no hardware incident is attributed to this defect.

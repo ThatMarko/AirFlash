@@ -6,10 +6,10 @@
 - **Severity**: MEDIUM — automatic connection to a new eligible receiver can be suppressed after another receiver failed.
 - **Kind**: Defect
 - **Subsystem**: Desktop auto-connect selection
-- **Status**: Open — source-verified selection defect; fix proposed, not implemented
+- **Status**: Implemented and verified locally on `codex/fix-session-lifecycle`; not integrated into original stable main.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
-- **Evidence status**: Source inspected; the deterministic dispatcher/mock scenario below was not executed. No receiver failure is claimed to have been observed on hardware.
-- **Implementation status**: Proposal only; no runtime change applied
+- **Evidence status**: The original audit inspected source without executing the proposed dispatcher/mock scenario. Subsequent isolated baseline observation reproduced candidate blocking; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No receiver failure was observed on hardware.
+- **Implementation status**: Local head `342aeb7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
 - **Target file**: [AppViewModel.cs](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L318)
 - **Analysis context**: [After discovery](../analysis/after-discovery.md)
 
@@ -58,3 +58,7 @@ Exclude attempted ids before ranking/selecting candidates. Preserve the existing
 The [existing identity automatic-attempt regression](../../desktop/AirFlash.App/Verification/UiRegression.cs#L202) verifies one receiver's failure, alias promotion, and offline recovery. It does not include the second eligible candidate. Add that assertion, ideally with controllable timer scheduling rather than a timing-sensitive sleep, before implementation is considered verified.
 
 Safety: mock-only verification; no hardware or probes. Any later audio qualification remains gain ≤0.1 and duration ≤5 seconds. No upstream issue #6/#7 or dev correspondence is claimed.
+
+## Executed local implementation
+
+The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. Original stable main remains unchanged; no hardware incident is attributed to this defect.

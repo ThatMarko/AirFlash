@@ -148,3 +148,14 @@ On an initial discovery with no active session, the timer or an explicit play/Pa
 | Startup engine hello | [`App.xaml.cs:55–65, 125–134`](../../desktop/AirFlash.App/App.xaml.cs#L55) |
 
 [`DiscoveryTests`](../../desktop/AirFlash.Tests/DiscoveryTests.cs#L9) and [`ReceiverIdentityTests`](../../desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L22) cover pure interface selection, aggregation, stereo counting, endpoint conflicts, and migrations. [`SessionTests.cs:91–123`](../../desktop/AirFlash.Tests/SessionTests.cs#L91) covers identity updates retaining transport, changed effective latency restarting once, and renamed/reordered stereo members retaining transport. These xUnit tests do not instantiate `AppViewModel`. The separate WPF [`UiRegression` harness](../../desktop/AirFlash.App/Verification/UiRegression.cs#L163), invoked by `--ui-smoke`, covers failed identity-save coupling, open drafts, automatic-attempt migration/offline recovery, and stopping playback when a stereo member disappears. The attempted-preferred-receiver fallback edge, manual-row address redirection, and delayed automatic admission race lack dedicated assertions there. All of that harness uses mock discovery/audio/engine services, not live receivers.
+
+
+## Locally tested Group B behavior
+
+The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. Group B has not been pushed or integrated. See the [acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md).
+
+Reconciliation captures the session snapshot and lifecycle owner atomically before persistence. A complete, online discovered replacement is applied only if the serialized controller still owns that lifecycle. Metrics do not invalidate the owner. Empty or incomplete discovery preserves the owned handshake/transport and leaves availability in the catalog; the active card retains Stop.
+
+Automatic connection keeps the existing global/per-receiver opt-ins, visibility, completeness, alias migration, permitted attempt resets, and Stop suppression. Attempted ids are excluded before last-used/name ranking. After persistence, canonical identity and eligibility are rechecked under the settings gate through serialized owner/inactive/intent admission. Explicit Play, Pair, Stop and shutdown invalidate older intent before awaiting. Only admitted attempts change attempted/last-used state; admitted connection failures still count. Rejection preserves valid saves and newer Stop suppression.
+
+Verification at this head passed 218 Core tests, 273 English and 273 Chinese WPF checks, and Debug/Release builds with zero warnings/errors. Seven isolated original-base observations failed the desired assertions, confirming the baseline defects. Independent review found no actionable issue. These are mock results; the checklist records scope and limits.
