@@ -6,10 +6,10 @@
 - **Severity**: MEDIUM; build prerequisites fail after avoidable build/release side effects
 - **Kind**: Defect — tooling
 - **Subsystem**: Build & Tests
-- **Status**: Implemented and verified locally; not published or integrated upstream
+- **Status**: Published upstream as issue #10 / PR #11; not merged; upstream CI awaits maintainer approval
 - **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
 - **Evidence status**: Original audit was source-only; subsequent isolated implementation checks are recorded below
-- **Implementation status**: Local branch `codex/fix-build-preflight`, commit `de13b6d3e22a177537ed9d5977fe693a5b497fc1`
+- **Implementation status**: `origin/codex/fix-build-preflight`, commit `de13b6d3e22a177537ed9d5977fe693a5b497fc1`
 - **Target files**: [dotnet.ps1:5–24](../../scripts/dotnet.ps1#L5), [build.ps1:17–33](../../scripts/build.ps1#L17), [build-installer.ps1:39–45](../../scripts/build-installer.ps1#L39), [global.json:1](../../desktop/global.json#L1)
 - **Analysis context**: [Audit/toolchain verification limits](../analysis/audit.md)
 
@@ -21,7 +21,7 @@ The shared helper resolves the selected host once and checks `--version` from `d
 
 Executed checks: **86 Python tests passed with no skips**, including 37 new preflight/ordering tests; Ruff lint and new-test formatting passed. A separate temporary comparison using the original base scripts recorded fake reservation, cleanup, native and publish operations before SDK failure, while the fixed scripts rejected before all four. The SHA512-verified repository-local SDK **10.0.401** resolved the unchanged `10.0.100`/`latestFeature` policy; the actual runtime-only system host was rejected with contextual diagnostics. Locked solution restore, Release solution build (**zero warnings/errors**) and **163 managed tests** passed; package lockfiles and `global.json` remain unchanged. Restore used an explicit ignored NuGet configuration with the official package source because the isolated CLI home initially had no sources.
 
-Initial implementation checks exercised release/build orchestration and installer behavior using copied scripts, fake operations and temporary outputs. The implementation branch remains local; a separate validation branch was subsequently pushed to the fork for the additional checks below. Upstream issue/PR publication still requires Task 3 for Group A.
+Initial implementation checks exercised release/build orchestration and installer behavior using copied scripts, fake operations and temporary outputs. A separate validation branch was subsequently pushed to the fork for the additional checks below. Task 3 later published the implementation branch and upstream issue/PR as recorded in the publication handoff.
 
 ### Additional desktop and fork verification
 
@@ -29,7 +29,13 @@ Prepublication verification tested the unchanged implementation commit on both t
 
 The fork-only `codex/verify-build-preflight` branch contains a read-only validation workflow at `c004d88a4f3a8aacbf126eaea4fee628f8ffcf6d`. [Hosted run 37657692237](https://github.com/ThatMarko/AirFlash/actions/runs/37657692237) checked out the exact implementation commit `de13b6d` and passed actual SDK resolution, 86 Python tests, icons, 47 native tests (one existing soak ignored), native lint/build/static-CRT checks, the managed solution build and 163 managed tests. It also completed a real isolated publish, default and explicit-host MSI builds, and runtime-only override rejection before output creation. This used ordinary publish/installer commands, without calling the version-reserving release build or dispatching the Release workflow. No issue/PR, release, reservation tag or installer installation was created; fork `main` was unchanged.
 
-Remaining platform boundaries: the desktop lacks Rust/MSVC/Windows SDK prerequisites for a full native release build. The existing reservation script intentionally rejects a fork `origin`; the fork's earlier [Release run](https://github.com/ThatMarko/AirFlash/actions/runs/37525792456) demonstrates that guard. GitHub account permissions do not change that repository policy. Group A preserves it while improving SDK failure ordering, and is ready for Task 3.
+Remaining platform boundaries: the desktop lacks Rust/MSVC/Windows SDK prerequisites for a full native release build. The existing reservation script intentionally rejects a fork `origin`; the fork's earlier [Release run](https://github.com/ThatMarko/AirFlash/actions/runs/37525792456) demonstrates that guard. GitHub account permissions do not change that repository policy. Group A preserves it while improving SDK failure ordering.
+
+### Publication handoff — 2026-10-07
+
+Published [issue #10](https://github.com/Ding-Kyoma/AirFlash/issues/10) and [PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11), targeting original `main` at verified `41190e0` from `ThatMarko:codex/fix-build-preflight` at `de13b6d`. No existing issue/PR covered the verified scope. Public bodies were independently reviewed and re-read after publication; GitHub recognizes the PR's `Fixes #10` relationship. The published nine-file diff and sole outgoing commit exclude all fork-only analysis/issues/planning files and the validation-only workflow. The PR is registered with this chat.
+
+The exact-source fork validation remains green. Original-repository [CI run 37660774239](https://github.com/Ding-Kyoma/AirFlash/actions/runs/37660774239) is `action_required`, with no jobs, and its page explicitly awaits maintainer approval for the fork PR. Copilot's automatic review reported a quota limit; it performed no code review. Independent source/regression review found no concrete issues. Remaining external action: an upstream maintainer approves CI and reviews the PR. No merge, release workflow, reservation or release was performed. Stable main has not integrated the fix.
 
 ## Current behavior and scope
 
