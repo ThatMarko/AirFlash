@@ -6,12 +6,22 @@
 - **Severity**: MEDIUM; build prerequisites fail after avoidable build/release side effects
 - **Kind**: Defect — tooling
 - **Subsystem**: Build & Tests
-- **Status**: Open — source-confirmed preflight/order gap
+- **Status**: Implemented and verified locally; not published or integrated upstream
 - **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
-- **Evidence status**: Scripts/configuration verified; no release build, reservation, or SDK installation attempted
-- **Implementation status**: Proposal only
+- **Evidence status**: Original audit was source-only; subsequent isolated implementation checks are recorded below
+- **Implementation status**: Local branch `codex/fix-build-preflight`, commit `de13b6d3e22a177537ed9d5977fe693a5b497fc1`
 - **Target files**: [dotnet.ps1:5–24](../../scripts/dotnet.ps1#L5), [build.ps1:17–33](../../scripts/build.ps1#L17), [build-installer.ps1:39–45](../../scripts/build-installer.ps1#L39), [global.json:1](../../desktop/global.json#L1)
 - **Analysis context**: [Audit/toolchain verification limits](../analysis/audit.md)
+
+## Local implementation verification — 2026-10-07
+
+Original stable `main` was freshly confirmed at `41190e0d13a63a714c08dffe73ababca1804875c`. The implementation branch starts there and contains only public tooling, regression tests and build documentation. Its final diff and sole outgoing commit exclude the fork's analysis/issues/planning files. Stable main still has the behavior described in the source audit below.
+
+The shared helper resolves the selected host once and checks `--version` from `desktop`, leaving the actual `global.json` resolver in charge. Build preflight now precedes the release lock, reservation, cleanup and native work; publish and installer reuse the selected host. Explicit installer hosts adopt the desktop policy. The release workflow sets up and checks the SDK before reservation; the wrapper preserves native argument/output/exit forwarding and runtime-only informational commands. Independent final source/test review reported no concrete findings.
+
+Executed checks: **86 Python tests passed with no skips**, including 37 new preflight/ordering tests; Ruff lint and new-test formatting passed. A separate temporary comparison using the original base scripts recorded fake reservation, cleanup, native and publish operations before SDK failure, while the fixed scripts rejected before all four. The SHA512-verified repository-local SDK **10.0.401** resolved the unchanged `10.0.100`/`latestFeature` policy; the actual runtime-only system host was rejected with contextual diagnostics. Locked solution restore, Release solution build (**zero warnings/errors**) and **163 managed tests** passed; package lockfiles and `global.json` remain unchanged. Restore used an explicit ignored NuGet configuration with the official package source because the isolated CLI home initially had no sources.
+
+Release/build orchestration and installer behavior were tested using copied scripts, fake operations and temporary outputs. No real release build, version reservation, workflow dispatch, MSI lifecycle, Rust build or receiver operation was performed. All commits remain local; the next publication step requires Task 3 for Group A.
 
 ## Current behavior and scope
 
