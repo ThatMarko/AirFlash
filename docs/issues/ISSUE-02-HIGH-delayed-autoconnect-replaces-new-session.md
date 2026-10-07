@@ -1,6 +1,8 @@
 # [HIGH] A delayed automatic start replaces a newer session and can undo user Stop
 
-- **Issue ID**: ISSUE-24
+- **Issue ID**: ISSUE-02
+- **Implementation plan**: [Work package ISSUE-02](IMPLEMENTATION_PLAN.md#issue-02)
+- **PR group**: B — Session lifecycle
 - **Severity**: HIGH — a stale automatic action can cancel a newly selected manual pairing session and start another receiver after an explicit Stop.
 - **Kind**: Defect
 - **Subsystem**: Desktop automatic-start admission and session ownership
@@ -10,7 +12,7 @@
 - **Implementation status**: Proposal only; no runtime change applied
 - **Analysis context**: [After discovery](../analysis/after-discovery.md), [Session](../analysis/session.md), [Settings](../analysis/settings.md), [Control and mute](../analysis/control-and-mute.md)
 - **Target files**: [AppViewModel.cs:292–355](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292-L355), [SettingsWindow.xaml.cs:20–24](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs#L20-L24), [SessionController.cs:176–224](../../desktop/AirFlash.Core/SessionController.cs#L176-L224)
-- **Related items**: [ISSUE-15](ISSUE-15-HIGH-stale-discovery-snapshot-controls-new-session.md) covers stale discovery stop/update ownership; [ISSUE-16](ISSUE-16-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md) covers candidate filtering, a separate defect.
+- **Related items**: [ISSUE-01](ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md) covers stale discovery stop/update ownership; [ISSUE-10](ISSUE-10-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md) covers candidate filtering, a separate defect.
 
 ## 1. Current behavior and impact
 
@@ -36,7 +38,7 @@ HIGH follows the backlog's concrete session-ownership disruption criterion: auto
 
 An ordinary settings flush during Pairing need not replace B: `UpdateSettingsAsync` excludes Pairing from its signature-restart branch. The later unconditional automatic `StartAsync` is the replacement in this reproduction. ([SessionController.cs:226–244](../../desktop/AirFlash.Core/SessionController.cs#L226-L244).)
 
-Filtering `_autoAttempted` before choosing A, as proposed in ISSUE-16, cannot repair this ownership gap. ISSUE-15's guarded discovery stop/update also does not automatically guard this start caller. The three fixes must share lifecycle ownership semantics without conflating their triggers. The existing `_closing` recheck handles shutdown admission at this point; this report does not claim a delayed start bypasses it.
+Filtering `_autoAttempted` before choosing A, as proposed in ISSUE-10, cannot repair this ownership gap. ISSUE-01's guarded discovery stop/update also does not automatically guard this start caller. The three fixes must share lifecycle ownership semantics without conflating their triggers. The existing `_closing` recheck handles shutdown admission at this point; this report does not claim a delayed start bypasses it.
 
 ## 3. Deterministic mock reproductions — planned, not run
 
@@ -64,13 +66,15 @@ Neither fixture has been executed in this documentation pass. No .NET/Rust build
 
 ## 4. Proposed fix and compatibility — unimplemented
 
-Give an automatic start a lifecycle generation and an automatic-intent invalidation token captured before its first await. Add a controller admission operation that, under the same `_serial` ownership used by start/stop, checks the expected generation and requires that no session is active before calling the replacement/start routine. Preserve the currently allowed inactive states, including Error; requiring only the literal Idle enum would unintentionally block ISSUE-16's failure-to-next-candidate case. Use a lifecycle token, not snapshot-reference equality, because ordinary events also replace snapshots.
+Give an automatic start a lifecycle generation and an automatic-intent invalidation token captured before its first await. Add a controller admission operation that, under the same `_serial` ownership used by start/stop, checks the expected generation and requires that no session is active before calling the replacement/start routine. Preserve the currently allowed inactive states, including Error; requiring only the literal Idle enum would unintentionally block ISSUE-10's failure-to-next-candidate case. Use a lifecycle token, not snapshot-reference equality, because ordinary events also replace snapshots.
+
+After awaited persistence, revalidate the current canonical receiver, online/completeness/visibility and automatic options under the app settings gate, coordinated with controller admission. A catalog/Apply change can invalidate eligibility without changing lifecycle generation or explicit intent; keep the selected data stable through admission.
 
 Separate automatic admission from the explicit-click toggle semantics. Automatic work must not clear a newer user-stop suppress flag. Invalidate pending automatic intent synchronously when a newer explicit Play/Pair/Stop or shutdown takes ownership, before awaiting its controller work. Coordinate that invalidation with serialized admission so Stop cannot be missed while waiting for `_serial`; a view-model recheck followed by unconditional `StartAsync` still has a check/use race. A cancellation/invalidation token must be checked at admission, not merely before waiting for a semaphore. Route the direct Settings Pair entry through the shared intent coordination when needed, without holding the settings gate or lifecycle semaphore across a PIN prompt.
 
 Return an explicit admitted/rejected result. Update automatic attempt marks and last-used id only for an admitted attempt; an admitted connection failure still counts as an attempt under existing policy. Rejecting stale admission must not cancel the newer owner, clear its diagnostics, or cause any engine Start/Stop command. An already valid settings save remains valid; this fix should not discard unrelated persisted master-volume edits.
 
-Coordinate the generation/token API with ISSUE-15 rather than introduce competing ownership mechanisms. Keep explicit user receiver switching functional and preserve candidate ranking/reset rules from ISSUE-16. Maintain one active engine process, existing cleanup and exact saved mute-bit restoration, persistent manual identity, selected-offline-adapter no-fallback, and complete-group validation. No blocking DNS/RTSP/capture work belongs on the dispatcher.
+Coordinate the generation/token API with ISSUE-01 rather than introduce competing ownership mechanisms. Keep explicit user receiver switching functional and preserve candidate ranking/reset rules from ISSUE-10. Maintain one active engine process, existing cleanup and exact saved mute-bit restoration, persistent manual identity, selected-offline-adapter no-fallback, and complete-group validation. No blocking DNS/RTSP/capture work belongs on the dispatcher.
 
 This is a managed desktop ownership change. `config.json` schema 2 and JSONL v1 remain unchanged; no native command or RTP resume is needed. Pair-verify/transient exclusivity and current-user DPAPI credentials keyed by accessory `deviceID` remain unchanged. A manual selection keeps its explicit endpoint/preferences without introducing a manual credential namespace.
 
@@ -80,6 +84,7 @@ This is a managed desktop ownership change. `config.json` schema 2 and JSONL v1 
 - A user Stop on active B while the old automatic request is held cancels B normally; releasing that request and running another automatic tick does not restart playback or clear suppression.
 - The same ownership check holds if B finishes pairing and reaches Streaming before admission, or if the receiver id is reused with a newer lifecycle generation.
 - Automatic admission checks generation, active state, and newer intent atomically with starting; replacements arriving between a view-model check and controller entry cannot bypass it. Multiple queued automatic tasks admit at most one current request.
+- A queued discovery/Apply transaction that removes, makes incomplete, hides or disables the selected candidate during the save prevents stale admission even when the owner token is unchanged.
 - A legitimate automatic start from Idle or Error still works; successful explicit Play/switching and the existing permitted attempt resets still work. An admitted connection failure counts as attempted; a rejected stale request does not overwrite attempts/last-used.
 - Valid settings persistence can finish while a stale start is rejected. Save failure still prevents that caller from starting, and shutdown retains its closing guard and cleanup.
 - No settings/lifecycle/writer lock is held across user PIN entry. Both initially muted and initially unmuted audio states retain their exact-bit cleanup contract through fake-audio assertions; no physical OS mute outcome is inferred.

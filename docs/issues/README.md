@@ -1,61 +1,56 @@
 # AirFlash implementation backlog
 
-This backlog was re-triaged on **2026-10-07** using the freshly audited [analysis](../analysis/README.md) and the actual runtime source at `41190e0`, unchanged by documentation baseline `c077a05`. It contains **17 active reports: 14 source-supported defects, one recovery gap, and two enhancements**. None of the proposed runtime fixes has been implemented by this documentation pass.
+The **17 active reports** are now numbered continuously from **ISSUE-01 through ISSUE-17**: four HIGH, nine MEDIUM, and four LOW. They describe fourteen source-supported defects, one recovery gap, and two enhancements. File order follows severity, then related subsystem/priority; implementation follows the dependency plan rather than numeric order.
 
-Of the fourteen original reports, seven were retained and rewritten, and seven were retired. Ten new reports were added. [TRIAGE.md](TRIAGE.md) records every original disposition, rejected claim, new item, and verification limit. Retired ids remain reserved; **the next new id is ISSUE-25**.
+[Implementation plan](IMPLEMENTATION_PLAN.md) defines a small set of coherent PR groups, the work for every issue, dependencies, parallel work, regression fixtures, and completion gates. **The next new report is ISSUE-18.**
 
-Source-supported means the reported control flow, contract mismatch, or missing recovery/validation mechanism is visible in this baseline. It does not mean a mock reproduction was executed or a HomePod incident was attributed to it. Every report separates that evidence from planned tests and unmeasured hardware behavior. A proposal is not an applied fix.
-
-## Severity and kind
-
-| Severity | Use |
-| --- | --- |
-| CRITICAL | Demonstrated severe data loss, security impact, or similarly broad unrecoverable failure. No current report establishes this level |
-| HIGH | Substantial playback/session/discovery disruption, including concrete ownership races or indefinitely blocked resolution |
-| MEDIUM | Scoped correctness, validation, recovery, or tooling failure with a specific trigger |
-| LOW | Limited contract/diagnostics/UI impact, observability improvement, or maintenance cleanup |
-
-Defects describe incorrect behavior with a traceable trigger. Recovery gaps describe a missing recovery mechanism while qualifying OS outcomes. Enhancements improve an intentionally limited behavior and must not be presented as proven playback failures. Severity expresses priority/impact; it does not replace evidence confidence.
+The runtime evidence remains pinned to `41190e0`, unchanged by documentation baseline `c077a05`. Read [docs/analysis](../analysis/README.md) before investigating an area. Source-supported means the control flow or missing mechanism is visible in that source; it does not mean a planned fixture ran or a real receiver incident was attributed to it. **All runtime fixes remain proposals.**
 
 ## Active reports
 
-| ID | Severity | Kind | Concrete scope |
+| Current ID | Severity | Kind | Concrete scope |
 | --- | --- | --- | --- |
-| [ISSUE-01](ISSUE-01-HIGH-discovery-disconnects-active-playback.md) | HIGH | Defect | Passive absence/incompleteness stops discovered playback; missing rows also lose panel controls |
-| [ISSUE-14](ISSUE-14-HIGH-dns-resolve-without-deadline-stalls-discovery.md) | HIGH | Defect | A non-completing resolve has no deadline, suppresses new queries, and retains operation ownership |
-| [ISSUE-15](ISSUE-15-HIGH-stale-discovery-snapshot-controls-new-session.md) | HIGH | Defect | A delayed discovery identity save can stop/update a separately started session using an old snapshot |
-| [ISSUE-24](ISSUE-24-HIGH-delayed-autoconnect-replaces-new-session.md) | HIGH | Defect | Delayed auto-connect can replace a new pairing session or undo a newer user Stop |
-| [ISSUE-05](ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md) | MEDIUM | Tooling defect | Selected SDK compatibility is not checked before conditional release reservation, cleanup, and native build |
-| [ISSUE-11](ISSUE-11-MEDIUM-endpoint-mute-crash-recovery-gap.md) | MEDIUM | Recovery gap | Exact prior endpoint mute bits are memory-only and cannot be recovered after abrupt app death |
-| [ISSUE-16](ISSUE-16-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md) | MEDIUM | Defect | An already-attempted preferred candidate blocks another eligible auto-connect target |
-| [ISSUE-17](ISSUE-17-MEDIUM-manual-play-redirected-to-stereo-by-address.md) | MEDIUM | Defect | A manual row can be redirected to a discovered stereo group by address alone, ignoring its port/identity |
-| [ISSUE-18](ISSUE-18-MEDIUM-pairing-pin-format-mismatch.md) | MEDIUM | Defect | The PIN dialog enables formatted values that native PIN validation rejects |
-| [ISSUE-19](ISSUE-19-MEDIUM-settings-recovery-reread-escapes.md) | MEDIUM | Defect | Recovery rereads a failing configuration file inside the catch and can throw instead of recovering |
-| [ISSUE-20](ISSUE-20-MEDIUM-uncorrelated-ipc-errors-become-timeouts.md) | MEDIUM | Contract defect | Empty-correlated terminal IPC rejections are discarded until a host timeout, losing the original final fault |
-| [ISSUE-22](ISSUE-22-MEDIUM-credential-probe-errors-look-like-absence.md) | MEDIUM | Defect | Credential existence errors can look like absence and select transient authentication |
-| [ISSUE-23](ISSUE-23-MEDIUM-invalid-loaded-settings-reach-runtime.md) | MEDIUM | Defect | Valid JSON with null manual entries or invalid settings reaches unchecked startup/playback assumptions |
-| [ISSUE-03](ISSUE-03-LOW-capture-padding-metrics-lack-frame-accounting.md) | LOW | Enhancement | Add missing-frame/whole-packet accounting and precise local timing labels without inventing a network/idle diagnosis |
-| [ISSUE-04](ISSUE-04-LOW-unbound-copy-diagnostics-command.md) | LOW | UI binding defect | The existing diagnostics-copy command has no Settings action |
-| [ISSUE-07](ISSUE-07-LOW-orphaned-translation-keys-cleanup.md) | LOW | Enhancement | Review ten statically unused catalog candidates, preserving dynamic and intentional entries |
-| [ISSUE-21](ISSUE-21-LOW-equalizer-ignored-update-success-metadata.md) | LOW | Contract defect | Ignored stale/conflicting EQ preparations still return success metadata for the submitted curve |
+| [ISSUE-01](ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md) | HIGH | Defect | Stale discovery reconciliation can stop or retarget a newer session |
+| [ISSUE-02](ISSUE-02-HIGH-delayed-autoconnect-replaces-new-session.md) | HIGH | Defect | A delayed automatic start can replace Pair or undo a newer Stop |
+| [ISSUE-03](ISSUE-03-HIGH-discovery-disconnects-active-playback.md) | HIGH | Defect | Passive discovery absence/incompleteness stops established playback |
+| [ISSUE-04](ISSUE-04-HIGH-dns-resolve-without-deadline-stalls-discovery.md) | HIGH | Defect | A resolve without completion has no deadline and suppresses future queries |
+| [ISSUE-05](ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md) | MEDIUM | Defect — tooling | Selected SDK compatibility is checked after avoidable build/release side effects |
+| [ISSUE-06](ISSUE-06-MEDIUM-settings-recovery-reread-escapes.md) | MEDIUM | Defect | Settings recovery rereads a failing file and can throw from its catch |
+| [ISSUE-07](ISSUE-07-MEDIUM-invalid-loaded-settings-reach-runtime.md) | MEDIUM | Defect — persisted configuration validation | Semantically invalid loaded JSON reaches unchecked runtime assumptions |
+| [ISSUE-08](ISSUE-08-MEDIUM-pairing-pin-format-mismatch.md) | MEDIUM | Defect | The PIN dialog accepts formatted values rejected by native validation |
+| [ISSUE-09](ISSUE-09-MEDIUM-credential-probe-errors-look-like-absence.md) | MEDIUM | Defect — credential error classification | Credential existence errors can select transient authentication |
+| [ISSUE-10](ISSUE-10-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md) | MEDIUM | Defect | An attempted preferred receiver blocks an unattempted candidate |
+| [ISSUE-11](ISSUE-11-MEDIUM-manual-play-redirected-to-stereo-by-address.md) | MEDIUM | Defect | Manual Play can redirect to a stereo group by address alone |
+| [ISSUE-12](ISSUE-12-MEDIUM-uncorrelated-ipc-errors-become-timeouts.md) | MEDIUM | Defect — IPC contract | Uncorrelated terminal IPC rejections become unrelated host timeouts |
+| [ISSUE-13](ISSUE-13-MEDIUM-endpoint-mute-crash-recovery-gap.md) | MEDIUM | Recovery gap | Prior endpoint mute bits have no durable crash-recovery record |
+| [ISSUE-14](ISSUE-14-LOW-equalizer-ignored-update-success-metadata.md) | LOW | Defect — IPC result contract | Ignored EQ updates return success metadata for the submitted curve |
+| [ISSUE-15](ISSUE-15-LOW-unbound-copy-diagnostics-command.md) | LOW | Defect — UI binding | Settings has no action bound to its diagnostics-copy command |
+| [ISSUE-16](ISSUE-16-LOW-capture-padding-metrics-lack-frame-accounting.md) | LOW | Enhancement | Capture padding lacks missing-frame/whole-packet accounting |
+| [ISSUE-17](ISSUE-17-LOW-orphaned-translation-keys-cleanup.md) | LOW | Enhancement | Review ten statically unused localization entries before removal |
 
-There are four HIGH, nine MEDIUM, and four LOW items. ISSUE-02, ISSUE-06, ISSUE-08, ISSUE-09, ISSUE-10, ISSUE-12, and ISSUE-13 have no active report. Their source facts, withdrawal reasons, and scope distinctions are preserved in the disposition ledger rather than in misleading standalone defect reports.
+## Execution order
 
-## Implementation order and dependencies
+1. Establish the selected toolchains and isolated test fixtures; address the SDK preflight package before using affected release/build entry points.
+2. Group shared session ownership, automatic admission and receiver-selection fixes, then decouple healthy active playback from passive discovery absence. Resolve DNS operation deadlines independently.
+3. Group settings read recovery with post-load validation; prepare PIN formatting and credential-error classification as a separate authentication package.
+4. Repair IPC error routing and equalizer result semantics with explicit protocol compatibility checks.
+5. Complete the mute-recovery design and interruption tests before enabling a journal; finish diagnostics/telemetry and reviewed translation cleanup.
 
-1. **Establish executable regression fixtures.** Resolve the selected-SDK/preflight policy in ISSUE-05 and make the .NET/Rust tools available for implementation verification. Existing tests and proposed fixtures are different evidence; do not claim the latter pass before adding/running them. Use mocks/localhost; no hardware soak is needed.
-2. **Protect session ownership, then remove passive discovery stop coupling.** Coordinate ISSUE-15's atomic expected-generation guard and ISSUE-24's conditional auto-start admission before or with ISSUE-01. A delayed automatic action must not replace a newer session or negate user Stop. Retain last-known active controls without enabling a new incomplete stereo start. Address ISSUE-14 independently with safe DNS-SD operation/cancellation ownership and bounded resolve deadlines; clearing a token alone is insufficient.
-3. **Correct receiver-selection paths.** ISSUE-16 filters attempted candidates before choosing a preferred target; ISSUE-17 preserves explicit manual endpoint selection. Preserve user-stop suppression, canonical identity migration, selected-NIC no-fallback, and existing stereo completeness rules.
-4. **Validate startup/authentication inputs.** Coordinate ISSUE-19 and ISSUE-23 around one readable-original/backup/recovery policy. Fix ISSUE-18's PIN contract and ISSUE-22's error-preserving credential absence decision. Keep schema 2/JSONL v1, unknown settings fields, accessory-keyed DPAPI, and mutually exclusive authentication paths.
-5. **Make error/results truthful and recovery safe.** ISSUE-20 surfaces terminal process-owned IPC failures with their original nonretryable status. ISSUE-21 separates accepted preparation from stale/conflicting/idempotent replay; acknowledgements still do not claim DSP completion. Design ISSUE-11's crash-recovery ownership journal conservatively before writing any stale mute bit back; normal exact-bit restoration retains its existing best-effort cleanup path, with no added reconnect grace.
-6. **Finish diagnostics and maintenance.** Expose ISSUE-04's existing command, implement ISSUE-03's bounded observability additions, and perform ISSUE-07's reviewed cleanup. Do not use diagnostic ambiguity as evidence for a firmware buffer change or WLAN API integration.
+The [plan](IMPLEMENTATION_PLAN.md) distinguishes hard dependencies from convenient sequencing and identifies work that can run in parallel. Numbering is a stable identifier within this new series, not a promise that the lowest number must be implemented first.
 
-These are proposed priorities, not proof that a runtime repair has occurred. Each implementation needs its own focused diff, corresponding analysis update, and relevant executed tests. Hardware qualification, if separately performed, stays within the repository's finite limits.
+## Severity, identity, and reporting
 
-## Verification and reporting rules
+| Severity | Evidence/impact required |
+| --- | --- |
+| CRITICAL | Demonstrated severe data loss, security impact, or similarly broad unrecoverable failure; no active report establishes this |
+| HIGH | Substantial playback/session/discovery disruption with a concrete trigger |
+| MEDIUM | Scoped correctness, validation, recovery, or tooling failure |
+| LOW | Limited contract/UI impact, observability improvement, or maintenance cleanup |
 
-Use [ISSUE_TEMPLATE.md](ISSUE_TEMPLATE.md). Read the dedicated analysis page, verify the actual source/callers, cite portable relative file links with exact line anchors, state the baseline, and name whether reproduction was executed. Include a bounded proposal and testable acceptance criteria. Preserve prior ids across rewrites and never recycle retired ids.
+Defects report incorrect behavior; recovery gaps qualify missing recovery and unmeasured OS outcomes; enhancements do not claim proven playback failure. Preserve these distinctions when implementing or closing a report.
 
-The earlier [analysis audit](../analysis/audit.md) ran **49 Python tests with no skips**; it could not run .NET/Rust builds/tests because the required toolchains were unavailable. This triage pass inspected additional source/test evidence and checked the documents; it did not implement or test the proposed runtime fixes or open receiver connections. Current-check details are in [TRIAGE.md](TRIAGE.md).
+Use [ISSUE_TEMPLATE.md](ISSUE_TEMPLATE.md). These are local Markdown report ids, not GitHub issue numbers. Future implementation branches start from the original repository's stable main, and their PR diffs exclude this fork's `docs/analysis/` and `docs/issues/`. Push implementation branches to `origin`, never directly to `upstream`; see the plan's branch workflow.
 
-Do not assert that these items explain upstream issues #6/#7, current release behavior, a real household log, or excluded `upstream/dev` without new primary evidence. Packet send success is not receiver acknowledgement/audibility; underrun count is not network loss; source or mock tests are not acoustic measurements. Never add actual IP/MAC addresses, PINs, credentials, or private logs to issue documents. Any authorized real-device finite probe remains gain at most **0.1**, duration at most **five seconds**; no hardware soak.
+Each implementation must supply a focused diff, its reproduced regression and relevant checks, and an updated analysis page describing the resulting behavior. Existing test sources and proposed fixtures are not passing-test evidence. The preceding [analysis audit](../analysis/audit.md) ran 49 Python tests with no skips; .NET/Rust builds and WPF verification were unavailable then. This reorganization changes documents only and does not establish new runtime test results.
+
+Preserve schema 2, JSONL v1, no blocking DNS/RTSP/capture work on the dispatcher, selected-adapter no-fallback, persistent manual receivers, one authentication method per connection, accessory-keyed current-user DPAPI, and exact prior mute-bit restoration. Use synthetic temporary fixtures. Do not commit real addresses, MACs, PINs, credentials, or private logs. Any separately authorized real-device finite probe remains gain at most 0.1 and duration at most five seconds; no hardware soak.

@@ -1,6 +1,8 @@
 # [HIGH] A stale discovery snapshot can stop an independently started session
 
-- **Issue ID**: ISSUE-15
+- **Issue ID**: ISSUE-01
+- **Implementation plan**: [Work package ISSUE-01](IMPLEMENTATION_PLAN.md#issue-01)
+- **PR group**: B — Session lifecycle
 - **Severity**: HIGH — an unrelated discovery transaction can cancel a new user-selected pairing session or overwrite its receiver.
 - **Kind**: Defect
 - **Subsystem**: Desktop discovery/session concurrency
@@ -15,7 +17,7 @@
 
 Discovery reconciliation captures `Session.Snapshot`, then may await an identity save while holding `_settingsGate`. Settings Pair bypasses that settings gate and starts a new session through `Session.PairAsync`. After the save, reconciliation applies its stop/update decision using the old captured receiver, while `Session.StopAsync` and `UpdateReceiverAsync` operate on whichever session is current at that moment.
 
-Consequently an absent old discovered receiver A can cause reconciliation to cancel a newly started manual pairing session B. The nominal `{ IsManual: false }` exemption tests captured A, not current B. This is independent of whether passive absence should stop A at all ([ISSUE-01](ISSUE-01-HIGH-discovery-disconnects-active-playback.md)). See [Playback coupling](../analysis/playback-coupling.md) and [After discovery](../analysis/after-discovery.md).
+Consequently an absent old discovered receiver A can cause reconciliation to cancel a newly started manual pairing session B. The nominal `{ IsManual: false }` exemption tests captured A, not current B. This is independent of whether passive absence should stop A at all ([ISSUE-03](ISSUE-03-HIGH-discovery-disconnects-active-playback.md)). See [Playback coupling](../analysis/playback-coupling.md) and [After discovery](../analysis/after-discovery.md).
 
 ## 2. Root cause and exact interleaving
 

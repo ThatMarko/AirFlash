@@ -1,6 +1,8 @@
 # [LOW] Remove ten statically unused Chinese catalog entries after reference review
 
-- **Issue ID**: ISSUE-07
+- **Issue ID**: ISSUE-17
+- **Implementation plan**: [Work package ISSUE-17](IMPLEMENTATION_PLAN.md#issue-17)
+- **PR group**: H — Diagnostics/observability
 - **Severity**: LOW; catalog maintenance only
 - **Kind**: Enhancement
 - **Subsystem**: Core localization (`AirFlash.Core`)
@@ -30,13 +32,13 @@ These ten keys are present in the catalog but have no exact-string occurrence in
 
 The original `Local output is muted while streaming.` and `Always retry connection` keys are absent from the current catalog and are withdrawn from the inventory. This validates that report's candidate list; it does not claim exactly ten unused entries across the entire dictionary.
 
-Monitor uses `Local underrun packets` and `Local dropped frames` at [SettingsWindow.xaml:227,233](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml#L227), and an expanded caveat at [line 297](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml#L297). About uses a computed label at [line 319](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml#L319), backed by [AppPaths.cs:11](../../desktop/AirFlash.App/Services/AppPaths.cs#L11). Removing old entries must preserve the current labels/translations. Keep `Copy diagnostics` for ISSUE-04's existing command.
+Monitor uses `Local underrun packets` and `Local dropped frames` at [SettingsWindow.xaml:227,233](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml#L227), and an expanded caveat at [line 297](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml#L297). About uses a computed label at [line 319](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml#L319), backed by [AppPaths.cs:11](../../desktop/AirFlash.App/Services/AppPaths.cs#L11). Removing old entries must preserve the current labels/translations. Keep `Copy diagnostics` for ISSUE-15's existing command.
 
 ## Lookup mechanism and scope
 
 [L.cs:32–38](../../desktop/AirFlash.Core/L.cs#L32) loads the dictionary and looks up exact English strings, falling back to English. A statically unused entry mainly adds stale maintenance work; it does not cause an exception or affect playback. Retired layout settings properties remain accepted separately for compatibility ([Settings.cs:41–44](../../desktop/AirFlash.Core/Settings.cs#L41)); removing labels must not remove serialized property support.
 
-Some lookups use runtime page/choice values. A universal CI assertion that every translation key must occur as a source literal is therefore unjustified. Intentional translations can also precede UI bindings, as ISSUE-04 illustrates.
+Some lookups use runtime page/choice values. A universal CI assertion that every translation key must occur as a source literal is therefore unjustified. Intentional translations can also precede UI bindings, as ISSUE-15 illustrates.
 
 ## Verification, proposal, and acceptance
 

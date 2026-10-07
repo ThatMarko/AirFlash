@@ -1,6 +1,8 @@
 # [SEVERITY] Concrete behavior and impact
 
-- **Issue ID**: ISSUE-NN (allocate the next unused id; never reuse a retired id)
+- **Issue ID**: ISSUE-NN (allocate the next unused current id; next is ISSUE-18)
+- **PR group**: Existing coherent group, or a justified new group; avoid a standalone PR for each small issue
+- **Implementation plan**: Link its work package in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 - **Severity**: HIGH / MEDIUM / LOW; use CRITICAL only with evidence of the impact defined in [the index](README.md)
 - **Kind**: Defect / Recovery gap / Enhancement
 - **Status**: Open — proposal not implemented
@@ -9,7 +11,7 @@
 - **Implementation status**: Proposal only; no runtime change applied
 - **Analysis context**: Portable links to the dedicated audited analysis pages
 - **Target files**: Portable links to the exact implementation lines and relevant tests
-- **Related items**: Link active reports; refer to [the disposition ledger](TRIAGE.md) for retired ids
+- **Related items**: Link active reports; link the corresponding PR group and dependencies in [the implementation plan](IMPLEMENTATION_PLAN.md)
 
 ## 1. Current behavior and impact
 

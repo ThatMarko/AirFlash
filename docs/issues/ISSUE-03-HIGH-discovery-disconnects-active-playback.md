@@ -1,6 +1,8 @@
 # [HIGH] A transient discovery snapshot stops active discovered playback
 
-- **Issue ID**: ISSUE-01
+- **Issue ID**: ISSUE-03
+- **Implementation plan**: [Work package ISSUE-03](IMPLEMENTATION_PLAN.md#issue-03)
+- **PR group**: B — Session lifecycle
 - **Severity**: HIGH — a passive discovery refresh can interrupt an otherwise running stream; no data loss or security failure is established.
 - **Kind**: Defect
 - **Subsystem**: Desktop discovery/catalog/session orchestration
@@ -29,7 +31,7 @@ The old report's CRITICAL rating, hypothetical 10–30-second absence, HomePod c
 | Known-map policy and panel filtering remove usable controls from the panel | [AppViewModel.cs:196–210](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L196), [234–245](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L234) |
 | Cancellation stops the worker; a new Start resets diagnostics | [SessionController.cs:190–224](../../desktop/AirFlash.Core/SessionController.cs#L190), [372–393](../../desktop/AirFlash.Core/SessionController.cs#L372) |
 
-The discovery/session decision follows any required identity save. If that save fails, this transaction exits before applying the stop. The captured session can also become stale during an asynchronous save; that separate race is [ISSUE-15](ISSUE-15-HIGH-stale-discovery-snapshot-controls-new-session.md).
+The discovery/session decision follows any required identity save. If that save fails, this transaction exits before applying the stop. The captured session can also become stale during an asynchronous save; that separate race is [ISSUE-01](ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md).
 
 ## 3. Minimal mock reproduction — planned, not run
 
@@ -45,15 +47,16 @@ This tests the desktop policy directly. It does not require packet loss, Wi-Fi r
 
 ## 4. Proposed architecture — not applied
 
-Separate discovery presence from ownership/health of an already established stream. A passive absence or temporary group incompleteness should update discoverability without immediately cancelling that stream. Retain the active receiver snapshot and its explicit stop controls while showing that discovery is currently unavailable. Continue to reject new starts for incomplete/offline discovered rows.
+Separate discovery presence from ownership/health of an already owned active attempt, including Connecting, Pairing, Streaming and Standby. Passive absence or temporary group incompleteness should update discoverability without cancelling that attempt; an existing handshake/PIN workflow remains governed by its failure, timeout and explicit-cancellation policy. Retain the active receiver snapshot and its explicit stop controls while showing that discovery is currently unavailable. Continue to reject new starts for incomplete/offline discovered rows. Do not replace the active complete transport snapshot with an offline/incomplete catalog row or restart it on that partial data.
 
-Let terminal native transport/capture errors end or retry playback under the existing session policy. Do not introduce continuous UI-thread DNS/RTSP polling, and do not treat a local UDP send or a successful feedback response as proof of audible output. Explicit user stop and shutdown must remain responsive while initiating cancellation and awaiting asynchronous cleanup; acquiring the lifecycle semaphore and restoring mute after cleanup are not an immediate-completion guarantee. Decide explicit adapter-selection changes as a separate user-action policy; a selected unavailable adapter must remain paused without fallback to all interfaces.
+Let terminal native transport/capture errors end or retry playback under the existing session policy. Do not introduce continuous UI-thread DNS/RTSP polling, and do not treat a local UDP send or a successful feedback response as proof of audible output. Explicit user stop and shutdown must remain responsive while initiating cancellation and awaiting asynchronous cleanup; acquiring the lifecycle semaphore and restoring mute after cleanup are not an immediate-completion guarantee. The proposed adapter-change policy retains the owned attempt through browse restart while discovery follows the selected interface; a selected unavailable adapter must remain paused without fallback to all interfaces.
 
-Keep JSONL v1 and config schema 2 unchanged. Session ownership guards from ISSUE-15 are needed for any delayed discovery action. Apply the same last-known active snapshot policy to stereo without inventing RTP resume or accepting an incomplete group for a new handshake.
+Keep JSONL v1 and config schema 2 unchanged. Session ownership guards from ISSUE-01 are needed for any delayed discovery action. Apply the same last-known active snapshot policy to stereo without inventing RTP resume or accepting an incomplete group for a new handshake.
 
 ## 5. Acceptance criteria and verification
 
 - A fake Streaming receiver survives an empty passive discovery publication with no new `start`, `stop`, process disposal, or mute restore.
+- Connecting and Pairing attempts also survive passive disappearance; explicit Stop/PIN cancellation and actual handshake failures still end them under existing policy.
 - A complete active stereo session survives an intermediate `1/2` snapshot; a new start on that incomplete row remains rejected.
 - The active row retains working stop controls and shows its discovery status; inactive missing rows still follow the selected-interface catalog policy.
 - Manual receivers remain independent of empty discovery publications.

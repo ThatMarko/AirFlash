@@ -1,6 +1,8 @@
 # [HIGH] A resolve without completion has no deadline and stalls discovery
 
-- **Issue ID**: ISSUE-14
+- **Issue ID**: ISSUE-04
+- **Implementation plan**: [Work package ISSUE-04](IMPLEMENTATION_PLAN.md#issue-04)
+- **PR group**: D — DNS operation lifecycle
 - **Severity**: HIGH — a stalled resolve can indefinitely suppress rediscovery and can expire a receiver participating in playback.
 - **Kind**: Defect
 - **Subsystem**: Windows DNS-SD resolve lifecycle
@@ -48,7 +50,7 @@ Track each resolve's token, epoch, start/deadline, cancellation state, and nativ
 
 Do not merely remove `_pending` on record expiry: that misses an initial resolve with no record, does not release the old operation, and allows an old native callback to race a replacement. Preserve token/epoch matching so an old completion cannot clear a newer request. Native request/cancel memory must follow the DNS API's safe cancellation/completion lifetime; do not free a cancel handle solely because a managed timer elapsed. Cancellation failures must retain safe ownership and surface a bounded diagnostic/recovery policy rather than silently abandoning pointers. Resource reclamation and retry concurrency need separate tests.
 
-Keep manual receivers, interface selection, ReceiverCatalog identity, schema 2, and JSONL v1 unchanged. An unavailable selected NIC must stay paused without browsing interface 0. Interaction with discovery-driven playback interruption is tracked by [ISSUE-01](ISSUE-01-HIGH-discovery-disconnects-active-playback.md).
+Keep manual receivers, interface selection, ReceiverCatalog identity, schema 2, and JSONL v1 unchanged. An unavailable selected NIC must stay paused without browsing interface 0. Interaction with discovery-driven playback interruption is tracked by [ISSUE-03](ISSUE-03-HIGH-discovery-disconnects-active-playback.md).
 
 ## 5. Acceptance criteria and verification
 

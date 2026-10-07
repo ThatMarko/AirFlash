@@ -1,6 +1,8 @@
 # [MEDIUM] An unreadable settings file escapes the loader's recovery handler
 
-- **Issue ID**: ISSUE-19
+- **Issue ID**: ISSUE-06
+- **Implementation plan**: [Work package ISSUE-06](IMPLEMENTATION_PLAN.md#issue-06)
+- **PR group**: C — Settings preservation/validation
 - **Severity**: MEDIUM; a recoverable read failure can abort normal startup
 - **Kind**: Defect
 - **Subsystem**: Core settings persistence / Desktop startup
@@ -39,11 +41,11 @@ This is a source-derived fixture specification, not an executed locked-file or G
 
 ## Proposed implementation and acceptance
 
-Capture the original text once under the guarded read and retain it when parse/migration subsequently fails. Do not unconditionally reread an unreadable file from the catch. For read failures without captured text, return/report an explicit recovery state, preserve the existing path, and defer or block replacing it until a verified backup/preservation step succeeds. The warning must accurately describe whether a backup is available or pending.
+Capture original bytes once under the guarded read, decode compatibly for parsing, and retain the raw bytes when parse/migration subsequently fails. A byte-preserving backup must not rely only on ReadAllText/WriteAllText, which can change BOM/encoding. Do not unconditionally reread an unreadable file from the catch. For read failures without captured text, return/report an explicit recovery state, preserve the existing path, and defer or block replacing it until a verified backup/preservation step succeeds. The warning must accurately describe whether a backup is available or pending.
 
 - Exclusive-share and read-access fixtures return a controlled recovery result without an uncaught secondary read exception.
 - Normal startup can surface that recovery notice without losing the existing file.
-- A successful original-text read followed by invalid JSON still preserves those exact bytes for the existing recovery backup.
+- A successful original read followed by invalid JSON preserves the exact raw bytes, including BOM/encoding, for the recovery backup.
 - An unreadable original is not silently overwritten by a subsequent defaults save, including after the file becomes readable.
 - Schema greater than 2 still raises the existing unsupported-version result and remains unchanged.
 - Missing-file/default startup, migration, atomic replacement, and schema-2 persistence continue working.

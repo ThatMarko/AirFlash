@@ -1,6 +1,8 @@
 # [LOW] Ignored equalizer updates return success metadata for the submitted curve
 
-- **Issue ID**: ISSUE-21
+- **Issue ID**: ISSUE-14
+- **Implementation plan**: [Work package ISSUE-14](IMPLEMENTATION_PLAN.md#issue-14)
+- **PR group**: F — JSONL control contracts
 - **Severity**: LOW
 - **Kind**: Defect — IPC result contract
 - **Type / Status**: Open IPC result-contract defect — source-verified; no inferred desktop or acoustic failure

@@ -1,6 +1,8 @@
 # [LOW] Capture-padding telemetry lacks missing-frame accounting
 
-- **Issue ID**: ISSUE-03
+- **Issue ID**: ISSUE-16
+- **Implementation plan**: [Work package ISSUE-16](IMPLEMENTATION_PLAN.md#issue-16)
+- **PR group**: H — Diagnostics/observability
 - **Severity**: LOW
 - **Kind**: Enhancement
 - **Type / Status**: Open enhancement — source-verified observability limitation; no verified playback defect

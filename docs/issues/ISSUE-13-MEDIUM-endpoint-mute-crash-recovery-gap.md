@@ -1,6 +1,8 @@
 # [MEDIUM] Prior endpoint mute bits cannot be recovered after forced desktop termination
 
-- **Issue ID**: ISSUE-11
+- **Issue ID**: ISSUE-13
+- **Implementation plan**: [Work package ISSUE-13](IMPLEMENTATION_PLAN.md#issue-13)
+- **PR group**: G — Owned mute recovery
 - **Severity**: MEDIUM
 - **Kind**: Recovery gap
 - **Type / Status**: Open recovery gap — source-verified missing recovery mechanism; endpoint outcome requires separate validation

@@ -1,6 +1,8 @@
 # [MEDIUM] Transport-wide IPC command errors are discarded and become unrelated session timeouts
 
-- **Issue ID**: ISSUE-20
+- **Issue ID**: ISSUE-12
+- **Implementation plan**: [Work package ISSUE-12](IMPLEMENTATION_PLAN.md#issue-12)
+- **PR group**: F — JSONL control contracts
 - **Severity**: MEDIUM; an explicit final IPC rejection can lose its cause and enter host-timeout retry handling
 - **Kind**: Defect — IPC contract
 - **Subsystem**: Core process orchestration / native JSONL v1

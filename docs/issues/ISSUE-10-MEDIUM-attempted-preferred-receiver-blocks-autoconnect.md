@@ -1,6 +1,8 @@
 # [MEDIUM] An attempted preferred receiver blocks another auto-connect candidate
 
-- **Issue ID**: ISSUE-16
+- **Issue ID**: ISSUE-10
+- **Implementation plan**: [Work package ISSUE-10](IMPLEMENTATION_PLAN.md#issue-10)
+- **PR group**: B — Session lifecycle
 - **Severity**: MEDIUM — automatic connection to a new eligible receiver can be suppressed after another receiver failed.
 - **Kind**: Defect
 - **Subsystem**: Desktop auto-connect selection
@@ -42,7 +44,7 @@ All hosts can be documentation-only addresses and all connections must be fake. 
 
 ## 4. Proposed change — not applied
 
-Exclude attempted ids before ranking/selecting candidates. Preserve the existing global/per-receiver override precedence, visibility/completeness checks, entry-time active-session check, and user-stop suppression. That entry check alone does not prevent a separately started session from being replaced after an awaited settings operation; [ISSUE-24](ISSUE-24-HIGH-delayed-autoconnect-replaces-new-session.md) addresses atomic auto-start admission. Do not clear all attempted ids on every snapshot: that would repeatedly retry A and defeat the guard. Keep existing alias migration and offline/incomplete transition reset semantics. No schema, IPC, engine, or network-policy change is needed.
+Exclude attempted ids before ranking/selecting candidates. Preserve the existing global/per-receiver override precedence, visibility/completeness checks, entry-time active-session check, and user-stop suppression. That entry check alone does not prevent a separately started session from being replaced after an awaited settings operation; [ISSUE-02](ISSUE-02-HIGH-delayed-autoconnect-replaces-new-session.md) addresses atomic auto-start admission. Do not clear all attempted ids on every snapshot: that would repeatedly retry A and defeat the guard. Keep existing alias migration and offline/incomplete transition reset semantics. No schema, IPC, engine, or network-policy change is needed.
 
 ## 5. Acceptance criteria and verification
 
@@ -51,7 +53,7 @@ Exclude attempted ids before ranking/selecting candidates. Preserve the existing
 - Identical snapshots do not retry an attempted id; if every candidate was attempted, the timer is a no-op.
 - Hidden, offline, incomplete, explicitly auto-connect-disabled, and user-suppressed receivers remain excluded.
 - Alias promotion preserves attempted status, while an allowed offline-to-online/incomplete-to-complete transition can make that same receiver retryable.
-- Each timer invocation selects at most one candidate; a session already active at entry retains the existing no-op behavior. The overlapping-start protection is separately covered by ISSUE-24 and must not be claimed fixed by candidate filtering alone.
+- Each timer invocation selects at most one candidate; a session already active at entry retains the existing no-op behavior. The overlapping-start protection is separately covered by ISSUE-02 and must not be claimed fixed by candidate filtering alone.
 
 The [existing identity automatic-attempt regression](../../desktop/AirFlash.App/Verification/UiRegression.cs#L202) verifies one receiver's failure, alias promotion, and offline recovery. It does not include the second eligible candidate. Add that assertion, ideally with controllable timer scheduling rather than a timing-sensitive sleep, before implementation is considered verified.
 

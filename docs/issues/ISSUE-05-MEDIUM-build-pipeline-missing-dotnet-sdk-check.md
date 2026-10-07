@@ -1,6 +1,8 @@
 # [MEDIUM] Validate the selected .NET SDK before release reservation and native build
 
 - **Issue ID**: ISSUE-05
+- **Implementation plan**: [Work package ISSUE-05](IMPLEMENTATION_PLAN.md#issue-05)
+- **PR group**: A — Build readiness
 - **Severity**: MEDIUM; build prerequisites fail after avoidable build/release side effects
 - **Kind**: Defect — tooling
 - **Subsystem**: Build & Tests

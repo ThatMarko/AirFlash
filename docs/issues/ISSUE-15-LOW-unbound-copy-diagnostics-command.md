@@ -1,6 +1,8 @@
 # [LOW] Settings does not expose its existing diagnostics-copy command
 
-- **Issue ID**: ISSUE-04
+- **Issue ID**: ISSUE-15
+- **Implementation plan**: [Work package ISSUE-15](IMPLEMENTATION_PLAN.md#issue-15)
+- **PR group**: H — Diagnostics/observability
 - **Severity**: LOW; diagnostics access/usability, without a demonstrated playback failure
 - **Kind**: Defect — UI binding
 - **Subsystem**: Desktop App (`AirFlash.App`)

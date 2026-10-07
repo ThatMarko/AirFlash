@@ -1,6 +1,8 @@
 # [MEDIUM] Credential existence errors can select transient authentication
 
-- **Issue ID**: ISSUE-22
+- **Issue ID**: ISSUE-09
+- **Implementation plan**: [Work package ISSUE-09](IMPLEMENTATION_PLAN.md#issue-09)
+- **PR group**: E — Authentication inputs
 - **Severity**: MEDIUM
 - **Kind**: Defect — credential error classification
 - **Status**: Open; proposal only, not implemented

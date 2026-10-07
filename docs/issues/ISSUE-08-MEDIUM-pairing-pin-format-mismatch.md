@@ -1,6 +1,8 @@
 # [MEDIUM] Pairing dialog accepts dashed PINs that the engine rejects
 
-- **Issue ID**: ISSUE-18
+- **Issue ID**: ISSUE-08
+- **Implementation plan**: [Work package ISSUE-08](IMPLEMENTATION_PLAN.md#issue-08)
+- **PR group**: E — Authentication inputs
 - **Severity**: MEDIUM; an enabled pairing action can send a predictably rejected PIN
 - **Kind**: Defect
 - **Subsystem**: Desktop App / native authentication across JSONL v1

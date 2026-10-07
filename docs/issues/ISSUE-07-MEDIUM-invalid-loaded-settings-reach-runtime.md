@@ -1,6 +1,8 @@
 # [MEDIUM] Semantically invalid loaded settings reach startup and playback
 
-- **Issue ID**: ISSUE-23
+- **Issue ID**: ISSUE-07
+- **Implementation plan**: [Work package ISSUE-07](IMPLEMENTATION_PLAN.md#issue-07)
+- **PR group**: C — Settings preservation/validation
 - **Severity**: MEDIUM
 - **Kind**: Defect — persisted configuration validation
 - **Status**: Open; proposal only, not implemented
@@ -52,13 +54,13 @@ Write the following fixtures to separate temporary files and pass their paths to
 3. Start a synthetic receiver through a fake engine factory and fake audio service with that loaded configuration. The source-derived current result is a failed command-construction attempt, rather than a valid `start` command. Force reconnect should be off for this fixture.
 4. A fixed loader should detect these cases before construction/autoconnect and surface a precise recoverable configuration diagnostic, preserving the original file.
 
-These steps describe future tests, not observed hardware or executed WPF behavior. [ISSUE-19](ISSUE-19-MEDIUM-settings-recovery-reread-escapes.md) separately addresses an I/O exception escaping the loader's recovery catch; this report concerns successful deserialization of invalid contents.
+These steps describe future tests, not observed hardware or executed WPF behavior. [ISSUE-06](ISSUE-06-MEDIUM-settings-recovery-reread-escapes.md) separately addresses an I/O exception escaping the loader's recovery catch; this report concerns successful deserialization of invalid contents.
 
 ## 4. Proposed architectural fix
 
 Add an explicit post-migration validation stage before returning settings to runtime callers. First check collection shape/null entries and required values, then apply semantic validation. Make the policy for invalid fields explicit: controlled rejection/recovery, or narrowly defined normalization with a warning. Do not blindly return an invalid object or silently overwrite the original with defaults.
 
-Preserve schema 1 migration, schema 2, root/equalizer unknown fields, nullable receiver overrides, manual persistence, and future-schema rejection. Capture a readable original once for backup and coordinate recovery with ISSUE-19. If recovery blocks startup or requires user correction, present a useful diagnostic without creating a partially initialized playback session.
+Preserve schema 1 migration, schema 2, root/equalizer unknown fields, nullable receiver overrides, manual persistence, and future-schema rejection. Capture a readable original once for backup and coordinate recovery with ISSUE-06. If recovery blocks startup or requires user correction, present a useful diagnostic without creating a partially initialized playback session.
 
 A selected unavailable adapter is not invalid merely because it is offline. Preserve that id and paused-discovery behavior; do not normalize it to all interfaces. Validate before auto-connect, engine spawn, local mute, or other playback side effects.
 
@@ -67,7 +69,7 @@ A selected unavailable adapter is not invalid merely because it is offline. Pres
 - A null manual collection still uses its documented default; null elements and malformed manual entries are rejected or normalized through a documented safe policy, without a null dereference.
 - Unsupported/null/invalid sample-rate values never reach `int.Parse`, native playback, or an automatic retry loop.
 - Validation itself is total for deserialized shapes: it returns a diagnostic rather than throwing on null elements.
-- Invalid readable configuration remains recoverable and is preserved before any replacement save; unreadable-file recovery follows ISSUE-19 rather than an unguarded reread.
+- Invalid readable configuration remains recoverable and is preserved before any replacement save; unreadable-file recovery follows ISSUE-06 rather than an unguarded reread.
 - Valid existing schema 1/2 files, manual rows, extension fields, nullable overrides, and unavailable selected NICs retain their behavior.
 - Mock constructor/playback tests verify that no engine command or local mute occurs for rejected input.
 

@@ -1,6 +1,8 @@
 # [MEDIUM] Playing a manual receiver redirects to a stereo group by address alone
 
-- **Issue ID**: ISSUE-17
+- **Issue ID**: ISSUE-11
+- **Implementation plan**: [Work package ISSUE-11](IMPLEMENTATION_PLAN.md#issue-11)
+- **PR group**: B — Session lifecycle
 - **Severity**: MEDIUM — an explicit manual-row selection can target a different receiver/group and port.
 - **Kind**: Defect
 - **Subsystem**: Desktop receiver selection
