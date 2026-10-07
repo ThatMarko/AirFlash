@@ -1,0 +1,90 @@
+name: Group A fork validation
+on:
+  push:
+    branches: [codex/verify-build-preflight]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: de13b6d3e22a177537ed9d5977fe693a5b497fc1
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify selected SDK
+        shell: pwsh
+        run: ./scripts/check-dotnet.ps1
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - name: Python regression suite and lint
+        shell: pwsh
+        run: |
+          uv sync --locked
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --locked pytest -q -ra
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --locked ruff check .
+          exit $LASTEXITCODE
+      - name: Verify generated icons
+        shell: pwsh
+        run: pwsh -NoProfile -STA -File scripts/generate-icons.ps1 -Check
+      - name: Native tests, lint and build
+        shell: pwsh
+        run: ./scripts/build-native.ps1 -Check
+      - name: Managed solution build and tests
+        shell: pwsh
+        run: |
+          ./scripts/dotnet.ps1 build AirFlash.sln --configuration Release '-p:RestoreLockedMode=true'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./scripts/dotnet.ps1 test AirFlash.Tests/AirFlash.Tests.csproj --configuration Release --no-build --no-restore
+          exit $LASTEXITCODE
+      - name: Isolated publish and default plus explicit installer hosts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = (Get-Location).Path
+          $verification = Join-Path $root 'artifacts/fork packaging verification'
+          $publish = Join-Path $verification 'publish'
+          ./scripts/dotnet.ps1 publish (Join-Path $root 'desktop/AirFlash.App/AirFlash.App.csproj') -c Release -r win-x64 --self-contained true '-p:RestoreLockedMode=true' '-p:IncludeNativeLibrariesForSelfExtract=true' '-p:PublishTrimmed=false' '-p:DebugType=None' "-p:PathMap=$root=/_/" -o $publish
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $defaultOutput = Join-Path $verification 'default installer'
+          ./scripts/build-installer.ps1 -PublishPath $publish -OutputPath $defaultOutput
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          . ./scripts/dotnet-common.ps1
+          $context = Get-AirFlashDotnetContext -RepoRoot $root
+          $explicitOutput = Join-Path $verification 'explicit installer'
+          ./scripts/build-installer.ps1 -PublishPath $publish -OutputPath $explicitOutput -DotnetPath $context.Path
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          foreach ($folder in @($defaultOutput, $explicitOutput)) {
+            if (@(Get-ChildItem -LiteralPath $folder -Filter 'AirFlash-*.msi').Count -ne 1) { throw 'Expected one MSI per installer host check.' }
+          }
+          # Copy a real runtime installation without any SDK, then verify early override rejection.
+          $hostRoot = Split-Path $context.Path -Parent
+          $runtimeOnly = Join-Path $verification 'runtime only'
+          New-Item -ItemType Directory -Path $runtimeOnly -Force | Out-Null
+          Copy-Item -LiteralPath $context.Path -Destination (Join-Path $runtimeOnly 'dotnet.exe')
+          Copy-Item -LiteralPath (Join-Path $hostRoot 'host') -Destination $runtimeOnly -Recurse
+          $runtimeParent = Join-Path $runtimeOnly 'shared'
+          New-Item -ItemType Directory -Path $runtimeParent -Force | Out-Null
+          Copy-Item -LiteralPath (Join-Path $hostRoot 'shared/Microsoft.NETCore.App') -Destination $runtimeParent -Recurse
+          $rejectedOutput = Join-Path $verification 'rejected installer'
+          $rejected = $false
+          try {
+            ./scripts/build-installer.ps1 -PublishPath $publish -OutputPath $rejectedOutput -DotnetPath (Join-Path $runtimeOnly 'dotnet.exe')
+          } catch {
+            if ($_.Exception.Message -notmatch 'cannot resolve the SDK') { throw }
+            $rejected = $true
+          }
+          if (-not $rejected -or (Test-Path -LiteralPath $rejectedOutput)) { throw 'Runtime-only host did not fail before installer output creation.' }
+          Write-Host 'Real publish, both MSI builds, and runtime-only early rejection passed without a release reservation.'
+          exit 0
