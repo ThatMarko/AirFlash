@@ -1,10 +1,10 @@
 # Identity
 
-[`ReceiverCatalog.Reconcile`](../../desktop/AirFlash.Core/ReceiverCatalog.cs#L8) runs on every discovery list before the view model updates its known map and panel. It clones the input settings, returns rewritten records and migrations, and performs no file or network I/O. Reconciliation also runs during playback, when receiver sockets already exist. The trigger around it is in [After discovery](after-discovery.md). Credentials are not an input. See [Credentials and IPC](credentials-and-ipc.md).
+[`ReceiverCatalog.Reconcile`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverCatalog.cs#L8) runs on every discovery list before the view model updates its known map and panel. It clones the input settings, returns rewritten records and migrations, and performs no file or network I/O. Reconciliation also runs during playback, when receiver sockets already exist. The trigger around it is in [After discovery](after-discovery.md). Credentials are not an input. See [Credentials and IPC](credentials-and-ipc.md).
 
 ## Two kinds of id
 
-[`ReceiverIdentity`](../../desktop/AirFlash.Core/ReceiverIdentity.cs) splits strings into broadcast identities and endpoints.
+[`ReceiverIdentity`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverIdentity.cs) splits strings into broadcast identities and endpoints.
 
 A broadcast identity is a nonempty normalized string that is not a `stereo:` id, not an `endpoint:` id, and not a parsed endpoint. A 12-digit hex MAC is stored lowercase with `:` and `-` removed. `AA:BB:CC:DD:EE:01` and `aabbccddee01` are synthetic examples that compare equal. Any other string is kept as trimmed, case-sensitive text. `IsBroadcast` is a syntactic classification; it does not authenticate the advertisement or require that the id actually appeared in DNS-SD.
 
@@ -77,19 +77,19 @@ The target key receives that merged record. The other keys are removed from `set
 
 | Claim group | Source anchors |
 | --- | --- |
-| Normalization, endpoint syntax, broadcast classification, alias walk | [`ReceiverIdentity.cs:7–46`](../../desktop/AirFlash.Core/ReceiverIdentity.cs#L7) |
-| Physical owners, clone, flattening and backup decision | [`ReceiverCatalog.cs:8–30`](../../desktop/AirFlash.Core/ReceiverCatalog.cs#L8) |
-| Member candidates, canonical priority and transient endpoints | [`ReceiverCatalog.cs:32–76`](../../desktop/AirFlash.Core/ReceiverCatalog.cs#L32) |
-| Preference merge, last id and covered members | [`ReceiverCatalog.cs:82–108`](../../desktop/AirFlash.Core/ReceiverCatalog.cs#L82) |
-| Persistent alias filtering and backup write | [`SettingsStore.cs:43–48, 80–84`](../../desktop/AirFlash.Core/SettingsStore.cs#L43) |
-| Separate credential key and filename | [`session.rs:231–238`](../../native/airflash-engine/src/session.rs#L231), [`credentials.rs:25–33`](../../native/airflash-engine/src/credentials.rs#L25) |
+| Normalization, endpoint syntax, broadcast classification, alias walk | [`ReceiverIdentity.cs:7–46`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverIdentity.cs#L7) |
+| Physical owners, clone, flattening and backup decision | [`ReceiverCatalog.cs:8–30`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverCatalog.cs#L8) |
+| Member candidates, canonical priority and transient endpoints | [`ReceiverCatalog.cs:32–76`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverCatalog.cs#L32) |
+| Preference merge, last id and covered members | [`ReceiverCatalog.cs:82–108`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverCatalog.cs#L82) |
+| Persistent alias filtering and backup write | [`SettingsStore.cs:43–48, 80–84`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SettingsStore.cs#L43) |
+| Separate credential key and filename | [`session.rs:231–238`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/session.rs#L231), [`credentials.rs:25–33`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L25) |
 
-[`ReceiverIdentityTests`](../../desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L16) supplies direct tests of these pure catalog paths, including alias persistence across service loss/address change (line 119), canonical versus preference priority (lines 148–175), manual/ambiguous endpoint protection (lines 178–213), stale live-owner protection (line 224), address reuse (line 233), and both backup outcomes (lines 242–272). The tests do not establish that arbitrary malformed or hand-written settings satisfy every invariant; `Load` sanitizes aliases, but manual ids and preference keys are not all normalized on load. The catalog, not the credential store, owns these migrations.
+[`ReceiverIdentityTests`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L16) supplies direct tests of these pure catalog paths, including alias persistence across service loss/address change (line 119), canonical versus preference priority (lines 148–175), manual/ambiguous endpoint protection (lines 178–213), stale live-owner protection (line 224), address reuse (line 233), and both backup outcomes (lines 242–272). The tests do not establish that arbitrary malformed or hand-written settings satisfy every invariant; `Load` sanitizes aliases, but manual ids and preference keys are not all normalized on load. The catalog, not the credential store, owns these migrations.
 
 
-## Locally tested Group B behavior
+## Implemented Group B behavior
 
-The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. Group B has not been pushed or integrated. See the [acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md).
+The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. This feature is included in local fork `main` at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`; original upstream `main` remains at `41190e0` without these fixes. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate implementation and later integration evidence.
 
 Manual selection preserves its exact host, port, id and independent options beside complete, incomplete or hidden discovered groups. An explicitly selected group stays selected. A discovered member resolves only through its canonical id or confirmed broadcast alias with one live physical owner and one group owner across online non-manual peers. A conflicting standalone owner also makes the selection ambiguous and rejects it before an engine command.
 

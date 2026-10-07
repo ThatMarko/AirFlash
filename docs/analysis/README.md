@@ -2,11 +2,13 @@
 
 This set describes the path from a HomePod advertisement to a live AirPlay 2 stream in the runtime source at `41190e0d13a63a714c08dffe73ababca1804875c`. The documentation baseline is `c077a0577de26ad7e44b8fd50f62456e12965fb0`, which adds `docs/analysis/` and `docs/issues/` without changing runtime source. These are pinned snapshots, not a promise about a moving remote branch.
 
+Source links in the original audit are pinned to that runtime commit, including its line anchors. Later implementation sections identify their own feature commit and verification separately; merging changes into the fork does not change the historical source evidence.
+
 Every original page was audited against source on **2026-10-06**. [Audit results](audit.md) records coverage, material corrections, invariant checks, tests, and limitations. Source inspection establishes implemented behavior; it does not establish actual HomePod compatibility, measured acoustic latency, or a cause for a particular disconnect. `docs/issues/` contains hypotheses and proposed changes, not independent proof. [Upstream dev](upstream-dev.md) is an explicitly excluded development snapshot.
 
 Read the table from top to bottom. The later pages describe mechanisms that cut across those stages, followed by a check of earlier investigation claims against this tree.
 
-Group B's session/receiver changes were subsequently implemented and verified locally on `codex/fix-session-lifecycle` at `342aeb7`, based directly on original stable `41190e0`. [Acceptance and actual checks](../issues/GROUP-B-ACCEPTANCE.md) distinguish that tested feature behavior from this index's unchanged stable-source audit. Affected pages retain their baseline descriptions and add an explicit local-branch section; Group B is not yet published or integrated.
+Group B's session/receiver changes were subsequently implemented and verified on `codex/fix-session-lifecycle` at `342aeb7`, based directly on original stable `41190e0`. Group A and then Group B are now merged into local fork `main` at `72dc7c7`; original upstream `main` remains unchanged. [Feature acceptance and actual checks](../issues/GROUP-B-ACCEPTANCE.md) distinguish tested feature behavior from this index's original stable-source audit. Affected pages retain their baseline descriptions and add an implementation section; [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) records later hosted-build and downloaded-binary evidence separately.
 
 | Document | What it covers |
 | --- | --- |
@@ -58,7 +60,7 @@ flowchart TD
   RTSP --> RTP
 ```
 
-Startup order in [`App.OnStartup`](../../desktop/AirFlash.App/App.xaml.cs):
+Startup order in [`App.OnStartup`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/App.xaml.cs):
 
 1. Load `config.json`, apply theme and language, and construct `AudioService`.
 2. Extract the engine to `%LOCALAPPDATA%\AirFlash\engine\<sha256>\airflash-engine.exe` and construct the process factory, then construct `WindowsDiscovery` and the view model without starting discovery. Run `hello` in a separate process. The reply includes `engine_version`, `qualification: partial`, and `production_ready: false`; the desktop disposes that check process after the reply. It does not use the receiver list. The rest of the shell, including the single-instance pipe and the check flags, is in [Settings](settings.md).

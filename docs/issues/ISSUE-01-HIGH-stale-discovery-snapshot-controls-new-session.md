@@ -6,14 +6,14 @@
 - **Severity**: HIGH — an unrelated discovery transaction can cancel a new user-selected pairing session or overwrite its receiver.
 - **Kind**: Defect
 - **Subsystem**: Desktop discovery/session concurrency
-- **Status**: Implemented and verified locally on `codex/fix-session-lifecycle`; not integrated into original stable main.
+- **Status**: Implemented and verified on `codex/fix-session-lifecycle`; integrated into local fork `main`, unmerged in original upstream `main`.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
 - **Evidence status**: The original audit specified the asynchronous interleaving without executing it. Subsequent isolated baseline observations reproduced both stale-control branches; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No field incident is attributed to it.
-- **Implementation status**: Local head `342aeb7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
-- **Target files**: [AppViewModel.cs](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166), [SettingsWindow.xaml.cs](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs#L20), [SessionController.cs](../../desktop/AirFlash.Core/SessionController.cs#L212)
+- **Implementation status**: Feature head `342aeb7`, included in local fork integration `72dc7c7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
+- **Target files**: [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166), [SettingsWindow.xaml.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs#L20), [SessionController.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L212)
 - **Analysis context**: [Playback coupling](../analysis/playback-coupling.md), [After discovery](../analysis/after-discovery.md), [Session](../analysis/session.md)
 
-## 1. Current behavior and impact
+## 1. Original baseline behavior and impact
 
 Discovery reconciliation captures `Session.Snapshot`, then may await an identity save while holding `_settingsGate`. Settings Pair bypasses that settings gate and starts a new session through `Session.PairAsync`. After the save, reconciliation applies its stop/update decision using the old captured receiver, while `Session.StopAsync` and `UpdateReceiverAsync` operate on whichever session is current at that moment.
 
@@ -21,16 +21,16 @@ Consequently an absent old discovered receiver A can cause reconciliation to can
 
 ## 2. Root cause and exact interleaving
 
-1. [AppViewModel.cs:168–174](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L168) captures A and awaits `SaveReceiverIdentityAsync` when reconciliation changes aliases/preferences.
-2. [SettingsWindow.xaml.cs:20–24](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs#L20) calls `app.Session.PairAsync` directly, outside `_settingsGate`.
-3. [SessionController.cs:183–210](../../desktop/AirFlash.Core/SessionController.cs#L183) serializes replacement, stops A, advances lifecycle generation, and publishes Pairing for B. It returns after scheduling the worker rather than holding `_serial` for the whole pairing workflow.
-4. Once saving finishes, [AppViewModel.cs:211–218](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L211) uses captured A's id and active state. Its call to [StopAsync](../../desktop/AirFlash.Core/SessionController.cs#L212) has no expected-session argument, so it cancels B.
+1. [AppViewModel.cs:168–174](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L168) captures A and awaits `SaveReceiverIdentityAsync` when reconciliation changes aliases/preferences.
+2. [SettingsWindow.xaml.cs:20–24](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs#L20) calls `app.Session.PairAsync` directly, outside `_settingsGate`.
+3. [SessionController.cs:183–210](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L183) serializes replacement, stops A, advances lifecycle generation, and publishes Pairing for B. It returns after scheduling the worker rather than holding `_serial` for the whole pairing workflow.
+4. Once saving finishes, [AppViewModel.cs:211–218](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L211) uses captured A's id and active state. Its call to [StopAsync](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L212) has no expected-session argument, so it cancels B.
 
-The present-receiver update branch has the same ownership gap: [UpdateReceiverAsync](../../desktop/AirFlash.Core/SessionController.cs#L246) checks no captured generation/id. While Pairing it avoids a signature restart but can overwrite `_receiver` and `_settings` with the old receiver's reconciled values. That is the same race, not a separate issue.
+The present-receiver update branch has the same ownership gap: [UpdateReceiverAsync](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L246) checks no captured generation/id. While Pairing it avoids a signature restart but can overwrite `_receiver` and `_settings` with the old receiver's reconciled values. That is the same race, not a separate issue.
 
-## 3. Minimal mock reproduction — planned, not run
+## 3. Original mock reproduction plan
 
-Use the WPF dispatcher and the existing [MemoryStore save gates](../../desktop/AirFlash.App/Verification/UiSmoke.cs#L276). Extend a scripted fake engine connection to emit `pin_required` for `pair`; the existing UI-smoke mock connection does not implement pairing events. Use only fake audio/discovery/engine services and documentation-only addresses.
+Use the WPF dispatcher and the existing [MemoryStore save gates](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiSmoke.cs#L276). Extend a scripted fake engine connection to emit `pin_required` for `pair`; the existing UI-smoke mock connection does not implement pairing events. Use only fake audio/discovery/engine services and documentation-only addresses.
 
 1. Persist manual B, disable automatic starts/retries, publish discovered A, and reach fake Streaming on A.
 2. Set `SaveGate`/`SaveEntered`. Publish a snapshot containing new discovered C but no A. C's new broadcast self-alias forces an identity save. Await `SaveEntered` so captured A is held before reconciliation's session decision.
@@ -40,7 +40,7 @@ Use the WPF dispatcher and the existing [MemoryStore save gates](../../desktop/A
 
 Assertions must record both the lifecycle ownership change and subsequent command/cancellation; do not infer the race from log ordering or snapshot names alone. No PIN entry or receiver connection is needed.
 
-## 4. Proposed architecture — not applied
+## 4. Original architecture proposal
 
 Give discovery updates an expected lifecycle token and make ownership validation atomic with stop/update under the controller's `_serial` semaphore. A conditional operation must ignore a request whose captured generation no longer owns the current session. The token should identify start/stop/replacement generations, not a snapshot object's reference: ordinary metrics also replace snapshots and should not invalidate a legitimate same-session identity update.
 
@@ -55,10 +55,10 @@ Do not rely on rereading `Session.Snapshot` in the view model alone; a replaceme
 - User Stop cancels the actual current session promptly through asynchronous cleanup, with no deadlocks among settings/lifecycle/writer semaphores.
 - A failed identity save still preserves the catalog/session as before, and ordinary nonconcurrent discovery behavior remains explicit.
 
-Existing [identity-save harness coverage](../../desktop/AirFlash.App/Verification/UiRegression.cs#L163) exercises failure preservation and open drafts, not replacement during a delayed save. [SessionTests](../../desktop/AirFlash.Tests/SessionTests.cs#L153) covers stale worker events across switching, not a stale caller invoking an unconditional stop/update. A delayed-save/direct-Pair ownership regression is missing.
+Existing [identity-save harness coverage](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L163) exercises failure preservation and open drafts, not replacement during a delayed save. [SessionTests](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L153) covers stale worker events across switching, not a stale caller invoking an unconditional stop/update. A delayed-save/direct-Pair ownership regression is missing.
 
 Safety: mocks only; no credential files, PINs, device pairing, or audio probes. Any later authorized audio probe is limited to gain ≤0.1 and ≤5 seconds. No correspondence to upstream issues #6/#7 or dev is claimed.
 
-## Executed local implementation
+## Executed implementation and fork integration
 
-The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. Original stable main remains unchanged; no hardware incident is attributed to this defect.
+The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. Original upstream stable main remains unchanged. The tested feature is now integrated into local fork `main`; [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) records later build/download evidence separately. No hardware incident is attributed to this defect.

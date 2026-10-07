@@ -1,8 +1,8 @@
 # Discovery
 
-Discovery is a long-lived Windows DNS-SD browse in the WPF process. The implementation is [`WindowsDiscovery`](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs). It uses `dnsapi.dll` directly. AirFlash does not install Bonjour and does not run a discovery service of its own.
+Discovery is a long-lived Windows DNS-SD browse in the WPF process. The implementation is [`WindowsDiscovery`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs). It uses `dnsapi.dll` directly. AirFlash does not install Bonjour and does not run a discovery service of its own.
 
-The cache contains [`ServiceRecord`](../../desktop/AirFlash.Core/Receiver.cs#L26) values: instance name, service type, one IPv4 address, port, and TXT. `Publish` aggregates them into `Receiver` rows before raising `Changed`; the event does not expose raw service records. Aggregation and the desktop reconciliation that follows are described in [After discovery](after-discovery.md).
+The cache contains [`ServiceRecord`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Receiver.cs#L26) values: instance name, service type, one IPv4 address, port, and TXT. `Publish` aggregates them into `Receiver` rows before raising `Changed`; the event does not expose raw service records. Aggregation and the desktop reconciliation that follows are described in [After discovery](after-discovery.md).
 
 ## When browsing starts
 
@@ -12,9 +12,9 @@ The view model stores the saved adapter id before the window is shown. `Start` r
 
 ## Which interface is queried
 
-[`NetworkAdapterCatalog`](../../desktop/AirFlash.App/Services/NetworkAdapterCatalog.cs) lists every non-loopback adapter, including adapters that are down, so a saved choice can still explain a pause. Each entry carries the NIC id, name, description, IPv4 addresses, operational status, and IPv4 interface index.
+[`NetworkAdapterCatalog`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/NetworkAdapterCatalog.cs) lists every non-loopback adapter, including adapters that are down, so a saved choice can still explain a pause. Each entry carries the NIC id, name, description, IPv4 addresses, operational status, and IPv4 interface index.
 
-[`DiscoveryInterface.ResolveIndex`](../../desktop/AirFlash.Core/Receiver.cs) maps the saved id:
+[`DiscoveryInterface.ResolveIndex`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Receiver.cs) maps the saved id:
 
 | Saved id | Result |
 | --- | --- |
@@ -129,19 +129,19 @@ The audited code is the `41190e0` runtime baseline retained by `c077a05`; see [t
 
 | Claim group | Source anchors |
 | --- | --- |
-| Startup, saved interface, shutdown order | [`AppViewModel.cs:83–118, 420–428`](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L83) |
-| Adapter enumeration and no fallback | [`NetworkAdapterCatalog.cs:8–25`](../../desktop/AirFlash.App/Services/NetworkAdapterCatalog.cs#L8), [`Receiver.cs:110–123`](../../desktop/AirFlash.Core/Receiver.cs#L110) |
-| Restart, timer, PTR flags and pending resolves | [`WindowsDiscovery.cs:27–134`](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L27) |
-| Result validation, logging, publication, disposal | [`WindowsDiscovery.cs:136–245`](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L136) |
-| Network Settings and check flag | [`SettingsViewModel.cs:278–309`](../../desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L278), [`App.xaml.cs:149–166`](../../desktop/AirFlash.App/App.xaml.cs#L149) |
-| x64 target | [`AirFlash.App.csproj:10`](../../desktop/AirFlash.App/AirFlash.App.csproj#L10) |
+| Startup, saved interface, shutdown order | [`AppViewModel.cs:83–118, 420–428`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L83) |
+| Adapter enumeration and no fallback | [`NetworkAdapterCatalog.cs:8–25`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/NetworkAdapterCatalog.cs#L8), [`Receiver.cs:110–123`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Receiver.cs#L110) |
+| Restart, timer, PTR flags and pending resolves | [`WindowsDiscovery.cs:27–134`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L27) |
+| Result validation, logging, publication, disposal | [`WindowsDiscovery.cs:136–245`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L136) |
+| Network Settings and check flag | [`SettingsViewModel.cs:278–309`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L278), [`App.xaml.cs:149–166`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/App.xaml.cs#L149) |
+| x64 target | [`AirFlash.App.csproj:10`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/AirFlash.App.csproj#L10) |
 
-[`DiscoveryTests.SelectedInterfaceNeverFallsBackToAllWhenMissingOrDisconnected`](../../desktop/AirFlash.Tests/DiscoveryTests.cs#L9) covers pure interface selection. `AirFlash.Tests` references Core, not the WPF project; its discovery tests do not exercise `dnsapi.dll`, native cancellation races, the 20-second timer, hung callbacks, or flags-zero removal delivery. Those behavior paths are verified by source inspection here, not by a live receiver experiment.
+[`DiscoveryTests.SelectedInterfaceNeverFallsBackToAllWhenMissingOrDisconnected`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/DiscoveryTests.cs#L9) covers pure interface selection. `AirFlash.Tests` references Core, not the WPF project; its discovery tests do not exercise `dnsapi.dll`, native cancellation races, the 20-second timer, hung callbacks, or flags-zero removal delivery. Those behavior paths are verified by source inspection here, not by a live receiver experiment.
 
 
-## Locally tested Group B behavior
+## Implemented Group B behavior
 
-The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. Group B has not been pushed or integrated. See the [acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md).
+The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. This feature is included in local fork `main` at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`; original upstream `main` remains at `41190e0` without these fixes. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate implementation and later integration evidence.
 
 Group B changes desktop handling after publication. Empty, incomplete or repeated browse results, including adapter restart, preserve the active handshake/transport while catalog rows continue to describe current discovery availability. The panel overlays an owned active card with an availability label and Stop; it does not claim that an absent receiver was rediscovered.
 

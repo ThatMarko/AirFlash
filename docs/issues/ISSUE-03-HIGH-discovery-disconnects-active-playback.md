@@ -6,14 +6,14 @@
 - **Severity**: HIGH — a passive discovery refresh can interrupt an otherwise running stream; no data loss or security failure is established.
 - **Kind**: Defect
 - **Subsystem**: Desktop discovery/catalog/session orchestration
-- **Status**: Implemented and verified locally on `codex/fix-session-lifecycle`; not integrated into original stable main.
+- **Status**: Implemented and verified on `codex/fix-session-lifecycle`; integrated into local fork `main`, unmerged in original upstream `main`.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
 - **Evidence status**: The original audit inspected source and existing mock-harness assertions without executing the proposed reproduction. Subsequent isolated baseline observations reproduced empty/partial-discovery interruption; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No real-device dropout or network trigger was reproduced.
-- **Implementation status**: Local head `342aeb7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
-- **Target files**: [AppViewModel.cs](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166), [WindowsDiscovery.cs](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47)
+- **Implementation status**: Feature head `342aeb7`, included in local fork integration `72dc7c7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
+- **Target files**: [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166), [WindowsDiscovery.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47)
 - **Analysis context**: [Playback coupling](../analysis/playback-coupling.md), [Discovery](../analysis/discovery.md), [After discovery](../analysis/after-discovery.md)
 
-## 1. Current behavior and impact
+## 1. Original baseline behavior and impact
 
 The desktop stops an active non-manual session when an applied discovery snapshot lacks its receiver or contains a stereo row whose member count is not exactly two. This decision does not inspect the active engine's transport health. A normal discovery `Restart` clears its cache and publishes an empty list before starting the new browse, so that intermediate empty result can stop playback even when the current connection remains usable.
 
@@ -25,15 +25,15 @@ The old report's CRITICAL rating, hypothetical 10–30-second absence, HomePod c
 
 | Step | Exact evidence |
 | --- | --- |
-| Restart clears the cache and publishes before opening the replacement browse | [WindowsDiscovery.cs:47–80](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47) |
-| Network-address and availability handlers invoke Restart without identifying the changed NIC | [WindowsDiscovery.cs:45–46](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L45) |
-| Missing/incomplete non-manual snapshot calls `Session.StopAsync` | [AppViewModel.cs:211–218](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L211) |
-| Known-map policy and panel filtering remove usable controls from the panel | [AppViewModel.cs:196–210](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L196), [234–245](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L234) |
-| Cancellation stops the worker; a new Start resets diagnostics | [SessionController.cs:190–224](../../desktop/AirFlash.Core/SessionController.cs#L190), [372–393](../../desktop/AirFlash.Core/SessionController.cs#L372) |
+| Restart clears the cache and publishes before opening the replacement browse | [WindowsDiscovery.cs:47–80](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47) |
+| Network-address and availability handlers invoke Restart without identifying the changed NIC | [WindowsDiscovery.cs:45–46](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L45) |
+| Missing/incomplete non-manual snapshot calls `Session.StopAsync` | [AppViewModel.cs:211–218](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L211) |
+| Known-map policy and panel filtering remove usable controls from the panel | [AppViewModel.cs:196–210](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L196), [234–245](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L234) |
+| Cancellation stops the worker; a new Start resets diagnostics | [SessionController.cs:190–224](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L190), [372–393](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L372) |
 
 The discovery/session decision follows any required identity save. If that save fails, this transaction exits before applying the stop. The captured session can also become stale during an asynchronous save; that separate race is [ISSUE-01](ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md).
 
-## 3. Minimal mock reproduction — planned, not run
+## 3. Original mock reproduction plan
 
 Use the WPF dispatcher harness with `MockDiscovery`, in-memory settings, fake audio, and a fake engine that reports Streaming and keeps its event stream alive. All addresses can be documentation-only literals, such as `192.0.2.10`; the fake engine must never open a socket.
 
@@ -45,7 +45,7 @@ Use the WPF dispatcher harness with `MockDiscovery`, in-memory settings, fake au
 
 This tests the desktop policy directly. It does not require packet loss, Wi-Fi roaming, a network reset, or a HomePod, and does not establish that Windows will deliver any particular browse-removal event.
 
-## 4. Proposed architecture — not applied
+## 4. Original architecture proposal
 
 Separate discovery presence from ownership/health of an already owned active attempt, including Connecting, Pairing, Streaming and Standby. Passive absence or temporary group incompleteness should update discoverability without cancelling that attempt; an existing handshake/PIN workflow remains governed by its failure, timeout and explicit-cancellation policy. Retain the active receiver snapshot and its explicit stop controls while showing that discovery is currently unavailable. Continue to reject new starts for incomplete/offline discovered rows. Do not replace the active complete transport snapshot with an offline/incomplete catalog row or restart it on that partial data.
 
@@ -63,10 +63,10 @@ Keep JSONL v1 and config schema 2 unchanged. Session ownership guards from ISSUE
 - A terminal fake engine fault still ends playback, preserves its diagnostic fault, restores the exact saved mute bit through the audio abstraction, and retries only under current retry settings.
 - Explicit stop, shutdown, and selected-adapter no-fallback behavior remain covered. No schema or IPC change is needed.
 
-Existing coverage: the [stereo identity regression](../../desktop/AirFlash.App/Verification/UiRegression.cs#L222) currently asserts that member disappearance stops playback; that assertion would intentionally change under this proposal. [SessionTests](../../desktop/AirFlash.Tests/SessionTests.cs#L126) covers cancellation and [incomplete-group rejection](../../desktop/AirFlash.Tests/SessionTests.cs#L220). A dedicated healthy-stream/empty-snapshot retention assertion and active-row rendering assertion are missing.
+Existing coverage: the [stereo identity regression](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L222) currently asserts that member disappearance stops playback; that assertion would intentionally change under this proposal. [SessionTests](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L126) covers cancellation and [incomplete-group rejection](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L220). A dedicated healthy-stream/empty-snapshot retention assertion and active-row rendering assertion are missing.
 
 Safety: perform these checks with mocks only. Hardware qualification is separate authorized work; any later audio probe must remain at gain ≤0.1 and duration ≤5 seconds. No correspondence to upstream issues #6/#7 or `upstream/dev` is claimed.
 
-## Executed local implementation
+## Executed implementation and fork integration
 
-The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. Original stable main remains unchanged; no hardware incident is attributed to this defect.
+The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. Original upstream stable main remains unchanged. The tested feature is now integrated into local fork `main`; [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) records later build/download evidence separately. No hardware incident is attributed to this defect.

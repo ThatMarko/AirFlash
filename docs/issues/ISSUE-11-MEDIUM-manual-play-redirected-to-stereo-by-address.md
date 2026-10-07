@@ -6,14 +6,14 @@
 - **Severity**: MEDIUM — an explicit manual-row selection can target a different receiver/group and port.
 - **Kind**: Defect
 - **Subsystem**: Desktop receiver selection
-- **Status**: Implemented and verified locally on `codex/fix-session-lifecycle`; not integrated into original stable main.
+- **Status**: Implemented and verified on `codex/fix-session-lifecycle`; integrated into local fork `main`, unmerged in original upstream `main`.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
 - **Evidence status**: The original audit inspected source without executing the proposed command-capture scenario. Subsequent isolated baseline observation reproduced manual endpoint redirection; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No real receiver was contacted.
-- **Implementation status**: Local head `342aeb7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
-- **Target file**: [AppViewModel.cs](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292)
+- **Implementation status**: Feature head `342aeb7`, included in local fork integration `72dc7c7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
+- **Target file**: [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292)
 - **Analysis context**: [After discovery](../analysis/after-discovery.md), [Identity](../analysis/identity.md)
 
-## 1. Current behavior
+## 1. Original baseline behavior
 
 The catalog deliberately preserves a manual receiver independently of a discovered device at the same endpoint. `ToggleAsync` nevertheless replaces any clicked receiver with the first known stereo group whose member has the same address. The lookup does not require a non-manual receiver, matching port, member id, or confirmed alias.
 
@@ -21,7 +21,7 @@ A manual receiver at `192.0.2.10:7001` can therefore start a discovered pair who
 
 ## 2. Root cause
 
-[AppViewModel.cs:295–297](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L295):
+[AppViewModel.cs:295–297](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L295):
 
 ```csharp
 var group = AllReceivers.FirstOrDefault(r => r.IsGroup
@@ -29,21 +29,21 @@ var group = AllReceivers.FirstOrDefault(r => r.IsGroup
 if (group is not null) receiver = group;
 ```
 
-The substituted receiver is passed to Session and persisted as last-used ([304–307](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L304)). Manual rows are separately constructed with `IsManual = true` ([222–227](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L222)); identity reconciliation excludes manual ids from migrations ([ReceiverCatalog.cs:10–11,35–38,66–71](../../desktop/AirFlash.Core/ReceiverCatalog.cs#L35)). That catalog protection does not govern this later address-only branch.
+The substituted receiver is passed to Session and persisted as last-used ([304–307](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L304)). Manual rows are separately constructed with `IsManual = true` ([222–227](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L222)); identity reconciliation excludes manual ids from migrations ([ReceiverCatalog.cs:10–11,35–38,66–71](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverCatalog.cs#L35)). That catalog protection does not govern this later address-only branch.
 
-## 3. Minimal mock reproduction — planned, not run
+## 3. Original mock reproduction plan
 
-Use the WPF dispatcher harness, in-memory settings, fake discovery/audio, and a fake engine capturing JSONL command parameters. The existing [MockFactory.Commands](../../desktop/AirFlash.App/Verification/UiSmoke.cs#L344) can capture `start` without opening sockets.
+Use the WPF dispatcher harness, in-memory settings, fake discovery/audio, and a fake engine capturing JSONL command parameters. The existing [MockFactory.Commands](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiSmoke.cs#L344) can capture `start` without opening sockets.
 
 1. Persist manual M with host `192.0.2.10`, port `7001`, and its own endpoint id. Disable auto-connect and force reconnect.
 2. Publish a complete stereo row `stereo:fixture` with members A at `192.0.2.10:7000` and B at `192.0.2.11:7000`. Both addresses are documentation-only fixtures; the fake factory must never connect to them.
 3. Wait for both the group and manual row to appear, then call `ToggleAsync` with M while the session is Idle.
 4. Source-predicted result: `Session.Snapshot.Receiver.Id` and `LastReceiverId` become `stereo:fixture`, and captured `start.params.peers` contains two peers on port 7000 instead of M's single peer on port 7001.
-5. Repeat with a one-member group. Source-predicted result: the manual click is substituted with an incomplete group and rejected by [SessionController.StartAsync](../../desktop/AirFlash.Core/SessionController.cs#L176).
+5. Repeat with a one-member group. Source-predicted result: the manual click is substituted with an incomplete group and rejected by [SessionController.StartAsync](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L176).
 
 The positive comparison is explicit: choosing M should send one peer with its requested host/port and keep M's id. A separate automatic member click may intentionally resolve to its confirmed stereo owner.
 
-## 4. Proposed architecture — not applied
+## 4. Original architecture proposal
 
 Never substitute a manual selection with a discovered group. Preserve its explicit host, port, id, options, and independent lifecycle. For an automatic individual-member selection, resolve the owning group by canonical member id or confirmed broadcast alias; if an endpoint fallback is required, compare normalized address and port and require one unambiguous owner. An already selected group should remain that same group.
 
@@ -58,10 +58,10 @@ Keep manual preferences independent of discovered preference records, and do not
 - A manual stream remains exempt from ordinary discovery-loss handling; its own stop/error cleanup remains functional.
 - Existing manual and automatic preference records remain independent.
 
-The [manual identity test](../../desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L178) and [UI identity harness](../../desktop/AirFlash.App/Verification/UiRegression.cs#L197) establish coexistence, not selection behavior at a shared stereo-member address. The [stereo harness](../../desktop/AirFlash.App/Verification/UiRegression.cs#L222) starts the group itself. A manual-click command-capture assertion and an incomplete-group negative case are missing.
+The [manual identity test](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L178) and [UI identity harness](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L197) establish coexistence, not selection behavior at a shared stereo-member address. The [stereo harness](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L222) starts the group itself. A manual-click command-capture assertion and an incomplete-group negative case are missing.
 
 Safety: fake engine only; no discovery service, receiver pairing, real addresses, or credentials. Any later authorized audio probe retains gain ≤0.1 and duration ≤5 seconds. No upstream issue #6/#7 or dev relationship is claimed.
 
-## Executed local implementation
+## Executed implementation and fork integration
 
-The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. Original stable main remains unchanged; no hardware incident is attributed to this defect.
+The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. Original upstream stable main remains unchanged. The tested feature is now integrated into local fork `main`; [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) records later build/download evidence separately. No hardware incident is attributed to this defect.

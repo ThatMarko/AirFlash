@@ -10,7 +10,7 @@
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
 - **Evidence status**: Source inspected. Callback suppression is a planned fault injection, not a reproduced Windows/AP/IGMP failure or measured native memory leak.
 - **Implementation status**: Proposal only; no runtime change applied
-- **Target file**: [WindowsDiscovery.cs](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L82)
+- **Target file**: [WindowsDiscovery.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L82)
 - **Analysis context**: [Discovery](../analysis/discovery.md)
 
 ## 1. Current behavior and impact
@@ -23,12 +23,12 @@ Operations retain their registered managed object and unmanaged name/cancel allo
 
 | Mechanism | Evidence |
 | --- | --- |
-| Duplicate resolve skipped; pending marker records the token | [WindowsDiscovery.cs:125–134](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L125) |
-| Expiry removes `_records` and `_instances`, but not `_pending` | [WindowsDiscovery.cs:91–99](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L91) |
-| Completion normally clears pending and disposes the operation | [WindowsDiscovery.cs:136–162](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L136) |
-| PTR removal clears pending but does not cancel that operation | [WindowsDiscovery.cs:112–118](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L112) |
-| Token registration, allocations, completion and cancellation disposal | [WindowsDiscovery.cs:204–235](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L204) |
-| Restart and owner Dispose provide recovery/cleanup | [WindowsDiscovery.cs:47–64](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47), [179–190](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L179) |
+| Duplicate resolve skipped; pending marker records the token | [WindowsDiscovery.cs:125–134](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L125) |
+| Expiry removes `_records` and `_instances`, but not `_pending` | [WindowsDiscovery.cs:91–99](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L91) |
+| Completion normally clears pending and disposes the operation | [WindowsDiscovery.cs:136–162](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L136) |
+| PTR removal clears pending but does not cancel that operation | [WindowsDiscovery.cs:112–118](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L112) |
+| Token registration, allocations, completion and cancellation disposal | [WindowsDiscovery.cs:204–235](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L204) |
+| Restart and owner Dispose provide recovery/cleanup | [WindowsDiscovery.cs:47–64](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47), [179–190](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L179) |
 
 The 90-second expiry is checked on 20-second refresh ticks. After expiry removes the name, the timer no longer enumerates it. A new PTR can restore `_instances`, but `Resolve` still skips while `_pending` contains the old token. A late valid callback can recover the name if `_instances` still contains it or a newer PTR restored it; otherwise that callback only clears pending and another PTR is needed. A removal followed by a new PTR, or Restart, also restores the ability to issue another resolve. The old report's “permanent until app restart,” Wi-Fi/IGMP attribution, and blanket “never freed” claims are removed.
 
@@ -62,6 +62,6 @@ Keep manual receivers, interface selection, ReceiverCatalog identity, schema 2, 
 - Repeated failed resolves are backoff/rate bounded; a missing selected NIC never falls back to all interfaces.
 - Manual rows and their sessions are unaffected by resolver housekeeping.
 
-[DiscoveryTests](../../desktop/AirFlash.Tests/DiscoveryTests.cs#L9) covers pure adapter selection and aggregation, not native resolve lifecycle. There is no existing fake-DNS/fake-clock assertion for missing callbacks, cancellation lifetime, pending-token replacement, or allocation reclamation. Those tests are required before applying this proposal; optional live DNS-SD verification remains separate work.
+[DiscoveryTests](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/DiscoveryTests.cs#L9) covers pure adapter selection and aggregation, not native resolve lifecycle. There is no existing fake-DNS/fake-clock assertion for missing callbacks, cancellation lifetime, pending-token replacement, or allocation reclamation. Those tests are required before applying this proposal; optional live DNS-SD verification remains separate work.
 
 Safety: no hardware, network faults, real addresses, or credentials are needed. Any later authorized audio qualification retains gain ≤0.1 and duration ≤5 seconds. No upstream issue #6/#7 or dev-branch fix is claimed.

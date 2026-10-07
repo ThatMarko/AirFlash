@@ -1,0 +1,142 @@
+name: Fork integration validation
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'native/**'
+      - 'scripts/**'
+      - 'installer/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.repository == 'ThatMarko/AirFlash'
+    runs-on: windows-2025
+    timeout-minutes: 40
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      # Unreserved test-package version, not a stable release or repository version change.
+      VALIDATION_VERSION: '0.3.1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify selected SDK
+        shell: pwsh
+        run: ./scripts/check-dotnet.ps1
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+      - name: Python regression suite and lint
+        shell: pwsh
+        run: |
+          uv sync --locked
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --locked pytest -q -ra
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run --locked ruff check .
+          exit $LASTEXITCODE
+      - name: Verify generated icons
+        shell: pwsh
+        run: pwsh -NoProfile -STA -File scripts/generate-icons.ps1 -Check
+      - name: Native tests, lint and build
+        shell: pwsh
+        run: ./scripts/build-native.ps1 -Check
+      - name: Managed solution build and tests
+        shell: pwsh
+        run: |
+          ./scripts/dotnet.ps1 build AirFlash.sln --configuration Release '-p:RestoreLockedMode=true'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $results = Join-Path $env:GITHUB_WORKSPACE 'artifacts/fork-integration/tests'
+          ./scripts/dotnet.ps1 test AirFlash.Tests/AirFlash.Tests.csproj --configuration Release --no-build --no-restore --logger 'trx;LogFileName=core.trx' --results-directory $results
+          exit $LASTEXITCODE
+      - name: Publish exact source without release reservation
+        shell: pwsh
+        run: |
+          $root = (Get-Location).Path
+          $publish = Join-Path $root 'artifacts/fork-integration/publish'
+          $version = $env:VALIDATION_VERSION
+          $info = "$version-fork-validation.$env:GITHUB_SHA"
+          ./scripts/dotnet.ps1 publish (Join-Path $root 'desktop/AirFlash.App/AirFlash.App.csproj') -c Release -r win-x64 --self-contained true '-p:RestoreLockedMode=true' '-p:IncludeNativeLibrariesForSelfExtract=true' '-p:PublishTrimmed=false' '-p:EnableCompressionInSingleFile=true' '-p:DebugType=None' '-p:DebugSymbols=false' "-p:PathMap=$root=/_/" "-p:Version=$version" "-p:InformationalVersion=$info" "-p:FileVersion=$version.0" "-p:AssemblyVersion=$version.0" -o $publish
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Copy-Item -LiteralPath (Join-Path $publish 'AirFlash.exe') -Destination dist/AirFlash.exe
+          ./scripts/build-installer.ps1 -PublishPath $publish -OutputPath dist
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          . ./scripts/dotnet-common.ps1
+          $context = Get-AirFlashDotnetContext -RepoRoot $root
+          $explicit = Join-Path $root 'artifacts/fork-integration/explicit-installer'
+          ./scripts/build-installer.ps1 -PublishPath $publish -OutputPath $explicit -DotnetPath $context.Path
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if (@(Get-ChildItem -LiteralPath $explicit -Filter 'AirFlash-*.msi').Count -ne 1) { throw 'Expected one explicit-host MSI.' }
+          # A real runtime-only override must reject before creating installer output.
+          $hostRoot = Split-Path $context.Path -Parent
+          $runtime = Join-Path $root 'artifacts/fork-integration/runtime-only'
+          New-Item -ItemType Directory -Path $runtime -Force | Out-Null
+          Copy-Item -LiteralPath $context.Path -Destination (Join-Path $runtime 'dotnet.exe')
+          Copy-Item -LiteralPath (Join-Path $hostRoot 'host') -Destination $runtime -Recurse
+          New-Item -ItemType Directory -Path (Join-Path $runtime 'shared') -Force | Out-Null
+          Copy-Item -LiteralPath (Join-Path $hostRoot 'shared/Microsoft.NETCore.App') -Destination (Join-Path $runtime 'shared') -Recurse
+          $rejectedOutput = Join-Path $root 'artifacts/fork-integration/rejected-installer'
+          $rejected = $false
+          try { ./scripts/build-installer.ps1 -PublishPath $publish -OutputPath $rejectedOutput -DotnetPath (Join-Path $runtime 'dotnet.exe') }
+          catch { if ($_.Exception.Message -notmatch 'cannot resolve the SDK') { throw }; $rejected = $true }
+          if (-not $rejected -or (Test-Path -LiteralPath $rejectedOutput)) { throw 'Runtime-only installer did not reject before output creation.' }
+          exit 0
+      - name: Verify package and embedded native hello
+        shell: pwsh
+        run: ./scripts/verify-release.ps1 -Version $env:VALIDATION_VERSION
+      - name: Installer lifecycle on disposable runner
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/test-installer.ps1
+      - name: Record exact source and package provenance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sha = (git rev-parse HEAD).Trim()
+          if ($sha -ne $env:GITHUB_SHA) { throw 'Checkout differs from triggering source.' }
+          Copy-Item -LiteralPath native/airflash-engine/target/release/airflash-engine.exe -Destination dist/airflash-engine.exe
+          . ./scripts/dotnet-common.ps1
+          $context = Get-AirFlashDotnetContext -RepoRoot (Get-Location).Path
+          $sdk = Assert-AirFlashDotnetSdk -Context $context
+          $files = @(Get-ChildItem -LiteralPath dist -File | Where-Object Extension -In @('.exe','.msi') | Sort-Object Name | ForEach-Object { @{ name = $_.Name; bytes = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } })
+          $info = [Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path dist/AirFlash.exe)).ProductVersion
+          if (-not $info.StartsWith("$env:VALIDATION_VERSION-fork-validation.$sha", [StringComparison]::Ordinal)) { throw 'Package informational version differs from validation source.' }
+          $manifest = [ordered]@{ unofficial = $true; source_sha = $sha; repository = $env:GITHUB_REPOSITORY; ref = $env:GITHUB_REF; run_id = $env:GITHUB_RUN_ID; run_attempt = $env:GITHUB_RUN_ATTEMPT; validation_version = $env:VALIDATION_VERSION; informational_version = $info; dotnet_sdk = $sdk; rust = (rustc --version); files = $files; limits = 'UI mock harness runs separately on the desktop; no release tag/reservation or real receiver test.' }
+          $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath dist/validation-manifest.json -Encoding utf8
+      - name: Preserve verified unofficial build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fork-integration-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            dist/AirFlash.exe
+            dist/AirFlash-*.msi
+            dist/airflash-engine.exe
+            dist/SHA256SUMS.txt
+            dist/validation-manifest.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve verification reports and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fork-integration-reports-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            artifacts/fork-integration/tests/*.trx
+            artifacts/installer-test/*.log
+          if-no-files-found: warn
+          retention-days: 14

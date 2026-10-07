@@ -4,7 +4,7 @@ When the desktop applies a discovery snapshot that lacks an active non-manual re
 
 ## The check
 
-[`ReconcileDiscoveryAsync`](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs) runs on every discovery result, including the empty list `Restart` publishes before the new browse has resolved anything. For the receiver in the current snapshot:
+[`ReconcileDiscoveryAsync`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs) runs on every discovery result, including the empty list `Restart` publishes before the new browse has resolved anything. For the receiver in the current snapshot:
 
 ```csharp
 if (currentSnapshot.Receiver is { IsManual: false } current)
@@ -27,7 +27,7 @@ An address, port, or stereo leader change still reaches `UpdateReceiverAsync`. A
 
 ## What produces the empty snapshot
 
-[`WindowsDiscovery.Restart`](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs) clears `_records`, `_instances`, `_browsers`, and `_pending`, then calls `Publish` while the cache is empty. These calls reach `Restart`:
+[`WindowsDiscovery.Restart`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs) clears `_records`, `_instances`, `_browsers`, and `_pending`, then calls `Publish` while the cache is empty. These calls reach `Restart`:
 
 - `Start`
 - `SetInterface` when the saved adapter id changes
@@ -67,19 +67,19 @@ Force reconnect defaults off. It does not apply to a discovery stop anyway, beca
 
 | Claim group | Source anchors |
 | --- | --- |
-| Save-before-check transaction and manual/incomplete split | [`AppViewModel.cs:166–220`](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166) |
-| Empty restart, per-name removal/expiry, log predicate | [`WindowsDiscovery.cs:47–161`](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47) |
-| Panel filtering and user suppress flag | [`AppViewModel.cs:234–249, 312–324`](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L234) |
-| Active states, fresh diagnostics, stop, signature update | [`SessionController.cs:9–11, 175–260`](../../desktop/AirFlash.Core/SessionController.cs#L190) |
-| Cancellation, fault/retry ordering, count increment | [`SessionController.cs:370–394`](../../desktop/AirFlash.Core/SessionController.cs#L370) |
-| First mute and restore handling | [`SessionController.cs:325–329, 461–464`](../../desktop/AirFlash.Core/SessionController.cs#L325), [`AudioService.cs:63–82`](../../desktop/AirFlash.App/Services/AudioService.cs#L63) |
+| Save-before-check transaction and manual/incomplete split | [`AppViewModel.cs:166–220`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166) |
+| Empty restart, per-name removal/expiry, log predicate | [`WindowsDiscovery.cs:47–161`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47) |
+| Panel filtering and user suppress flag | [`AppViewModel.cs:234–249, 312–324`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L234) |
+| Active states, fresh diagnostics, stop, signature update | [`SessionController.cs:9–11, 175–260`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L190) |
+| Cancellation, fault/retry ordering, count increment | [`SessionController.cs:370–394`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L370) |
+| First mute and restore handling | [`SessionController.cs:325–329, 461–464`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L325), [`AudioService.cs:63–82`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/AudioService.cs#L63) |
 
-[`SessionTests`](../../desktop/AirFlash.Tests/SessionTests.cs#L126) covers pending-start cancellation, fresh-process retries (line 169), mute restore (lines 199–208), incomplete-group rejection (line 220), and preserving diagnostics until a fresh playback (line 260). The WPF [`UiRegression` harness](../../desktop/AirFlash.App/Verification/UiRegression.cs#L163) checks failed identity-save preservation, offline-to-online auto-attempt recovery (line 202), and stereo-member disappearance stopping playback (line 223), using mock services. Neither those tests nor this source audit establishes the cause of any particular real-world dropout or guarantees mute restoration on unavailable hardware.
+[`SessionTests`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L126) covers pending-start cancellation, fresh-process retries (line 169), mute restore (lines 199–208), incomplete-group rejection (line 220), and preserving diagnostics until a fresh playback (line 260). The WPF [`UiRegression` harness](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L163) checks failed identity-save preservation, offline-to-online auto-attempt recovery (line 202), and stereo-member disappearance stopping playback (line 223), using mock services. Neither those tests nor this source audit establishes the cause of any particular real-world dropout or guarantees mute restoration on unavailable hardware.
 
 
-## Locally tested Group B behavior
+## Implemented Group B behavior
 
-The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. Group B has not been pushed or integrated. See the [acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md).
+The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. This feature is included in local fork `main` at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`; original upstream `main` remains at `41190e0` without these fixes. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate implementation and later integration evidence.
 
 Empty, partial, overfull or repeated discovery results do not cancel an owned handshake/stream or reopen its engine. Catalog availability remains truthful while the full active transport stays in the session. An active card remains visible, including when hidden or removed from the selected-adapter catalog, with an availability label and a bound Stop button. After stop or terminal completion, a card retained solely by ownership disappears.
 

@@ -9,7 +9,7 @@
 - **Evidence status**: Source and serializer contract verified; the synthetic fixtures below have not been run against AirFlash
 - **Implementation status**: Proposal only; no runtime change applied
 - **Runtime baseline**: `41190e0`; documentation baseline `c077a05` and audited [settings](../analysis/settings.md), [session](../analysis/session.md), and [after-discovery](../analysis/after-discovery.md) pages
-- **Target files**: [SettingsStore.cs:16–55](../../desktop/AirFlash.Core/SettingsStore.cs#L16-L55), [Settings.cs:88–110](../../desktop/AirFlash.Core/Settings.cs#L88-L110), [AppViewModel.cs:78–97](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L78-L97)
+- **Target files**: [SettingsStore.cs:16–55](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SettingsStore.cs#L16-L55), [Settings.cs:88–110](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Settings.cs#L88-L110), [AppViewModel.cs:78–97](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L78-L97)
 - **Analysis context**: [Settings](../analysis/settings.md), [Session](../analysis/session.md), [After discovery](../analysis/after-discovery.md)
 
 ## 1. Current behavior and impact
@@ -27,13 +27,13 @@ These inputs are synthetic malformed configuration, not normal Settings UI outpu
 
 | Step | Evidence |
 | --- | --- |
-| Loader deserializes, removes null receiver-option values, normalizes collections/aliases, then returns without validation | [SettingsStore.cs:40–49](../../desktop/AirFlash.Core/SettingsStore.cs#L40-L49) |
-| Manual receivers are reference records in an observable collection | [Settings.cs:27–30,73](../../desktop/AirFlash.Core/Settings.cs#L27-L30) |
-| Sample-rate validator exists; manual validation itself assumes non-null elements | [Settings.cs:96–109](../../desktop/AirFlash.Core/Settings.cs#L96-L109) |
-| Constructor loads settings and immediately merges manual rows | [AppViewModel.cs:78–97](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L78-L97) |
-| Merge dereferences every manual entry | [AppViewModel.cs:222–227](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L222-L227) |
-| Playback parses unchecked saved sample-rate text | [SessionController.cs:303–310](../../desktop/AirFlash.Core/SessionController.cs#L303-L310) |
-| Normal startup catches construction failure and follows startup failure/quit handling | [App.xaml.cs:48–75](../../desktop/AirFlash.App/App.xaml.cs#L48-L75) |
+| Loader deserializes, removes null receiver-option values, normalizes collections/aliases, then returns without validation | [SettingsStore.cs:40–49](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SettingsStore.cs#L40-L49) |
+| Manual receivers are reference records in an observable collection | [Settings.cs:27–30,73](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Settings.cs#L27-L30) |
+| Sample-rate validator exists; manual validation itself assumes non-null elements | [Settings.cs:96–109](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Settings.cs#L96-L109) |
+| Constructor loads settings and immediately merges manual rows | [AppViewModel.cs:78–97](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L78-L97) |
+| Merge dereferences every manual entry | [AppViewModel.cs:222–227](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L222-L227) |
+| Playback parses unchecked saved sample-rate text | [SessionController.cs:303–310](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L303-L310) |
+| Normal startup catches construction failure and follows startup failure/quit handling | [App.xaml.cs:48–75](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/App.xaml.cs#L48-L75) |
 
 Microsoft documents that [System.Text.Json does not enforce collection-element nullability](https://learn.microsoft.com/en-us/dotnet/standard/serialization/system-text-json/nullable-annotations#limitations). Enabling nullable annotations alone would not fix the null-element case. Simply calling the current `Validate` method is also insufficient: its manual-entry predicate can dereference the same null.
 
@@ -73,4 +73,4 @@ A selected unavailable adapter is not invalid merely because it is offline. Pres
 - Valid existing schema 1/2 files, manual rows, extension fields, nullable overrides, and unavailable selected NICs retain their behavior.
 - Mock constructor/playback tests verify that no engine command or local mute occurs for rejected input.
 
-[SettingsTests.cs:135–138](../../desktop/AirFlash.Tests/SettingsTests.cs#L135-L138) covers valid manual-record round trips; [169–179](../../desktop/AirFlash.Tests/SettingsTests.cs#L169-L179) covers direct sample-rate validation and a missing-rate default. These do not test persisted invalid rates or null manual elements through the loader/constructor. The WPF [UiRegression harness](../../desktop/AirFlash.App/Verification/UiRegression.cs) provides mock services for integration assertions. No new tests, real config reads, endpoint changes, or receiver probes were performed for this report. Future verification should run the desktop unit suite and relevant mocked WPF harness; the preceding audit could not execute them without the SDK.
+[SettingsTests.cs:135–138](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SettingsTests.cs#L135-L138) covers valid manual-record round trips; [169–179](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SettingsTests.cs#L169-L179) covers direct sample-rate validation and a missing-rate default. These do not test persisted invalid rates or null manual elements through the loader/constructor. The WPF [UiRegression harness](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs) provides mock services for integration assertions. No new tests, real config reads, endpoint changes, or receiver probes were performed for this report. Future verification should run the desktop unit suite and relevant mocked WPF harness; the preceding audit could not execute them without the SDK.

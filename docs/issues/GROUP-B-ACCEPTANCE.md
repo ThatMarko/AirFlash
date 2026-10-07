@@ -1,12 +1,15 @@
-# Group B local acceptance
+# Group B feature acceptance
 
 Verified on 2026-10-07. This records a tested implementation branch, **not behavior integrated into original stable main**. Original `upstream/main` was refreshed before implementation and again after the local commits; it remains `41190e0d13a63a714c08dffe73ababca1804875c`.
 
 - Branch: `codex/fix-session-lifecycle`, based directly on original stable main.
 - Core contract/selection commit: `46627962d8df6c476eb98c39da7a9d561a2a32e9`.
 - Application integration/final head: `342aeb77cb85ff6f3f7f850161b3db79d8637945`.
-- Publication: local commits only; Group B has not been pushed or submitted upstream.
+- Integration: the tested feature is included in local fork `main` at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`, after Group A's merge `ca84c7c`. Original upstream `main` has not merged Group B.
+- Publication: branch push and hosted validation are tracked separately in [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md); Group B has not been submitted upstream.
 - Review: independent source and regression-assertion review completed with no actionable findings. Its required automatic-save-failure fixture was added and reviewed.
+
+Implementation source at the tested feature head: [session ownership/admission](https://github.com/ThatMarko/AirFlash/blob/342aeb77cb85ff6f3f7f850161b3db79d8637945/desktop/AirFlash.Core/SessionController.cs), [receiver selection](https://github.com/ThatMarko/AirFlash/blob/342aeb77cb85ff6f3f7f850161b3db79d8637945/desktop/AirFlash.Core/ReceiverSelection.cs), [application integration](https://github.com/ThatMarko/AirFlash/blob/342aeb77cb85ff6f3f7f850161b3db79d8637945/desktop/AirFlash.App/ViewModels/AppViewModel.cs), and [isolated WPF lifecycle fixtures](https://github.com/ThatMarko/AirFlash/blob/342aeb77cb85ff6f3f7f850161b3db79d8637945/desktop/AirFlash.App/Verification/UiSessionLifecycle.cs). These files are separate from each report's pinned original-source evidence.
 
 ## Separate report acceptance
 
@@ -34,4 +37,4 @@ Evidence is kept in the implementation worktree's ignored `artifacts/group-b-tes
 
 Config schema 2, JSONL v1, independent manual persistence, selected-adapter no-fallback, authentication-method exclusivity, accessory `/info deviceID` credential keys, and exact prior mute-bit restoration are preserved. No native, discovery-service or production audio-service source changed. No real config, credentials, receiver, capture or endpoint mutation was used; the UI harness's tray/window registrations are isolated test identities. No hardware/acoustic reliability or physical OS mute guarantee follows from these mocks.
 
-Next action: activate Task 3 for Group B when publication is wanted; recheck original stable main and the small review queue then. Opening Group A's PR does not make its code a merged dependency.
+Next action: complete the authorized fork build/download validation recorded in [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) before activating Task 3 for Group B upstream submission. Recheck original stable main and the small review queue then. The fork integration does not make Group A an accepted upstream dependency; each feature branch retains its original-base implementation boundary.

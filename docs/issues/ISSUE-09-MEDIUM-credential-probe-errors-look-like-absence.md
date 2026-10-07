@@ -9,7 +9,7 @@
 - **Evidence status**: Source and standard-library contract verified; fault-injection reproduction is specified but not executed
 - **Implementation status**: Proposal only; no runtime change applied
 - **Runtime baseline**: `41190e0`; documentation baseline `c077a05` with the audited [credentials/IPC](../analysis/credentials-and-ipc.md) and [authentication](../analysis/auth.md) pages
-- **Target files**: [credentials.rs:105–121](../../native/airflash-engine/src/credentials.rs#L105-L121), [session.rs:232–251](../../native/airflash-engine/src/session.rs#L232-L251)
+- **Target files**: [credentials.rs:105–121](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L105-L121), [session.rs:232–251](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/session.rs#L232-L251)
 - **Analysis context**: [Credentials and IPC](../analysis/credentials-and-ipc.md), [Authentication](../analysis/auth.md)
 
 ## 1. Current behavior and impact
@@ -24,10 +24,10 @@ The concrete defect is loss of the storage error and selection of a different au
 
 | Step | Evidence |
 | --- | --- |
-| Filename hashes normalized accessory `/info` id | [credentials.rs:25–32](../../native/airflash-engine/src/credentials.rs#L25-L32) |
-| False existence probe returns no credential | [credentials.rs:105–109](../../native/airflash-engine/src/credentials.rs#L105-L109) |
-| Metadata/read/decrypt validation follows only a true probe | [credentials.rs:110–121](../../native/airflash-engine/src/credentials.rs#L110-L121) |
-| Nonempty `/info` identity calls this loader; `Some` verifies and `None` uses transient setup | [session.rs:232–251](../../native/airflash-engine/src/session.rs#L232-L251) |
+| Filename hashes normalized accessory `/info` id | [credentials.rs:25–32](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L25-L32) |
+| False existence probe returns no credential | [credentials.rs:105–109](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L105-L109) |
+| Metadata/read/decrypt validation follows only a true probe | [credentials.rs:110–121](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L110-L121) |
+| Nonempty `/info` identity calls this loader; `Some` verifies and `None` uses transient setup | [session.rs:232–251](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/session.rs#L232-L251) |
 
 There is no fallback after an actual pair-verify failure. This issue concerns the earlier absence decision. It does not change credential encryption, accessory identity checks, or pairing protocols.
 
@@ -57,4 +57,4 @@ The loader already returns `Result<Option<Credentials>>`, so this can be correct
 - Synthetic tests distinguish `NotFound`, `PermissionDenied`, other I/O failures, disappearance during read, and valid/tampered payloads without logging secrets.
 - Existing DPAPI magic, current-user encryption, normalized accessory filename key, and atomic replacement remain unchanged.
 
-[credentials.rs:127–134](../../native/airflash-engine/src/credentials.rs#L127-L134) tests protect/unprotect and tamper rejection, not loader absence/error classification. [auth.rs:454–540](../../native/airflash-engine/src/auth.rs#L454-L540) covers synthetic pair-verify identity/proof handling. Neither is evidence of an executed filesystem fault test here. A later implementation should run the Rust suite; it was unavailable during the preceding audit. No receiver probe is needed. If later hardware qualification is authorized, finite probes remain gain at most 0.1 and duration at most five seconds.
+[credentials.rs:127–134](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L127-L134) tests protect/unprotect and tamper rejection, not loader absence/error classification. [auth.rs:454–540](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/auth.rs#L454-L540) covers synthetic pair-verify identity/proof handling. Neither is evidence of an executed filesystem fault test here. A later implementation should run the Rust suite; it was unavailable during the preceding audit. No receiver probe is needed. If later hardware qualification is authorized, finite probes remain gain at most 0.1 and duration at most five seconds.

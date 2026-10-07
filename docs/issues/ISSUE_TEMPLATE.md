@@ -28,7 +28,7 @@ Provide exact code anchors for the trigger, state/ownership transition, erroneou
 Use portable paths, for example:
 
 ```markdown
-[AppViewModel.cs:211–219](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L211-L219)
+[AppViewModel.cs:211–219](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L211-L219)
 ```
 
 Use a short excerpt only when it improves understanding. Explain which assumptions are unverified and which existing mechanism already handles a related case. Do not substitute absence of a preferred architecture for proof of a bug.

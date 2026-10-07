@@ -6,14 +6,14 @@
 - **Severity**: MEDIUM — automatic connection to a new eligible receiver can be suppressed after another receiver failed.
 - **Kind**: Defect
 - **Subsystem**: Desktop auto-connect selection
-- **Status**: Implemented and verified locally on `codex/fix-session-lifecycle`; not integrated into original stable main.
+- **Status**: Implemented and verified on `codex/fix-session-lifecycle`; integrated into local fork `main`, unmerged in original upstream `main`.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
 - **Evidence status**: The original audit inspected source without executing the proposed dispatcher/mock scenario. Subsequent isolated baseline observation reproduced candidate blocking; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No receiver failure was observed on hardware.
-- **Implementation status**: Local head `342aeb7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
-- **Target file**: [AppViewModel.cs](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L318)
+- **Implementation status**: Feature head `342aeb7`, included in local fork integration `72dc7c7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
+- **Target file**: [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L318)
 - **Analysis context**: [After discovery](../analysis/after-discovery.md)
 
-## 1. Current behavior
+## 1. Original baseline behavior
 
 `TryAutoConnectAsync` builds eligible receivers from online/completeness/visibility and auto-connect settings, then picks the last-used receiver or first name. Only after selecting it does the function consult `_autoAttempted`. If that preferred receiver was already attempted, the function returns without selecting another eligible receiver, even when the second receiver has just appeared and has never been attempted.
 
@@ -29,11 +29,11 @@ var receiver = eligible.OrderByDescending(r => r.Id == _settings.LastReceiverId)
 if (receiver is not null && !_autoAttempted.Contains(receiver.Id)) await ToggleAsync(receiver);
 ```
 
-Exact source: [AppViewModel.cs:318–323](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L318). `ToggleAsync` marks the id before start and saves it as last-used ([292–310](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292)); asynchronous connection failure leaves the id attempted. A new B clears B's attempted mark, not A's ([202–206](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L202)). Repeating A's online/complete snapshot does not clear A, so it continues winning selection and blocking B.
+Exact source: [AppViewModel.cs:318–323](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L318). `ToggleAsync` marks the id before start and saves it as last-used ([292–310](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292)); asynchronous connection failure leaves the id attempted. A new B clears B's attempted mark, not A's ([202–206](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L202)). Repeating A's online/complete snapshot does not clear A, so it continues winning selection and blocking B.
 
-## 3. Minimal mock reproduction — planned, not run
+## 3. Original mock reproduction plan
 
-Use the existing [automatic-attempt harness](../../desktop/AirFlash.App/Verification/UiRegression.cs#L202) with `MockDiscovery`, `MemoryStore`, fake audio, and [MockFactory.FailOpen](../../desktop/AirFlash.App/Verification/UiSmoke.cs#L344).
+Use the existing [automatic-attempt harness](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L202) with `MockDiscovery`, `MemoryStore`, fake audio, and [MockFactory.FailOpen](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiSmoke.cs#L344).
 
 1. Enable global auto-connect, disable force reconnect, and publish only complete receiver A. Make the factory fail open. Wait for one automatic attempt and Error; A becomes last-used and attempted.
 2. Allow the fake factory to succeed, keep A online/complete, and publish A plus newly discovered complete B. Choose names that keep A first as well, so either preference rule exercises the defect.
@@ -42,7 +42,7 @@ Use the existing [automatic-attempt harness](../../desktop/AirFlash.App/Verifica
 
 All hosts can be documentation-only addresses and all connections must be fake. The desired automatic policy is to prefer last-used/name among unattempted eligible candidates, while retaining one automatic attempt per id until its allowed reset.
 
-## 4. Proposed change — not applied
+## 4. Original change proposal
 
 Exclude attempted ids before ranking/selecting candidates. Preserve the existing global/per-receiver override precedence, visibility/completeness checks, entry-time active-session check, and user-stop suppression. That entry check alone does not prevent a separately started session from being replaced after an awaited settings operation; [ISSUE-02](ISSUE-02-HIGH-delayed-autoconnect-replaces-new-session.md) addresses atomic auto-start admission. Do not clear all attempted ids on every snapshot: that would repeatedly retry A and defeat the guard. Keep existing alias migration and offline/incomplete transition reset semantics. No schema, IPC, engine, or network-policy change is needed.
 
@@ -55,10 +55,10 @@ Exclude attempted ids before ranking/selecting candidates. Preserve the existing
 - Alias promotion preserves attempted status, while an allowed offline-to-online/incomplete-to-complete transition can make that same receiver retryable.
 - Each timer invocation selects at most one candidate; a session already active at entry retains the existing no-op behavior. The overlapping-start protection is separately covered by ISSUE-02 and must not be claimed fixed by candidate filtering alone.
 
-The [existing identity automatic-attempt regression](../../desktop/AirFlash.App/Verification/UiRegression.cs#L202) verifies one receiver's failure, alias promotion, and offline recovery. It does not include the second eligible candidate. Add that assertion, ideally with controllable timer scheduling rather than a timing-sensitive sleep, before implementation is considered verified.
+The [existing identity automatic-attempt regression](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L202) verifies one receiver's failure, alias promotion, and offline recovery. It does not include the second eligible candidate. Add that assertion, ideally with controllable timer scheduling rather than a timing-sensitive sleep, before implementation is considered verified.
 
 Safety: mock-only verification; no hardware or probes. Any later audio qualification remains gain ≤0.1 and duration ≤5 seconds. No upstream issue #6/#7 or dev correspondence is claimed.
 
-## Executed local implementation
+## Executed implementation and fork integration
 
-The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. Original stable main remains unchanged; no hardware incident is attributed to this defect.
+The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. Original upstream stable main remains unchanged. The tested feature is now integrated into local fork `main`; [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) records later build/download evidence separately. No hardware incident is attributed to this defect.

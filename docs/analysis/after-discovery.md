@@ -22,7 +22,7 @@ flowchart TD
 
 ## Merging advertisements
 
-[`ReceiverAggregator.Build`](../../desktop/AirFlash.Core/Receiver.cs) runs on every publish, including a publish whose records did not change.
+[`ReceiverAggregator.Build`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Receiver.cs) runs on every publish, including a publish whose records did not change.
 
 Services are ordered AirPlay first, then by instance name, address, and port. They collapse in one pass:
 
@@ -53,7 +53,7 @@ Member preferences stay on the member ids. Hiding one member does not hide the `
 
 ## Stable identity
 
-[`ReceiverCatalog.Reconcile`](../../desktop/AirFlash.Core/ReceiverCatalog.cs) rewrites each discovered device onto one canonical id before the panel updates. The walk, the alias rules, and the preference merge are in [Identity](identity.md). The outcome that this stage depends on is:
+[`ReceiverCatalog.Reconcile`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverCatalog.cs) rewrites each discovered device onto one canonical id before the panel updates. The walk, the alias rules, and the preference merge are in [Identity](identity.md). The outcome that this stage depends on is:
 
 - Advertised MAC-shaped ids and RAOP prefixes can become one canonical broadcast id. Saved `host:port` preferences migrate only when that endpoint is uniquely advertised by this device and is not a manual id. Without a broadcast identity the endpoint remains a fallback id.
 - Manual ids are not rewritten and are not alias targets.
@@ -129,7 +129,7 @@ Every discovery result, including an identical one, restarts a 900 ms timer. Bef
 
 If several receivers qualify, the last-used id wins. Otherwise the first name in the current list wins. If that preferred id is already attempted, the timer does nothing; it does not try the next eligible receiver. One receiver is started through the same `ToggleAsync` path as a click, which can perform the address-based stereo redirection described above. An attempt is marked before session start, so a failure counts. Repeating the same discovery result does not clear it. A new row, an offline-to-online cycle, or an incomplete-to-complete transition clears the id's attempt mark.
 
-These are entry checks, not atomic auto-start admission. `ToggleAsync` awaits a dirty settings flush and the settings gate before clearing suppression and calling unconditional `Session.StartAsync`. Direct Settings Pair bypasses that gate and can start while the automatic action waits; the delayed start can then cancel/replace that pairing session. A user Stop during the wait can likewise set suppression before the delayed Toggle clears it. The lifecycle semaphore serializes these actions but does not reject the stale automatic intent. See [`AppViewModel.cs:298–323`](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L298-L323) and [`SessionController.cs:176–224`](../../desktop/AirFlash.Core/SessionController.cs#L176-L224). These interleavings are source-derived; no concurrent fixture was executed in this review.
+These are entry checks, not atomic auto-start admission. `ToggleAsync` awaits a dirty settings flush and the settings gate before clearing suppression and calling unconditional `Session.StartAsync`. Direct Settings Pair bypasses that gate and can start while the automatic action waits; the delayed start can then cancel/replace that pairing session. A user Stop during the wait can likewise set suppression before the delayed Toggle clears it. The lifecycle semaphore serializes these actions but does not reject the stale automatic intent. See [`AppViewModel.cs:298–323`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L298-L323) and [`SessionController.cs:176–224`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L176-L224). These interleavings are source-derived; no concurrent fixture was executed in this review.
 
 Turning global auto-connect from off to on clears the suppress flag and the attempt set, then schedules the timer.
 
@@ -139,20 +139,20 @@ On an initial discovery with no active session, the timer or an explicit play/Pa
 
 | Claim group | Source anchors |
 | --- | --- |
-| Aggregation order, compatible endpoints, logging, stereo | [`Receiver.cs:29–107`](../../desktop/AirFlash.Core/Receiver.cs#L29), [`WindowsDiscovery.cs:164–175`](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs#L164) |
-| Dispatcher boundary and reconciliation transaction | [`AppViewModel.cs:88, 151–220`](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L151) |
-| Known/manual map, full equality, panel filtering | [`AppViewModel.cs:185–249`](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L185) |
-| Draft catalog, history, pairing | [`SettingsViewModel.cs:188–221`](../../desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L188), [`SettingsWindow.xaml.cs:20–24`](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs#L20) |
-| Redirect, suppress flag and candidate-before-attempt check | [`AppViewModel.cs:292–324`](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292) |
-| Signature and active update rules | [`Receiver.cs:20`](../../desktop/AirFlash.Core/Receiver.cs#L20), [`SessionController.cs:175, 246–260`](../../desktop/AirFlash.Core/SessionController.cs#L246) |
-| Startup engine hello | [`App.xaml.cs:55–65, 125–134`](../../desktop/AirFlash.App/App.xaml.cs#L55) |
+| Aggregation order, compatible endpoints, logging, stereo | [`Receiver.cs:29–107`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Receiver.cs#L29), [`WindowsDiscovery.cs:164–175`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L164) |
+| Dispatcher boundary and reconciliation transaction | [`AppViewModel.cs:88, 151–220`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L151) |
+| Known/manual map, full equality, panel filtering | [`AppViewModel.cs:185–249`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L185) |
+| Draft catalog, history, pairing | [`SettingsViewModel.cs:188–221`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L188), [`SettingsWindow.xaml.cs:20–24`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs#L20) |
+| Redirect, suppress flag and candidate-before-attempt check | [`AppViewModel.cs:292–324`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292) |
+| Signature and active update rules | [`Receiver.cs:20`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Receiver.cs#L20), [`SessionController.cs:175, 246–260`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L246) |
+| Startup engine hello | [`App.xaml.cs:55–65, 125–134`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/App.xaml.cs#L55) |
 
-[`DiscoveryTests`](../../desktop/AirFlash.Tests/DiscoveryTests.cs#L9) and [`ReceiverIdentityTests`](../../desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L22) cover pure interface selection, aggregation, stereo counting, endpoint conflicts, and migrations. [`SessionTests.cs:91–123`](../../desktop/AirFlash.Tests/SessionTests.cs#L91) covers identity updates retaining transport, changed effective latency restarting once, and renamed/reordered stereo members retaining transport. These xUnit tests do not instantiate `AppViewModel`. The separate WPF [`UiRegression` harness](../../desktop/AirFlash.App/Verification/UiRegression.cs#L163), invoked by `--ui-smoke`, covers failed identity-save coupling, open drafts, automatic-attempt migration/offline recovery, and stopping playback when a stereo member disappears. The attempted-preferred-receiver fallback edge, manual-row address redirection, and delayed automatic admission race lack dedicated assertions there. All of that harness uses mock discovery/audio/engine services, not live receivers.
+[`DiscoveryTests`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/DiscoveryTests.cs#L9) and [`ReceiverIdentityTests`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L22) cover pure interface selection, aggregation, stereo counting, endpoint conflicts, and migrations. [`SessionTests.cs:91–123`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L91) covers identity updates retaining transport, changed effective latency restarting once, and renamed/reordered stereo members retaining transport. These xUnit tests do not instantiate `AppViewModel`. The separate WPF [`UiRegression` harness](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L163), invoked by `--ui-smoke`, covers failed identity-save coupling, open drafts, automatic-attempt migration/offline recovery, and stopping playback when a stereo member disappears. The attempted-preferred-receiver fallback edge, manual-row address redirection, and delayed automatic admission race lack dedicated assertions there. All of that harness uses mock discovery/audio/engine services, not live receivers.
 
 
-## Locally tested Group B behavior
+## Implemented Group B behavior
 
-The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. Group B has not been pushed or integrated. See the [acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md).
+The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. This feature is included in local fork `main` at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`; original upstream `main` remains at `41190e0` without these fixes. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate implementation and later integration evidence.
 
 Reconciliation captures the session snapshot and lifecycle owner atomically before persistence. A complete, online discovered replacement is applied only if the serialized controller still owns that lifecycle. Metrics do not invalidate the owner. Empty or incomplete discovery preserves the owned handshake/transport and leaves availability in the catalog; the active card retains Stop.
 

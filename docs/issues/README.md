@@ -4,7 +4,9 @@ The **17 active reports** are now numbered continuously from **ISSUE-01 through 
 
 [Implementation plan](IMPLEMENTATION_PLAN.md) defines a small set of coherent PR groups, the work for every issue, dependencies, parallel work, regression fixtures, and completion gates. **The next new report is ISSUE-18.**
 
-The original runtime evidence remains pinned to `41190e0`, unchanged by documentation baseline `c077a05`. Read [docs/analysis](../analysis/README.md) before investigating an area. Source-supported means the control flow or missing mechanism is visible in that source; it does not attribute a real receiver incident. Subsequent tested feature branches are recorded separately from original stable behavior: [Group B local acceptance](GROUP-B-ACCEPTANCE.md) covers the completed local session/receiver package. Unimplemented groups remain proposals.
+The original runtime evidence remains pinned to `41190e0`, unchanged by documentation baseline `c077a05`. Read [docs/analysis](../analysis/README.md) before investigating an area. Source-supported means the control flow or missing mechanism is visible in that source; it does not attribute a real receiver incident. Subsequent tested feature branches are recorded separately from original stable behavior: [Group B feature acceptance](GROUP-B-ACCEPTANCE.md) covers the session/receiver package. Group A and then Group B are integrated into local fork `main` at `72dc7c7`; [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) records the subsequent build/download checks. Original upstream `main` has not merged these fixes. Unimplemented groups remain proposals.
+
+Source links in baseline report sections resolve to the full audited upstream commit. Implementation sections link their feature source and record later checks separately, so current fork code does not silently replace the evidence for an original report.
 
 ## Active reports
 
