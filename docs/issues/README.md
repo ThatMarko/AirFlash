@@ -8,7 +8,7 @@ The original runtime evidence remains pinned to `41190e0`, unchanged by document
 
 Source links in baseline report sections resolve to the full audited upstream commit. Implementation sections link their feature source and record later checks separately, so current fork code does not silently replace the evidence for an original report.
 
-The separately reported Settings scrollbar issues have a [local acceptance record](SETTINGS-SCROLL-ACCEPTANCE.md). That UI fix is tested on a separate implementation branch and an A+B integration branch; it is not merged into fork or upstream main and does not activate another backlog group.
+The separately reported Settings scrollbar issues have an [acceptance record](SETTINGS-SCROLL-ACCEPTANCE.md). That UI fix is now integrated into fork main after the user's authorization; GitHub build/download verification is pending. It remains outside upstream main and does not activate another backlog group.
 
 ## Active reports
 
