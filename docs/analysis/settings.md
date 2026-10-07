@@ -1,6 +1,6 @@
 # Settings and the desktop shell
 
-The panel, discovery, and the engine all read one in-memory `AppSettings`. That object is loaded from `%APPDATA%\AirFlash\config.json` and written back by identity migration, by the 200 ms volume timer, and by Settings → Apply. Playback uses a clone of it. The engine never reads the file.
+The desktop panel and discovery configuration use the view model's live `AppSettings`. That object is loaded from `%APPDATA%\AirFlash\config.json` and written back by identity migration, by the 200 ms panel-edit timer, and by Settings → Apply. Settings edits a separate draft and the session controller clones playback settings. The native engine receives selected values through JSONL commands; it shares no `AppSettings` object and never reads this file.
 
 ## Load and the two backups
 
@@ -12,24 +12,24 @@ The panel, discovery, and the engine all read one in-memory `AppSettings`. That 
 | Less than 2 | Rewrites the object in memory and remembers the original text. A receiver `auto_connect: false` becomes null, which follows the global switch. A schema-2 explicit false stays false across a reload. `capture_mode: virtual` becomes `endpoint`, and `capture_endpoint` is taken from `virtual_output_device` when that field exists. `custom_buffer_ms` on the root and on each receiver is clamped to 0–2000. `schema_version` is set to 2 |
 | 2 | Deserialized as-is |
 
-A `JsonException`, `IOException`, `UnauthorizedAccessException`, or `InvalidOperationException` becomes defaults plus `LoadWarning`. The original text is remembered the same way as a schema migration. Startup shows that warning in the panel notice.
+The recovery handler for `JsonException`, `IOException`, `UnauthorizedAccessException`, or `InvalidOperationException` sets `LoadWarning`, rereads the original file when it still exists, and returns defaults. That recovery read is outside another catch: if the file remains unreadable, its `File.ReadAllText` exception escapes instead of returning defaults. When recovery succeeds, the original text is remembered as for a schema migration, and startup shows the warning in the panel notice. `Load` does not run `Validate`; even schema-2 data can deserialize with unsupported enum strings or out-of-range values that are rejected only on Apply or handled by downstream clamps.
 
-After deserialize, null receiver maps become empty. `ReceiverAliases` keeps an entry only when the key and the value are both broadcast identities. Keys and values are normalized. Duplicate normalized keys keep the first value. An `endpoint:` string, a `stereo:` id, or a `host:port` written by an older save does not come back. The in-memory alias map built by [Identity](identity.md) can still contain a unique endpoint until the next launch.
+After deserialize, null receiver/alias maps and a null manual list become empty, and receiver options whose entire value is null are removed. `ReceiverAliases` keeps an entry only when the key and the value are both broadcast identities. Keys and values are normalized. Duplicate normalized keys keep the first value. An `endpoint:` string, a `stereo:` id, or a parsed endpoint written by an older save does not come back. Current [identity reconciliation](identity.md) uses unique endpoints only in transient receiver aliases and migrations; it does not add them to `ReceiverAliases`.
 
-The next `Save` writes the remembered original text to `config.json.pre-wpf.bak` once, when that backup is absent, then clears the remembered text. A later identity migration copies the current file to `config.json.pre-receiver-identity.bak` once, before the same `Save`. Those are different backups.
+The next `Save` writes the remembered original text to `config.json.pre-wpf.bak` once, when that backup is absent, then clears the remembered text. `SaveReceiverIdentityAsync` first copies the current file to `config.json.pre-receiver-identity.bak` when `NeedsBackup` requests it and that backup is absent, then calls `Save`. These are different backups and may both be created during the same identity save. Alias additions alone do not request the identity backup.
 
-`Save` writes `config.json.<guid>.tmp` and then `File.Replace` when the destination exists, or `File.Move` when it does not. The temp file is deleted afterward. A failed save leaves the previous file. Unknown JSON fields ride along in `Extra` and are written back.
+`Save` writes `config.json.<guid>.tmp` and then `File.Replace` when the destination exists, or `File.Move` when it does not. The temp file is deleted afterward. A failure before replacement leaves the previous configuration; this is not a source-level power-loss durability guarantee, and a backup may already have been created. Unknown root fields ride along in `AppSettings.Extra`; the equalizer has its own `Extra`. `ReceiverOptions` and `ManualReceiver` have no extension-data store, so unknown fields inside those records are not preserved. `Save` itself does not call `Validate`.
 
 ## What a field changes
 
-[`AppSettings.Validate`](../../desktop/AirFlash.Core/Settings.cs) rejects a bad value before Apply. The ranges that reach playback are the same ones [Session](session.md) sends.
+[`AppSettings.Validate`](../../desktop/AirFlash.Core/Settings.cs) rejects a bad value before Apply. Validated playback values are selected by [Session](session.md); loaded settings are not automatically validated. Signature-based restarts below apply to an active non-pairing stream.
 
 | Field | Default | What uses it |
 | --- | --- | --- |
 | `master_volume` | 100 | PCM gain is this value divided by 100, or 0 while the panel mute is on. `Gain` ignores every per-receiver volume |
 | `latency_mode`, `custom_buffer_ms` | `normal`, 1000 | 120, 200, 500, or the custom value clamped to 0–2000. A receiver override wins when it is set |
 | `stream_sample_rate` | `44100` | `44100` or `48000`. A change restarts the process |
-| `capture_mode`, `capture_endpoint` | `loopback`, empty | Loopback sends a null endpoint, which is the default console render device. Endpoint mode requires a device id and restarts when it changes |
+| `capture_mode`, `capture_endpoint` | `loopback`, null | Loopback sends a null endpoint, which is the default console render device. Endpoint mode requires a device id and restarts an active non-pairing stream when its effective endpoint changes |
 | `mute_while_streaming` | true | Local endpoint mute after `streaming`. See [Control and mute](control-and-mute.md) |
 | `auto_connect_on_discover` | false | Arms the 900 ms timer. A receiver `auto_connect: false` overrides a global true |
 | `force_reconnect`, `max_reconnect_attempts` | false, 5 | The retry loop in [Failures](failures.md). Attempts must be 1–20 |
@@ -57,29 +57,31 @@ Settings edits a clone. Apply does not copy the draft over the live object.
 7. A discovery-interface change calls `SetInterface`, which restarts browsing. Manual rows are merged and the panel is redrawn.
 8. `Session.UpdateSettingsAsync` runs after the file is saved. A failure there leaves the file in place and returns "Settings saved, but audio could not be updated." A signature change restarts the process. Gain, equalizer, and the mute bit update in place. See [Session](session.md).
 
-The 200 ms panel timer is a smaller save: it writes the current settings and calls `UpdateSettingsAsync`. It does not run the three-way merge. Discovery holds the same settings lock, so a discovery result waits until that save finishes, and a dirty volume edit is rescheduled afterward.
+The 200 ms panel timer is a smaller save: it writes a settings snapshot and calls `UpdateSettingsAsync`. It is used for master-volume, panel latency, and last-receiver edits, not device-volume changes. It does not run the three-way merge. Discovery uses the same asynchronous settings gate, so a discovery result waits until that save finishes; a concurrent panel edit remains dirty and is saved afterward. During Apply, `UpdateSettingsAsync` receives the saved `merged` snapshot even if a panel edit arrived during the save; the later dirty-panel flush brings that newer edit to disk and playback.
 
-Startup, still under that lock, applies the Run key from `start_at_login` and migrates a capture endpoint that was saved as a friendly name. One name match replaces it with the device id. Zero or several matches leave the value and set the notice that the previous endpoint is unavailable. A later change of the default console render device, while capture mode is loopback and a session is active and not pairing, calls `StartAsync` again. If nothing is playing, that notification only restores mute.
+Startup, still under that gate, applies the Run key from `start_at_login` and migrates a capture endpoint that was saved as a friendly name. One exact name match replaces it with the device id in memory; this helper does not immediately save that migration. Zero or several matches leave the value and set the notice that the previous endpoint is unavailable. A later change of the default console render device, while capture mode is loopback and a session is active and not pairing, calls `StartAsync` again. With no active session, the endpoint notification refreshes the catalog and attempts mute restore without starting playback.
 
 ## Manual receivers
 
 [`ManualReceiverDialog`](../../desktop/AirFlash.App/Ui/ManualReceiverDialog.cs) requires a host that `Uri.CheckHostName` accepts and that is not IPv6. Unknown names are rejected. The port must be 1–65535. The box starts at 7000. Settings rejects a second manual row with the same host and port, compared case-insensitively.
 
+These host-syntax and duplicate checks belong to the UI add path. `AppSettings.Validate` only checks that each manual host is nonblank and its port is in range; it does not perform DNS, reject IPv6 syntax, validate ids, or detect duplicate manual rows in a hand-written file. `Uri.CheckHostName` is a syntax check, not proof that a DNS hostname exists.
+
 `AddManual` stores the id as `host.ToLowerInvariant():port`. The name falls back to the host. Removing the row also removes its `ReceiverOptions`. Manual rows are written back over the known map on every discovery result. They stay online, and a discovery snapshot does not stop their session. Before `start`, the desktop resolves a hostname to one IPv4 address and fails the attempt when none exists.
 
 ## Shell around that file
 
-A second process does not load a second catalog. [`SingleInstance`](../../desktop/AirFlash.App/Services/SingleInstance.cs) takes a local mutex named from the current user's SID and listens on a same-user named pipe. The second process writes one byte and exits. The owner treats that byte as "show the panel."
+For an ordinary GUI launch, a second process exits before loading a second catalog. [`SingleInstance`](../../desktop/AirFlash.App/Services/SingleInstance.cs) takes a `Local\` mutex named from the current user's SID (username fallback) and listens on a same-user named pipe. The second process writes one byte and exits. The owner treats any received byte as activation: an open Settings window is activated, otherwise the panel is shown. Check and UI-harness flags are handled before the normal single-instance path.
 
 [`Autostart`](../../desktop/AirFlash.App/Services/Autostart.cs) writes `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\AirFlash` as `"<process>" --startup` or deletes the value. `--startup` skips the initial panel. The tray menu is Open panel, Settings, Stop streaming, and Quit.
 
-Language is chosen once in [`L`](../../desktop/AirFlash.Core/L.cs). `system` asks `GetUserPreferredUILanguages` and keeps the first preference whose language is `zh` or `en`. Anything else is English. The Chinese catalog is the embedded `Strings.zh.json`. Unknown English source strings stay English. Applying a different language waits until the settings transaction finishes, then rebuilds the panel, the tray, and an open Settings window at `ContextIdle`.
+[`L`](../../desktop/AirFlash.Core/L.cs) is initialized before startup UI creation, then reinitialized from saved language settings during normal startup. `system` asks `GetUserPreferredUILanguages` and keeps the first preference whose language is `zh` or `en`; if none match, it uses English. The Chinese catalog is the embedded `Strings.zh.json`. Unknown English source strings stay English. Applying a different language reinitializes `L` after the settings transaction finishes, then rebuilds the panel, the tray, and an open Settings window at `ContextIdle`.
 
-[`UpdateService`](../../desktop/AirFlash.Core/UpdateService.cs) GETs `https://api.github.com/repos/Ding-Kyoma/AirFlash/releases/latest` with a 15-second budget and a 1 MiB buffer. A missing release, a draft, or a prerelease yields no update. The tag must match `v?` plus three numeric parts. The download link is built from the repository constant and that tag. The response HTML is not used as a URL. The check does not download or install.
+[`UpdateService`](../../desktop/AirFlash.Core/UpdateService.cs) GETs `https://api.github.com/repos/Ding-Kyoma/AirFlash/releases/latest` with a 15-second budget. The Settings and command-check callers configure their HTTP clients with a 1 MiB response buffer; the service accepts an injected client and does not itself set that limit. HTTP 404, a draft, or a prerelease returns no stable release. The tag must match optional lowercase `v` plus three numeric parts; numeric version comparison happens in `UpdateCheckState`. The download link is built from the repository constant and that tag. The response `html_url` is not used as a destination. The check does not download or install.
 
-[`EndpointCatalog`](../../desktop/AirFlash.App/Services/EndpointCatalog.cs) lists active render endpoints, ordered by id. Device notifications restart a 200 ms timer and then refresh. A selected id that disappeared is shown as unavailable until Apply rejects it.
+[`EndpointCatalog`](../../desktop/AirFlash.App/Services/EndpointCatalog.cs) caches active render endpoints supplied by the MTA `AudioService`, ordered by id. Device notifications restart a 200 ms dispatcher timer and then refresh. Concurrent refresh requests join one task; a generation change during enumeration triggers another serial enumeration. A selected id that disappeared is shown as unavailable in the Settings draft, and Apply with endpoint mode rejects it unless it has returned by the fresh validation enumeration.
 
-These process flags exit before a session exists:
+These process flags bypass the normal single-instance/catalog startup and exit when their check or harness completes. The UI harnesses instantiate mock session controllers:
 
 | Flag | What it does |
 | --- | --- |
@@ -89,4 +91,20 @@ These process flags exit before a session exists:
 | `--update-check` | Runs the GitHub check and writes the result |
 | `--ui-smoke`, `--tray-smoke`, `--ui-perf` | UI harnesses. `--ui-language` can force the catalog for those runs |
 
-`--output` or `--self-check-output` selects the JSON file. A failure on a check flag writes `{ ok: false }` and exits 1.
+`--output` or `--self-check-output` selects the JSON file through `App.WriteOutput`; no JSON result file is written unless a flag is followed by a path. An exceptional check failure includes `error` alongside `ok: false` and exits 1; a discovery check with collected failure strings instead writes its normal receivers/errors object with `ok: false`. UI smoke/tray smoke choose the directory for rendered artifacts from `--output`, otherwise a temporary location, but their final JSON still goes through `App.WriteOutput`. `--self-check` opens a real short-lived engine for `hello`, without a playback session.
+
+## Source and verification scope
+
+| Claim group | Source anchors |
+| --- | --- |
+| Load, sanitization, warning recovery, two backup paths, replacement | [`SettingsStore.cs:16–84`](../../desktop/AirFlash.Core/SettingsStore.cs#L16) |
+| Defaults, effective gain/latency/endpoint, validation, extension data | [`Settings.cs:7–110`](../../desktop/AirFlash.Core/Settings.cs#L7), [`EqualizerSettings.cs:13`](../../desktop/AirFlash.Core/EqualizerSettings.cs#L13) |
+| Field-level merge | [`Settings.cs:144–167`](../../desktop/AirFlash.Core/Settings.cs#L144) |
+| Startup migration and endpoint restart | [`AppViewModel.cs:103–149`](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L103) |
+| Panel persistence and Apply transaction | [`AppViewModel.cs:338–415`](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L338) |
+| Manual UI checks, add/remove, session IPv4 resolution | [`ManualReceiverDialog.cs:30–34`](../../desktop/AirFlash.App/Ui/ManualReceiverDialog.cs#L30), [`SettingsViewModel.cs:224–240`](../../desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L224), [`SessionController.cs:455–459`](../../desktop/AirFlash.Core/SessionController.cs#L455) |
+| Single instance and autostart | [`SingleInstance.cs:12–40`](../../desktop/AirFlash.App/Services/SingleInstance.cs#L12), [`Autostart.cs:12–17`](../../desktop/AirFlash.App/Services/Autostart.cs#L12), [`App.xaml.cs:45–66`](../../desktop/AirFlash.App/App.xaml.cs#L45) |
+| Language, update and endpoint catalogs | [`L.cs:13–63`](../../desktop/AirFlash.Core/L.cs#L13), [`App.xaml.cs:77–101`](../../desktop/AirFlash.App/App.xaml.cs#L77), [`UpdateService.cs:10–33`](../../desktop/AirFlash.Core/UpdateService.cs#L10), [`EndpointCatalog.cs:19–83`](../../desktop/AirFlash.App/Services/EndpointCatalog.cs#L19) |
+| Check dispatch and outputs | [`App.xaml.cs:21–75, 125–166`](../../desktop/AirFlash.App/App.xaml.cs#L21) |
+
+[`SettingsTests`](../../desktop/AirFlash.Tests/SettingsTests.cs#L9) covers cloning, schema migration/backups, root unknown fields, three-way merging, defaults, latency/gain, sample rates, and future-schema rejection. [`ReceiverIdentityTests.cs:242–272`](../../desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L242) covers identity backups. [`LocalizationTests`](../../desktop/AirFlash.Tests/LocalizationTests.cs#L16) and [`UpdateTests`](../../desktop/AirFlash.Tests/UpdateTests.cs#L18) cover pure language selection and mocked release responses. The WPF [`UiRegression` harness](../../desktop/AirFlash.App/Verification/UiRegression.cs#L11), invoked by `--ui-smoke`, adds mock-based checks of save responsiveness, concurrent panel edits, startup rollback, endpoint validation, and network/manual catalog behavior. Those are available checks, not a live registry, DNS-SD, GitHub-service, or receiver playback validation performed by this document audit.

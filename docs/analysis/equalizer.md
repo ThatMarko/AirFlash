@@ -1,16 +1,16 @@
 # Equalizer
 
-One equalizer is applied to the PCM of every member, before master gain. It is saved in `config.json` and can change during a live session. It does not restart the engine process. The send loop that consumes it is in [Engine](engine.md). Settings Apply, which commits or clears a preview, is in [Settings](settings.md).
+One stereo processor transforms loopback PCM after resampling and queue extraction, before master gain, clipping, and 16-bit big-endian conversion. That PCM packet is shared by all session members before their independent packetization/encryption. Equalizer settings persist in `config.json` and can change without restarting the engine; equalizer fields are absent from the transport restart signature. See [Engine](engine.md) and [Settings](settings.md). ([live.rs, lines 120–153](../../native/airflash-engine/src/live.rs#L120-L153); [session.rs, lines 631–668](../../native/airflash-engine/src/session.rs#L631-L668); [SessionController.cs, lines 175 and 226–241](../../desktop/AirFlash.Core/SessionController.cs#L226-L241).)
 
-## The filter
+## Settings and the filter
 
-[`equalizer.rs`](../../native/airflash-engine/src/equalizer.rs) and [`EqualizerResponse`](../../desktop/AirFlash.Core/EqualizerSettings.cs) use the same ten peaking bands:
+[equalizer.rs, lines 7–27](../../native/airflash-engine/src/equalizer.rs#L7-L27) and [EqualizerSettings.cs, lines 14–26](../../desktop/AirFlash.Core/EqualizerSettings.cs#L14-L26) use ten fixed peaking bands:
 
 `31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 16000` Hz.
 
-The editor labels the second band "63 Hz". The coefficient uses 62.5.
+The editor labels the first two `31 Hz` and `63 Hz`; coefficients use 31.25 and 62.5. Native settings default to disabled, zero preamp, and ten zero gains. Gains and preamp must be finite and within −12 to +12 dB even when disabled. The desktop also requires exactly ten gains. Native deserialization uses a fixed ten-element array and rejects unknown equalizer fields; desktop settings preserve unknown properties as extension data but `WireParameters` sends only the three defined fields. ([equalizer.rs, lines 11–27](../../native/airflash-engine/src/equalizer.rs#L11-L27); [EqualizerSettings.cs, lines 5–20](../../desktop/AirFlash.Core/EqualizerSettings.cs#L5-L20); [EqualizerEditor.cs, lines 32–37](../../desktop/AirFlash.App/ViewModels/EqualizerEditor.cs#L32-L37).)
 
-Each band is an RBJ peaking section. A gain of 0 is a wire (`b = 1, 0, 0`). Any other gain uses
+Each band is an RBJ peaking section. Zero gain is a wire (`b = [1, 0, 0]`, feedback coefficients zero); otherwise:
 
 ```text
 A = 10^(gain / 40)
@@ -18,33 +18,45 @@ A = 10^(gain / 40)
 α = sin(ω) / (2 × 1.4)
 ```
 
-`1.4` is the Q. The desktop headroom math uses that same alpha. Gains and the preamp must be finite and inside −12 to +12 dB on both sides. The sample rate must be 44100 or 48000.
+`1.4` is Q, and numerator/feedback coefficients are normalized by `1 + α/A`. The desktop headroom calculation uses the same formula. Native `Prepared::new` explicitly accepts only 44100 or 48000 Hz. App settings validate those stream rates, but the standalone desktop `EqualizerResponse.Headroom` helper itself does not reject another rate. ([equalizer.rs, lines 35–82](../../native/airflash-engine/src/equalizer.rs#L35-L82); [EqualizerSettings.cs, lines 27–55](../../desktop/AirFlash.Core/EqualizerSettings.cs#L27-L55); [Settings.cs, lines 96 and 139](../../desktop/AirFlash.Core/Settings.cs#L96-L139).)
 
-The chain is bypassed when the equalizer is disabled, or when it is enabled and every band and the preamp are zero. Otherwise each channel runs the ten sections in order and then multiplies by the effective preamp.
+The native chain bypasses processing when disabled, or when enabled with every band and preamp exactly zero. Otherwise it uses f64 filter state, two independent channel histories, ten sections in order, then effective preamp gain; output returns to f32 before master gain and PCM conversion. Bypass preserves sample values exactly. ([equalizer.rs, lines 113–120 and 148–178](../../native/airflash-engine/src/equalizer.rs#L148-L178).)
 
-## Headroom
+## Sampled headroom
 
-When the equalizer is enabled, both implementations measure the peak of the summed band response at DC, at Nyquist, at each band center, and on a 4096-point log grid from 10 Hz up to `rate / 2`. Automatic attenuation is `−max(0, preamp + peak)`. The effective preamp is `preamp + attenuation`, so a boost that would peak above 0 dB is pulled back and a cut is left alone. Disabled or invalid settings report 0 dB of attenuation and 0 dB of effective preamp on the desktop. The engine still stores those two numbers on a successful `Prepared`.
+When enabled, both implementations estimate the peak summed band response at DC, Nyquist, each band center, and a 4096-point logarithmic grid from 10 Hz to `rate / 2`. Peak is bounded below by zero. Automatic attenuation is `−max(0, preamp + peak)` and effective preamp is `preamp + attenuation`. This pulls the sampled frequency-response maximum down to at most 0 dB while retaining an already negative preamp. It is a sampled response estimate, not a proof against transient peaks or every possible input clipping; the packet path still clamps after master gain. ([equalizer.rs, lines 83–120](../../native/airflash-engine/src/equalizer.rs#L83-L120); [EqualizerSettings.cs, lines 27–47](../../desktop/AirFlash.Core/EqualizerSettings.cs#L27-L47); [live.rs, lines 151–153](../../native/airflash-engine/src/live.rs#L151-L153).)
 
-The editor shows "Automatic attenuation" and "Effective preamp". It recomputes them on a background task after 50 ms of quiet, using the active stream rate when the session is active at 44100 or 48000, and otherwise the draft sample rate.
+The desktop helper returns zero attenuation/effective preamp for disabled or invalid settings. Native preparation rejects invalid settings rather than returning those values; successful disabled preparation stores both as zero. The editor displays `Automatic attenuation` and `Effective preamp`. It waits 50 ms before reading the latest draft, calculates on `Task.Run`, and discards a stale result by revision; continuing edits can cause further passes. It does not require 50 ms of edit-free quiet. The rate is the active snapshot's stream rate when valid, otherwise the draft rate (falling back to 44100 if parsing fails). ([EqualizerEditor.cs, lines 26 and 47–68](../../desktop/AirFlash.App/ViewModels/EqualizerEditor.cs#L47-L68); [SettingsViewModel.cs, lines 123–126](../../desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L123-L126).)
 
-Five presets replace the bands and set the preamp to 0: Flat, Bass boost, Vocals, Pop, and Rock. Any other curve is Custom. Reset is the flat curve.
+Five presets replace the gains and set preamp to zero: Flat, Bass boost, Vocals, Pop, and Rock. `Custom` is derived only from whether the band array matches a preset; a different preamp alone does not make the label Custom. Reset sets flat bands and zero preamp, retaining the enabled bit. Disabling the equalizer likewise retains its curve. ([EqualizerEditor.cs, lines 16–37](../../desktop/AirFlash.App/ViewModels/EqualizerEditor.cs#L16-L37).)
 
-## Preview and the live command
+## Preview and persistence
 
-Dragging a band updates the Settings draft immediately and calls `PreviewEqualizerAsync`. The session keeps that preview as the effective equalizer for the next `start` and for `set_equalizer`. The send loop waits 50 ms, then sends the latest sequence. Further edits during that wait collapse into one send. A reply whose sequence is not the latest edit is ignored. Apply and disposing Settings call `ClearEqualizerPreviewAsync`, which drops the preview and sends the saved equalizer.
+A valid draft edit immediately updates the Settings draft and calls `PreviewEqualizerAsync` with that panel's owner id. The controller clones the preview and increases its sequence. The preview takes precedence over saved settings for both a future `start` and a live `set_equalizer`, including across reconnects and receiver switches. The send loop waits 50 ms, sends the latest sequence, and repeats if edits occurred during the send. Edits inside each interval coalesce, while continuous dragging still sends intermediate updates; this is not a wait-until-dragging-stops debounce. A semaphore serializes equalizer sends with the `start` send. ([SettingsViewModel.cs, lines 114–121](../../desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L114-L121); [SessionController.cs, lines 38–110 and 303–310](../../desktop/AirFlash.Core/SessionController.cs#L38-L110).)
 
-`set_equalizer` is accepted only when all of these hold:
+After Settings Apply completes its save/apply step, it clears the panel's preview and sends the controller's current saved equalizer. A save exception before that point keeps the draft and preview. Disposing Settings initiates preview clearing without awaiting it. Clearing checks the owner id so an older panel cannot clear a newer panel's preview, cancels its pending send loop, increases sequence, and uses saved settings for the next live send. This clearing task is not proof the engine has already applied the saved curve. ([SettingsViewModel.cs, lines 138–141, 159–181, and 311–316](../../desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L159-L181); [SessionController.cs, lines 77–110](../../desktop/AirFlash.Core/SessionController.cs#L77-L110).)
 
-- The session id matches the running worker.
-- The command's sequence is greater than 0, and greater than the sequence already applied.
-- The worker was started with `start`. `probe` and `pair` leave the equalizer slot empty, so the command returns `equalizer_error`.
-- The payload validates. Preparation runs on the command thread.
+The desktop ignores equalizer replies from an obsolete generation or sequence and shows current `equalizer_error` messages on the equalizer page. A valid reply clears that page's error; those errors do not stop playback. ([SessionController.cs, lines 320–324](../../desktop/AirFlash.Core/SessionController.cs#L320-L324); [SettingsViewModel.cs, lines 128–135](../../desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L128-L135).)
 
-Success emits `equalizer_changed` with `auto_attenuation_db` and `effective_preamp_db`. Failure emits `equalizer_error` and does not stop playback. The desktop shows that message on the equalizer page.
+## Command acceptance and audio application
 
-The capture path reads the mailbox with `try_lock`. A contended lock skips the update for that packet instead of waiting. A newer curve crossfades over `rate / 50` frames, about 20 ms, and a curve that arrives during a fade is held until the fade finishes.
+`set_equalizer` validates its parameter structure, a positive sequence, a matching **stored** `Running` session id, and an equalizer control slot created by `start`. `probe` and `pair` have no such slot and return `equalizer_error`. Preparation runs on the stdin command thread. The handler does not require receipt of `streaming` or check whether the stored worker has already finished. ([main.rs, lines 154–171 and 185–202](../../native/airflash-engine/src/main.rs#L185-L202).)
 
-## Where it is illegal
+A valid request emits `equalizer_changed` with sequence, `auto_attenuation_db`, and `effective_preamp_db`; preparation errors emit `equalizer_error` and leave the worker alone. **Old or duplicate positive sequences do not return an error**: `Control::set` silently retains the current mailbox when `sequence <= stored_sequence`, while the command handler still returns `equalizer_changed` for the submitted prepared values. Consequently this event acknowledges command preparation/handling, not adoption of that curve by the audio processor or completion of a fade. ([main.rs, lines 195–201](../../native/airflash-engine/src/main.rs#L195-L201); [equalizer.rs, lines 124–145](../../native/airflash-engine/src/equalizer.rs#L124-L145).)
 
-`validate_start` checks the real equalizer, then validates a clone whose equalizer is the default flat disabled curve. A live `start` may therefore enable the filter. `validate`, which is what `probe` calls, rejects `enabled: true` with "finite probes require the equalizer to be disabled." The desktop start path never sends a probe. [`scripts/native_probe.py`](../../scripts/native_probe.py) is the finite harness, and it does not send an enabled equalizer.
+The media packet pull reads that mailbox with `try_lock` once per packet. Contention skips the equalizer update for that packet instead of waiting on the command thread; the surrounding capture `State` mutex is still a blocking lock. A newer, changed curve gets a fresh filter history and crossfades old/new chain outputs over `rate / 50` frames (882 or 960 frames, 20 ms). Updates during a fade replace one pending curve, adopted after the current fade. Unchanged active coefficients preserve filter history, and an update matching the current fade target clears the pending curve. Native sequence guards prevent older updates from replacing newer ones. ([live.rs, lines 120–122](../../native/airflash-engine/src/live.rs#L120-L122); [equalizer.rs, lines 133–145 and 182–243](../../native/airflash-engine/src/equalizer.rs#L182-L243).)
+
+## Finite-probe restriction
+
+`validate_start` checks the supplied equalizer, then validates a clone with duration 5000 ms, gain 0.1, and a default disabled equalizer. This permits an enabled filter on unbounded loopback `start` while keeping the other transport bounds. `validate`, used by `probe`, rejects `enabled: true` with `finite probes require the equalizer to be disabled`; gain remains at most 0.1 and duration at most five seconds. Disabled settings must still contain valid gains. The desktop start path does not send a probe. [scripts/native_probe.py, lines 112–129](../../scripts/native_probe.py#L112-L129) omits equalizer parameters, so native defaults leave it disabled. ([session.rs, lines 73–127](../../native/airflash-engine/src/session.rs#L73-L127); [SessionController.cs, line 306](../../desktop/AirFlash.Core/SessionController.cs#L306).)
+
+## Verification coverage
+
+- [equalizer.rs, lines 246–373](../../native/airflash-engine/src/equalizer.rs#L246-L373): bit-exact bypass at both rates, unchanged-state preservation, band response/headroom and channel independence, crossfade completion/latest update, invalid settings, and old mailbox updates.
+- [live.rs, lines 457–469](../../native/airflash-engine/src/live.rs#L457-L469): DSP before master gain and PCM conversion.
+- [equalizer_ipc.rs](../../native/airflash-engine/tests/equalizer_ipc.rs): malformed/nonactive-session updates remain nonfatal and enabled probes fail before capture/network setup. It does not test successful updates on a real streaming session or acknowledgment of duplicate sequences.
+- [EqualizerTests.cs](../../desktop/AirFlash.Tests/EqualizerTests.cs): defaults/schema compatibility, round-trip/unknown-field preservation, merge behavior, validation, both-rate headroom, and settings persistence.
+- [SessionTests.cs, lines 15–88](../../desktop/AirFlash.Tests/SessionTests.cs#L15-L88): fake-engine preview coalescing/continuous sends, owner-safe rollback, reconnect/switch persistence, and nonfatal obsolete-reply handling.
+- [UiEqualizer.cs, lines 13–75](../../desktop/AirFlash.App/Verification/UiEqualizer.cs#L13-L75): a separate WPF verification routine for editor controls, presets/reset, preview/apply/cancel, failed saves, and layout using mock services. It is not part of the core unit-test assembly.
+
+These checks provide source and isolated-test evidence, not a measured acoustic response, an arbitrary-signal no-clipping guarantee, or proof of real receiver adoption.

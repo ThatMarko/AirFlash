@@ -1,59 +1,70 @@
 # Control traffic and local mute
 
-Three independent loops share the work of a live session: local mute in the WPF process, device volume and RTSP feedback in the engine, and PTP on its own sockets. None of them is driven by the discovery browse.
+The WPF process owns local endpoint mute. The native session has one volume worker, one feedback worker per member, and one PTP worker when timing is PTP. Discovery does not drive those workers, but it can cause the desktop to stop the session; that indirectly tears them down. See [Playback coupling](playback-coupling.md).
 
-## Local mute
+## Local mute ownership and restoration
 
-[`AudioService`](../../desktop/AirFlash.App/Services/AudioService.cs) runs endpoint calls on one MTA thread. `MuteAsync` opens the default console render endpoint, or the endpoint id when capture mode is `endpoint`. If that device id is already in `_originalMute`, it returns. Otherwise it stores `AudioEndpointVolume.Mute` and sets mute to true.
+[AudioService.cs, lines 17–46](../../desktop/AirFlash.App/Services/AudioService.cs#L17-L46) serializes endpoint operations onto one MTA thread. `MuteAsync` opens the default console render endpoint when passed null, or the specified endpoint id otherwise. If the id is already in `_originalMute`, it returns without changing the saved bit or reasserting mute. Otherwise it reads the current bit, sets mute true, and **only after the setter succeeds** records the previous bit. The controller passes `settings.EffectiveEndpoint`, which is null for `loopback` and the configured id for `endpoint`. ([AudioService.cs, lines 63–71](../../desktop/AirFlash.App/Services/AudioService.cs#L63-L71); [Settings.cs, line 87](../../desktop/AirFlash.Core/Settings.cs#L87).)
 
-`Restore` writes each stored bit back and removes the entry. A COM failure leaves the entry so a later restore can retry. Dispose of the audio service restores before it unregisters endpoint notifications.
+`Restore` attempts to write each recorded bit back exactly, then removes that entry. It catches a COM failure for an individual endpoint and leaves the entry for a later attempt; failure creating the enumerator or other exception types can escape. Controller restoration catches/logs those exceptions. The mute dictionary exists only in memory. Graceful audio-service disposal attempts restoration before unregistering notifications; process termination cannot run this cleanup. ([AudioService.cs, lines 74–106](../../desktop/AirFlash.App/Services/AudioService.cs#L74-L106); [SessionController.cs, lines 461–463](../../desktop/AirFlash.Core/SessionController.cs#L461-L463).)
 
-[`SessionController`](../../desktop/AirFlash.Core/SessionController.cs) calls mute when the engine emits `streaming` and `MuteWhileStreaming` is true. The default is true. Restore runs from:
+`SessionController` calls mute on `streaming` when `MuteWhileStreaming` is true; its default is true. Capture has already started by that event, so this is not mute at the beginning of connection setup. Restoration is attempted from:
 
-- the stream task's `finally`, which covers cancellation, completion, and errors that leave the task
-- `StopLockedAsync`, after that task has finished
-- `UpdateSettingsAsync`, when the setting is turned off during Streaming or Standby
-- turning the setting on during Streaming or Standby, which mutes again instead of restoring
+- the stream-attempt catch, before reporting a failure or considering retry;
+- the outer stream task's `finally`, including cancellation and successful completion;
+- `StopLockedAsync`, after cancellation and awaiting that task;
+- `UpdateSettingsAsync` when mute-while-streaming is disabled without a transport restart, even when playback is inactive;
+- session disposal, through `StopAsync`, and audio-service disposal.
 
-A discovery stop, a user stop, and an engine failure all restore. There is no grace period and no separate path for auto-connect. If the saved bit was unmuted, the PC endpoint plays as soon as restore runs. The next `streaming` event mutes it again. [Playback coupling](playback-coupling.md) is the discovery case of this same restore.
+Enabling the setting during Streaming or Standby calls mute again; it is not a restore path. Updating unrelated settings with it already enabled also calls `MuteAsync`, whose existing-id guard prevents changing the saved bit. Standby itself does not restore mute. ([SessionController.cs, lines 199–241, 325–329, 370–388, and 476–480](../../desktop/AirFlash.Core/SessionController.cs#L199-L241); [Settings.cs, lines 33–34](../../desktop/AirFlash.Core/Settings.cs#L33-L34).)
 
-Endpoint enumeration is separate from mute. `GetEndpointsAsync` lists active render devices. `OnDefaultDeviceChanged` for console render, and the other `IMMNotificationClient` callbacks, raise `EndpointsChanged`. The view model debounces those for 200 ms. A default-device change while capture mode is loopback starts the current receiver's session again. That path is in [Session](session.md).
+A discovery stop, user stop, or engine failure enters these same restoration paths. There is no intentional grace period or separate auto-connect path, but restoration is **not immediate at the triggering stop/fault**: the stream unwinds its stop request and connection disposal first, and `StopLockedAsync` awaits `_work`. The stop send has a one-second cancellation budget, and engine disposal waits up to two seconds after closing stdin before killing the process. Those are individual cleanup budgets, not a guaranteed total restoration deadline. Once restoration succeeds, a previously unmuted endpoint is unmuted again until a later `streaming` event mutes it. ([SessionController.cs, lines 218–224, 370–375, and 435–439](../../desktop/AirFlash.Core/SessionController.cs#L370-L375); [EngineConnection.cs, lines 48–56](../../desktop/AirFlash.Core/EngineConnection.cs#L48-L56).)
 
-## One RTSP connection, two workers
+Endpoint enumeration is separate from mute. `GetEndpointsAsync` lists active render devices. Console-render default changes, device changes, and property changes raise `EndpointsChanged`. [EndpointCatalog.cs, lines 20–49](../../desktop/AirFlash.App/Services/EndpointCatalog.cs#L20-L49) debounces notifications for 200 ms, refreshes enumeration, then calls the view model's device-change handler. A changed default endpoint while capture mode is loopback restarts the current active non-pairing session. When playback is inactive, that handler also retries restoration, allowing a returning endpoint's saved bit to be restored. ([AudioService.cs, lines 48–61 and 82–86](../../desktop/AirFlash.App/Services/AudioService.cs#L48-L61); [AppViewModel.cs, lines 135–149](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs#L135-L149).)
 
-Each HomePod member has one encrypted control connection behind `Arc<Mutex<Connection>>`. Two threads take that mutex:
+## One control connection per member
 
-| Thread | When it runs | Request |
+Each member's encrypted control connection is behind `Arc<Mutex<Connection>>`. After setup, its feedback thread and the shared volume worker acquire that mutex for complete RTSP transactions. Setup and teardown also use it. Event traffic uses a different TCP socket; audio and retransmission traffic use UDP and do not acquire the control mutex. ([session.rs, lines 253–274, 319–324, and 417–445](../../native/airflash-engine/src/session.rs#L253-L274); [volume.rs, lines 117–134](../../native/airflash-engine/src/volume.rs#L117-L134).)
+
+| Worker | Schedule | Request |
 | --- | --- | --- |
-| `airplay-feedback` | Every 2 seconds, and not while a previous attempt is still inside the 12-second failure budget | `POST /feedback` with an empty body |
-| `airplay-volume` | Immediately when the volume sequence changes, and otherwise about once a second | `SET_PARAMETER` `volume:` on change, then `GET /info` on every pass |
+| `airplay-feedback` (one per member) | First attempt two seconds after start; next attempt two seconds after the previous completed response | Empty `POST /feedback` |
+| `airplay-volume` (one for all members) | First read immediately; new sequence on its next check; otherwise one second after the preceding pass completes | `SET_PARAMETER` with `volume:` for a changed command, followed by `GET /info` on every pass |
 
-`GET /info` parses `initialVolume` from the binary plist. The lock is held for the whole round trip, including the read of the response. Feedback's lock is held the same way. A slow `/info` delays the feedback write that is waiting, and a feedback read delays the next volume poll. The engine does not measure the HomePod's time inside `/info`. It records feedback RTT from `begin_request` until a matching response, and it raises `feedback_delayed` when that exceeds 4 seconds. The failure at 12 seconds is unchanged. Timeouts and status codes are in [Engine](engine.md).
+The volume worker's idle check sleeps for 20 ms. A new command does not interrupt an in-flight transaction; both worker schedules can be extended by connection-lock contention or a slow member. The volume pass writes all members first when there is a new command, then reads all members sequentially. It does not write an initial receiver volume just because streaming begins. ([transport.rs, lines 278–287 and 383–385](../../native/airflash-engine/src/transport.rs#L278-L287); [volume.rs, lines 98–145](../../native/airflash-engine/src/volume.rs#L98-L145).)
 
-The volume pass walks every member. The event's `host` and `volume` are the first peer, which the desktop ordered as the leader. `available` is true only when every member returned a volume. The desktop shows that event only for the leader host.
+`GET /info` parses `initialVolume` from a plist as a real or signed integer. Device volume is independent of PCM master gain and is not persisted as runtime state. Percent maps to `percent * 0.3 - 30` dB for 1–100 and −144 dB for zero; reads at or below −30 dB map to zero, and other nonpositive finite readings round to the nearest percent. Invalid, missing, or positive-dB reads produce unavailable state. ([volume.rs, lines 31–56](../../native/airflash-engine/src/volume.rs#L31-L56); [DeviceVolumeState.cs, lines 4–6](../../desktop/AirFlash.Core/DeviceVolumeState.cs#L4-L6).)
 
-`Pending::status` turns those readings into one word:
+The feedback timer starts **after acquiring** the control mutex, immediately before `begin_request`. Successful `feedback_rtt_ms` includes request transmission and response reading but excludes time waiting for a volume transaction's lock. `feedback_delayed` is raised on the read-loop checks at four seconds; failure occurs at twelve seconds for that attempt. Thus a slow `/info` can postpone a feedback attempt without that lock wait directly contributing to its warning/timeout. The source does not measure receiver execution time inside `/info`. Complete transient responses 500, 502, 503, or 504 are retried with a three-response failure limit; other failure classifications are in [Engine](engine.md). ([transport.rs, lines 18–21 and 285–384](../../native/airflash-engine/src/transport.rs#L285-L384).)
+
+## Volume confirmation
+
+The event's top-level `host` and `volume` come from the first peer; the desktop orders peers with the leader first and accepts top-level volume events only for that resolved host after `streaming`. `members` contains individual readings, and `available` is true only when every member returned a volume. Readability alone does not mean the pair volumes agree. ([volume.rs, lines 129–142](../../native/airflash-engine/src/volume.rs#L129-L142); [SessionController.cs, lines 287–293 and 331–340](../../desktop/AirFlash.Core/SessionController.cs#L331-L340).)
+
+`Pending::status` applies the following rules in order:
 
 | Condition | Status |
 | --- | --- |
-| A new command was written, every member reads that percent, and the write did not fail | `confirmed`, and the command is marked settled |
-| The write succeeded and fewer than 3 seconds have passed without that match | `pending` |
-| The write failed, or 3 seconds passed without a match | `unconfirmed`, then settled |
-| No command is outstanding and every member answered | `confirmed` |
-| Any member's `GET /info` failed | `unsynced` |
+| Outstanding command, no write failure, and every member reads the requested percent | `confirmed`; command becomes settled |
+| Outstanding command, no write failure, and less than three seconds since the pass began | `pending`, even if reads failed |
+| Outstanding command whose write failed, or whose reads still do not match after the time budget | `unconfirmed`; command becomes settled |
+| No outstanding unsettled command and every member answered | `confirmed`, even if member values differ |
+| No outstanding unsettled command and at least one read failed | `unsynced` |
 
-A settled command stays settled. Later polls report `confirmed` or `unsynced` from the reads alone. The desktop treats a missing confirmation within its own 3-second timer as unconfirmed as well. A new process clears the desktop volume state.
+The three-second engine timer starts before writes and mutex acquisition. Confirmation is checked before expiry, so a matching successful read can confirm even after three seconds; it is not an absolute acknowledgment deadline. A settled command remains settled and later polls use readability alone. ([volume.rs, lines 58–89 and 114–137](../../native/airflash-engine/src/volume.rs#L58-L89).)
 
-The event-channel thread uses a different TCP socket. It does not take the control mutex. Media UDP does not take it either.
+The desktop separately debounces volume edits for 200 ms, sends the newest sequence, and waits three seconds after its IPC send before clearing an unconfirmed target. It rejects obsolete sequences, preserves the last actual reading when a read is missing but disables control, and prevents late `pending` events from restoring a timed-out target. Every new engine attempt clears receiver volume state and pending edits. ([SessionController.cs, lines 115–162 and 295–300](../../desktop/AirFlash.Core/SessionController.cs#L115-L162); [DeviceVolumeState.cs, lines 11–29](../../desktop/AirFlash.Core/DeviceVolumeState.cs#L11-L29).)
 
-## PTP sockets
+## PTP sockets and interface selection
 
-[`PtpMaster::start`](../../native/airflash-engine/src/clock.rs) binds `0.0.0.0:319` and `0.0.0.0:320`. If either bind fails, no member is contacted. The clock id is random and masked to 63 bits. The engine README describes this as an AirPlay unicast master, not a general IEEE 1588 daemon and not a full best-master-clock election.
+For PTP timing, [PtpMaster::start, lines 96–101](../../native/airflash-engine/src/clock.rs#L96-L101) binds wildcard IPv4 UDP 319 and 320 before any member TCP connection. If either bind fails, no member connection is attempted. The clock id is random and masked to 63 bits. The engine README describes an AirPlay unicast master, not a general IEEE 1588 daemon or full best-master-clock election. NTP mode does not start PTP; desktop playback always requests PTP. ([session.rs, lines 523–545](../../native/airflash-engine/src/session.rs#L523-L545); [native README, lines 36–37](../../native/airflash-engine/README.md#L36-L37).)
 
-Every 125 ms the thread sends a sync on UDP 319 and a follow-up on UDP 320 to each session peer. When a second has passed, it also sends an announce on 320. Delay requests are read from both sockets. A packet is ignored unless its source address is one of the session peers, it is at least 34 bytes, and the version nibble is 2. Replies go back to that peer on 319 or 320. The announce comment in the source says the priority fields express a local-oscillator preference.
+The PTP worker schedules sync on 319 and follow-up on 320 every 125 ms to each peer, plus announce on 320 at the first send and approximately once a second thereafter. Send failures are ignored. Received packets must come from a peer IP, contain at least 34 bytes, have version nibble 2, and declare a length between 34 and the datagram length. `received` counts every packet passing those checks, not only delay requests or successful synchronization. For message kind 1 or 2 with an actual datagram of at least 44 bytes, it constructs delay/pdelay replies on fixed peer ports 319/320, using the local clock and copied requester identity. It does not calculate or apply a remote clock offset. The announce priority comment expresses a local-oscillator preference. ([clock.rs, lines 109–170](../../native/airflash-engine/src/clock.rs#L109-L170).)
 
-`send_to` uses the peer IP. Windows chooses the egress interface from the routing table for that destination. The discovery adapter id is not passed into `bind` or `send_to`. A more-specific route for the HomePod's subnet stays the route for that IP. The wildcard bind does accept a delay request that arrives on any local address, and the filter then keeps only the session peers.
+`send_to` uses peer IPs. Neither the discovery adapter id nor an interface index is supplied to these binds/sends. Windows routing decides the egress interface; the source does not establish what route a user's machine selected. Wildcard binding permits receiving on any local address, followed by the peer-IP filter. In contrast, control TCP uses a normal unbound `Connection::connect`; its selected local address is then used for media/control UDP binds and `timingPeerInfo`. Selecting the discovery NIC therefore does not bind streaming sockets to that NIC. ([clock.rs, lines 97–98 and 118–165](../../native/airflash-engine/src/clock.rs#L118-L165); [session.rs, lines 220–221, 253–255, and 296–305](../../native/airflash-engine/src/session.rs#L220-L255).)
 
-An NTP socket is also bound on `0.0.0.0` and an ephemeral port for the life of the process. It answers only a 32-byte datagram from a session peer whose second byte, masked with `0x7f`, is `0x52`, and the reply starts `0x80 0xd3`. Production SETUP advertises PTP, so the HomePod is not given this port. The desktop start command does not select NTP.
+The NTP responder binds wildcard IPv4 on an ephemeral port for each worker attempt. It accepts only 32-byte peer datagrams with masked type `0x52` and replies beginning `0x80 0xd3` to the source address/port. PTP SETUP omits that ephemeral port; NTP SETUP advertises it. See [Capture and clocks](capture-clocks.md). ([session.rs, lines 154–195 and 296–308](../../native/airflash-engine/src/session.rs#L154-L195).)
 
-The control TCP connection, and the UDP sockets bound to its local address, are a separate choice. `TcpStream::connect` does not bind the discovery NIC. The local address Windows selected becomes the address passed in `timingPeerInfo` and used for audio and control UDP. See [Engine](engine.md).
+## Verification coverage
+
+[SessionTests.cs, lines 199–217](../../desktop/AirFlash.Tests/SessionTests.cs#L199-L217) checks failure restoration, disabling mute, and standby using fake audio/engine services. It does not test real endpoint mute-bit preservation, COM failures, forced desktop termination, or restoration wall time. [volume.rs, lines 162–225](../../native/airflash-engine/src/volume.rs#L162-L225) tests conversion and confirmation state; [tests/volume.rs](../../native/airflash-engine/tests/volume.rs) tests localhost RTSP reads, two-member writes, delayed confirmation, and unavailable volume. [tests/continuity.rs, lines 54–185](../../native/airflash-engine/tests/continuity.rs#L54-L185) tests encrypted delayed feedback, transient status handling, hard timeout, and cancellation with shortened test timings. These do not validate real receiver round-trip time, volume/feedback mutex contention on hardware, Windows route choice, or PTP accuracy.

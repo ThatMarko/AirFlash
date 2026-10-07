@@ -1,11 +1,15 @@
 # AirFlash receiver workflow
 
-This set describes the current path from a HomePod advertisement to a live AirPlay 2 stream on this checkout. It records how the code behaves today. Read the table from top to bottom. The later pages are the mechanisms that cut across those stages, then a check of earlier investigation claims against this tree. [Upstream dev](upstream-dev.md) is a later pre-release and is not the tree these pages describe.
+This set describes the path from a HomePod advertisement to a live AirPlay 2 stream in the runtime source at `41190e0d13a63a714c08dffe73ababca1804875c`. The documentation baseline is `c077a0577de26ad7e44b8fd50f62456e12965fb0`, which adds `docs/analysis/` and `docs/issues/` without changing runtime source. These are pinned snapshots, not a promise about a moving remote branch.
+
+Every original page was audited against source on **2026-10-06**. [Audit results](audit.md) records coverage, material corrections, invariant checks, tests, and limitations. Source inspection establishes implemented behavior; it does not establish actual HomePod compatibility, measured acoustic latency, or a cause for a particular disconnect. `docs/issues/` contains hypotheses and proposed changes, not independent proof. [Upstream dev](upstream-dev.md) is an explicitly excluded development snapshot.
+
+Read the table from top to bottom. The later pages describe mechanisms that cut across those stages, followed by a check of earlier investigation claims against this tree.
 
 | Document | What it covers |
 | --- | --- |
 | [Discovery](discovery.md) | Windows DNS-SD browse and resolve, the record cache, and adapter filtering |
-| [After discovery](after-discovery.md) | How advertisements become rows, and every action that runs before a HomePod socket opens |
+| [After discovery](after-discovery.md) | How advertisements become rows, reconcile active sessions, and gate play, pairing, and auto-connect |
 | [Identity](identity.md) | The canonical-id walk, alias map, and preference merge |
 | [Settings](settings.md) | `config.json`, schema migration, Apply, and the desktop shell |
 | [Session](session.md) | The desktop state machine that opens, watches, and replaces an engine process |
@@ -18,11 +22,12 @@ This set describes the current path from a HomePod advertisement to a live AirPl
 | [Control and mute](control-and-mute.md) | Local mute restore, the shared RTSP lock, and how PTP sockets are bound |
 | [Credentials and IPC](credentials-and-ipc.md) | The JSONL process boundary and the DPAPI pairing files |
 | [Source check](source-check.md) | Which earlier investigation claims match this tree, and which do not |
-| [Upstream dev](upstream-dev.md) | What v0.3.3-rc.1 changes, and what these notes still describe |
+| [Upstream dev](upstream-dev.md) | Verified differences in excluded commit `67435a4`; no behavior imported into the baseline |
+| [Audit results](audit.md) | Source baseline, all-page coverage, corrected briefing claims, and validation limits |
 
 ## Two processes
 
-The WPF app finds devices and decides whether a session should exist. The Rust engine, `airflash-engine.exe`, speaks AirPlay. Discovery never opens a socket to a speaker. The engine never browses DNS-SD.
+The WPF app finds devices and decides whether a session should exist. The Rust engine, `airflash-engine.exe`, speaks AirPlay. The discovery service browses DNS-SD; it does not open RTSP or audio connections. Discovery results can nevertheless cause the desktop session controller to stop or restart playback. The engine never browses DNS-SD. The boundary is JSONL v1 over redirected stdin/stdout, with no C-ABI or shared memory; [Credentials and IPC](credentials-and-ipc.md) explains the limits in each direction.
 
 ```mermaid
 flowchart TD
@@ -36,23 +41,26 @@ flowchart TD
     SESS[SessionController]
   end
   subgraph engine [One engine process per attempt]
+    CMD[JSONL command loop and worker]
     RTSP[RTSP setup and feedback]
     PTP[PTP master on UDP 319 and 320]
     RTP[Encrypted RTP to each member]
     CAP[WASAPI loopback]
   end
   NIC --> DNS --> AGG --> CAT --> UI --> GATE --> SESS
-  SESS -->|JSONL start or pair| RTSP
+  SESS -->|JSONL start or pair| CMD
+  CMD --> RTSP
+  CMD -->|PTP playback only| PTP
   CAP --> RTP
-  RTSP --> PTP
+  PTP -. shared clock .-> RTP
   RTSP --> RTP
 ```
 
 Startup order in [`App.OnStartup`](../../desktop/AirFlash.App/App.xaml.cs):
 
-1. Load `config.json`, apply theme and language, and construct `AudioService` and `WindowsDiscovery`. Discovery is not started yet.
-2. Extract the engine to `%LOCALAPPDATA%\AirFlash\engine\<sha256>\airflash-engine.exe` and run `hello`. The reply includes `engine_version`, `qualification: partial`, and `production_ready: false`. That process exits. It does not use the receiver list. The rest of the shell, including the single-instance pipe and the check flags, is in [Settings](settings.md).
-3. Show the panel unless `--startup` was passed. `Start` then applies autostart, migrates a capture endpoint that was saved by friendly name, calls `discovery.Start`, draws manual rows, and arms auto-connect.
+1. Load `config.json`, apply theme and language, and construct `AudioService`.
+2. Extract the engine to `%LOCALAPPDATA%\AirFlash\engine\<sha256>\airflash-engine.exe` and construct the process factory, then construct `WindowsDiscovery` and the view model without starting discovery. Run `hello` in a separate process. The reply includes `engine_version`, `qualification: partial`, and `production_ready: false`; the desktop disposes that check process after the reply. It does not use the receiver list. The rest of the shell, including the single-instance pipe and the check flags, is in [Settings](settings.md).
+3. Construct the panel and tray, start the single-instance listener, then call the view model's `Start`, which launches asynchronous initialization. `StartAsync` obtains the default endpoint, applies autostart, awaits capture-endpoint migration, then calls `discovery.Start`, draws manual rows, and arms auto-connect. The app shows the panel after calling `Start` unless `--startup` was passed; it does not wait for that initialization to finish.
 4. The first discovery publish is the empty cache from `Restart`. Resolved speakers arrive after that.
 
 A second instance only signals the running one and exits. `--discovery-check` browses for eight seconds and does not open the engine.
@@ -65,13 +73,13 @@ A second instance only signals the running one and exits. `--discovery-check` br
 
 3. **Decide.** The UI shows online, visible rows. Settings may also show hidden and offline history. The HomePod has only answered mDNS. A connection starts when the user presses play or Pair, or when the 900 ms auto-connect timer fires. Auto-connect is off unless a setting turns it on. See [After discovery](after-discovery.md).
 
-4. **Open a process.** `SessionController` resolves each member to IPv4, leader first, and sends one JSONL command. Play sends `start`. Pairing sends `pair` once per member, then `start`. See [Session](session.md).
+4. **Open a process.** `SessionController` resolves each member to IPv4, leader first. Play opens one process and sends `start`, followed by the current equalizer update; other controls use the same pipe later. Pairing opens one process per member for `pair`, then a playback process for `start`. See [Session](session.md).
 
-5. **Hold the session.** The engine authenticates, completes SETUP, then sends the same PCM to every member under one PTP clock. Feedback, the event channel, and the media watchdog decide when that process must end. A replacement session is a new process and a new handshake. See [Engine](engine.md).
+5. **Hold the session.** The engine authenticates, completes SETUP, then sends the same PCM to every member under one PTP clock. Feedback, the event channel, and the media watchdog can end its playback worker; the desktop then disposes the process. A replacement session is a new process and a new handshake. See [Engine](engine.md).
 
 ## What crosses the process boundary
 
-The `start` command carries each member's IPv4 address, port, and RAOP codec list (`cn`), plus capture endpoint, latency, sample rate, master gain, equalizer settings, `source: loopback`, `timing: ptp`, and `duration_ms: 0`. Master gain is `MasterVolume / 100`, or 0 while the panel mute is on. The saved per-receiver volume is not that gain. It does not carry the discovery id, the stereo id, the display name, or a group UUID. The engine can accept `group_id`, `timing: ntp`, `handshake_only`, and `record_mic_path` on a probe. The desktop start path sends none of those. `scripts/e2e_stream.py` drives that probe and defaults its latency argument to 150 ms. That default is not one of the four desktop latency modes.
+The `start` command carries each member's IPv4 address, port, and RAOP codec list (`cn`), plus capture endpoint, latency, sample rate, master gain, equalizer settings, `source: loopback`, `timing: ptp`, and `duration_ms: 0`. Master gain is `MasterVolume / 100`, or 0 while the panel mute is on. The saved per-receiver volume is not that gain. It does not carry the discovery id, the stereo id, the display name, or a group UUID. Native options also accept `group_id`, `timing: ntp`, `handshake_only`, and `record_mic_path`; the desktop playback path sends none of those overrides. `scripts/e2e_stream.py` drives a finite probe and defaults its latency argument to 150 ms. That default is not one of the four desktop latency modes. Probe safety is enforced separately from unbounded playback; see [Audit results](audit.md).
 
 Credentials live in the engine, under `%APPDATA%\AirFlash\native-credentials\`, keyed by the `deviceID` from `GET /info`. The desktop catalog id and that credential id are separate. An alias migration in `config.json` does not move a pairing file.
 
@@ -90,4 +98,4 @@ Credentials live in the engine, under `%APPDATA%\AirFlash\native-credentials\`, 
 
 ## Scope of one session
 
-The engine accepts one speaker or one existing two-device pair, IPv4 only, on Windows. Both members of a pair share a capture queue, an RTP origin, and a PTP clock. Each member has its own RTSP connection, event channel, feedback loop, SSRC, and keys. Losing either member ends the process for both.
+The desktop accepts one receiver row or a complete two-member stereo row. Native `start`/`probe` validation accepts one or two distinct IPv4 peers; it does not independently prove that they are an existing stereo pair. Persistent pairing has a separate parser. Both playback peers share a capture queue, an RTP timestamp origin, and a PTP clock. Each has its own RTSP connection, event channel, feedback loop, RTP sequence, SSRC, and keys. A detected fatal fault in either member ends the playback worker for both; a missing advertisement alone is handled by the desktop, and a successful UDP send does not prove the receiver is alive. The command process remains available until stdin closes or another command changes its owned work. The desktop disposes that process and opens a fresh one for each retry.
