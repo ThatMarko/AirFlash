@@ -26,7 +26,9 @@ if ($fileVersion.FileMajorPart -gt 255 -or $fileVersion.FileMinorPart -gt 255 -o
 
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 $outputWithSlash = $outputRoot.TrimEnd('\') + '\'
+# Rebind the current EXE even when its version matches a previous publish.
 $arguments = @(
+    '-t:Rebuild',
     '-c', 'Release',
     "-p:ProductVersion=$productVersion",
     "-p:AppExe=$appExe",
