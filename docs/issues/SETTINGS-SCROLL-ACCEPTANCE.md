@@ -45,4 +45,24 @@ The exact downloaded EXE passed 498 English and 490 Chinese mock UI checks, incl
 
 The desktop currently reports a 640×432 work area and produces blank UI renders. Native pointer/visual checks of this downloaded build remain unverified; the prior pointer checks above apply only to the earlier local binary. No real accessory test or local MSI installation was performed.
 
-Local packaging uncovered a separate, pre-existing installer cache defect: a successful same-version package could still contain an earlier executable. The clean-checkout GitHub MSI contains the correct EXE; both local MSIs from the cached checkout contained old A+B bytes and are rejected. A separate original-base installer fix and repeated-payload regression check are being integrated before the final combined build. Final-build results will be recorded here after downloading and verifying that new artifact.
+Local packaging uncovered a separate, pre-existing installer cache defect: a successful same-version package could still contain an earlier executable. The clean-checkout GitHub MSI contains the correct EXE; both local MSIs from the cached checkout contained old A+B bytes and are rejected. The separate original-base [installer fix and regression check](INSTALLER-REFRESH-ACCEPTANCE.md) is now integrated and verified below.
+
+## Final A+B+scrolling build
+
+Exact source `1303a09127760912c1cdf6a47bdb14e45904fd62` passed [CI](https://github.com/ThatMarko/AirFlash/actions/runs/37711905828) and [fork integration validation](https://github.com/ThatMarko/AirFlash/actions/runs/37711905836). The hosted run repeated the full 86 Python / 47 native / 218 Core test sets, lint and icons, both installer SDK paths, runtime-only rejection, the new repeated-payload regression, embedded native hello, and disposable-runner installation/repair/upgrade/uninstall with hashes and user-data preservation. One existing native soak remains intentionally ignored.
+
+Downloaded artifact ID `11522064329` has verified archive SHA-256 `88d73a4feefc95e0e6393130f7277d85b7e5fae77dc3c82bc78b8cb27e26f127`. Manifest source/run/repository/version, file sizes and all binary checksums matched before and after desktop verification. Informational version is `0.3.1-fork-validation.1303a09127760912c1cdf6a47bdb14e45904fd62+1303a09127760912c1cdf6a47bdb14e45904fd62`; the numeric version remains an unreserved test value.
+
+| Final binary | SHA-256 |
+| --- | --- |
+| AirFlash.exe | `89982600d059a39875acfd5351b77796cc0023959d6c84f1112d6b18899e4bd7` |
+| AirFlash-0.3.1.msi | `e3a22a000e5aa3117604064245320b66ac742ce28843bd74346be2fd34f2896c` |
+| airflash-engine.exe | `8836ed98936f075f712810d62945b63c6ed399e1e609f55ab2c1f925532a1cd0` |
+
+The exact final downloaded EXE passed 498 English and 490 Chinese mock UI checks. Each language retained all 273 A+B checks and covered 32 distinct page/theme/size configurations. Every measured overflowing page gutter and both minimum-width frequency-label gutters were 12 DIP, with zero scrolling failures. Native hello passed without creating a playback/pairing worker. The desktop still realized 660×500 for the requested default window; minimum cases realized 640×440.
+
+Local managed publish, with SDK 10.0.401, locked dependencies and the exact newly compiled GitHub native output, produced a byte-for-byte identical EXE. Full native compilation/tests occurred on GitHub. Both local installer paths rebuilt successfully with zero warnings/errors. Read-only extraction of those two MSIs and the downloaded MSI found the exact final EXE checksum in all three, matching File-table version `0.3.1.0` and size 77,187,230 bytes. Inspection did not alter packages; later packaging preserved the first local MSI and source EXE. Complete MSI hashes may differ because each package build creates its own identity; payload checksums are the acceptance criterion.
+
+Final UI images are blank in the currently unavailable desktop capture environment. The fresh-window capture retry returned `IGraphicsCaptureItemInterop.CreateForMonitor failed: Could not capture the given monitor. (0x80070057)`. No pointer input was sent after that failure. Physical wheel, horizontal/vertical thumb and visual checks of the final download remain outstanding until an accessible desktop is available; the earlier local pointer evidence does not establish these final-binary checks. No normal app restart, real settings/credentials/accessory access, or local MSI installation occurred.
+
+Evidence is retained under ignored `artifacts/fork-integration/scroll-github-1303a09/`: archive/API metadata, binaries/manifest, hosted logs/TRX/regression reports, desktop reports/receipt, local republish comparison, and `fixed-installer-payload-receipt.json`. The original failing installer and corrected original-base/integrated receipts are copied there too. Artifacts have 14-day GitHub retention; local copies preserve this build. Later evidence-only documentation commits leave the tested runtime and build configuration unchanged.

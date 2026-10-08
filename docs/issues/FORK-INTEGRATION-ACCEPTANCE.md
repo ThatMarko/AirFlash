@@ -46,6 +46,8 @@ Local evidence is retained under ignored `artifacts/fork-integration/`: CI/packa
 
 ## Limits and next action
 
+Subsequent user-authorized fork validation added the separate Settings scrolling and installer payload-refresh fixes. Their [final A+B+scrolling build acceptance](SETTINGS-SCROLL-ACCEPTANCE.md#final-abscrolling-build) records the later artifact and exact downloaded checks; the A/B-only build evidence above remains historical. The original A and B feature branches retain their reviewed heads.
+
 No real configuration, credential store, receiver, capture or endpoint mutation is part of desktop validation. The mock UI does use isolated real tray/window registrations. Native localhost tests and mock tests do not establish hardware/acoustic reliability. MSI installation belongs exclusively to the disposable hosted runner.
 
 Group B is ready for Task 3 upstream issue/PR submission from its separate original-base branch. Group A required no production amendments, so its existing PR head remains unchanged. Neither upstream PR merging nor public release publication occurred during this fork-validation run. Later commits that only record this evidence do not alter the tested runtime source or the artifact's exact build SHA.
