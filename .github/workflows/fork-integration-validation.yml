@@ -95,6 +95,9 @@ jobs:
           catch { if ($_.Exception.Message -notmatch 'cannot resolve the SDK') { throw }; $rejected = $true }
           if (-not $rejected -or (Test-Path -LiteralPath $rejectedOutput)) { throw 'Runtime-only installer did not reject before output creation.' }
           exit 0
+      - name: Verify repeated packaging uses the current executable
+        shell: pwsh
+        run: ./scripts/test-installer-refresh.ps1 -PublishedExe artifacts/fork-integration/publish/AirFlash.exe
       - name: Verify package and embedded native hello
         shell: pwsh
         run: ./scripts/verify-release.ps1 -Version $env:VALIDATION_VERSION
@@ -138,5 +141,8 @@ jobs:
           path: |
             artifacts/fork-integration/tests/*.trx
             artifacts/installer-test/*.log
+            artifacts/installer-refresh/*/report.json
+            artifacts/installer-refresh/*/*-build.log
+            artifacts/installer-refresh/*/*-decompile.log
           if-no-files-found: warn
           retention-days: 14
