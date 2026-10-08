@@ -10,6 +10,8 @@ Source links in baseline report sections resolve to the full audited upstream co
 
 The separately reported Settings scrollbar issues have an [acceptance record](SETTINGS-SCROLL-ACCEPTANCE.md). A+B, scrolling and the separate [installer cache fix](INSTALLER-REFRESH-ACCEPTANCE.md) are integrated into fork main after the user's authorization. Final GitHub build/installer lifecycle checks, exact downloaded mock UI checks, local installer payload checks, and the subsequent current-monitor native wheel/thumb/visual checks passed. These changes remain outside upstream main and do not activate another backlog group.
 
+On 2026-10-07, the user authorized Task 3 publication in this order: scrolling [issue #12](https://github.com/Ding-Kyoma/AirFlash/issues/12) / [PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13), then Group B [issue #14](https://github.com/Ding-Kyoma/AirFlash/issues/14) / [PR #15](https://github.com/Ding-Kyoma/AirFlash/pull/15). Both target the verified original stable base and exclude these fork-only documents. Both upstream CI runs awaited maintainer approval with no jobs started at publication; reviews remained pending. The acceptance records above contain exact heads and run links. These GitHub numbers are separate from the local report identifiers below.
+
 ## Active reports
 
 | Current ID | Severity | Kind | Concrete scope |

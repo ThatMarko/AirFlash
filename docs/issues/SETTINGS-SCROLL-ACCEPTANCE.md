@@ -12,10 +12,10 @@ The final change reserves 24 DIP on the right of the page viewer and below the f
 
 ## Branch and build boundaries
 
-- Implementation: `codex/fix-settings-scroll`, code commit `7d21728bd2d2e12d986089be89ac0ba0765bd3fd`, directly based on verified original `41190e0d13a63a714c08dffe73ababca1804875c`. Head `94f6f5c57e3bd237ca027f801992fc314a4fb761` adds only directly runnable PowerShell documentation examples.
+- Implementation: `codex/fix-settings-scroll`, code commit `7d21728bd2d2e12d986089be89ac0ba0765bd3fd`, directly based on verified original `41190e0d13a63a714c08dffe73ababca1804875c`. Commit `94f6f5c57e3bd237ca027f801992fc314a4fb761` adds directly runnable PowerShell documentation examples; published head `54cd18e028af9abc4d0b85af8197209a978c4603` clarifies requested versus realized verification window dimensions. Both later commits change documentation only.
 - Five-file implementation diff: Settings XAML/code-behind, the existing UI harness hookup, `UiScrolling.cs`, and public Settings verification documentation. Complete diff and outgoing commit exclude fork analysis/issues/planning.
 - Earlier local integration: `codex/verify-settings-scroll`, source merge `b78753cd260544019012cb5314d3204f72440a1e`, combines this fix with the unchanged A+B fork main. Independent review compared all 19 A/B paths: 17 are identical; the other two contain only the approved Settings handler/harness additions. Group B's Pair wrapper and lifecycle checks remain present.
-- The feature now merges into the user's fork main separately from the fork-only documentation. The A and B feature branches retain their original heads. No upstream issue/PR, release reservation, official release or local MSI installation is part of this validation.
+- The feature merges into the user's fork main separately from the fork-only documentation. The A and B feature branches retain their original heads. This validation performed no release reservation, official release or local MSI installation. Subsequent upstream issue/PR publication is recorded below.
 
 The earlier integration-branch updates changed documentation only; the locally tested executable below was built from source merge `b78753c`.
 
@@ -82,3 +82,9 @@ On 2026-10-07, capture succeeded for an isolated Settings window opened by the e
 Native width resizing reached logical 640×640; automated checks separately covered the exact 640×440 minimum layout in both themes. Bottom/corner resize attempts did not establish a successful native height resize and are not counted as such. Source review found no fixed-height resize lock, and no additional scrolling defect was found. Other monitor scales, touchpads and accessory/audio reliability remain outside this mock UI validation.
 
 The initial mouse trial intentionally disabled EQ but expired before the operator restored its checkbox, so the final draft-preservation assertion correctly failed. That trial is retained as a procedural failure and excluded from acceptance. Repeating the disabled-band check with restoration passed. The accepted session directories are `pointer-c16b824807ff4be683bfcce32c24505e` (disabled wheel/Monitor), `pointer-65ae29d8d76c4c99970dcbc8f5cd5d9c` (horizontal thumb), and `pointer-029eb3f43d66440b9d922d790c31a1ac` (enabled wheel/all-page visual pass), under the final artifact's ignored `desktop/` folder. `native-pointer-receipt.json` records the observations and scope. No production implementation changed during this follow-up.
+
+## Upstream Task 3 publication
+
+On 2026-10-07, after explicit user authorization, published [issue #12](https://github.com/Ding-Kyoma/AirFlash/issues/12) and ready-for-review [PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13). The PR targets original stable `41190e0d13a63a714c08dffe73ababca1804875c` from `ThatMarko:codex/fix-settings-scroll` at `54cd18e028af9abc4d0b85af8197209a978c4603`. Its five-file diff and all three outgoing commits exclude fork analysis/issues/planning documents. `Fixes #12`, the published bodies and branch identities were read back and verified; the PR is attached to the Codex task.
+
+At publication, [upstream CI run 37717295723](https://github.com/Ding-Kyoma/AirFlash/actions/runs/37717295723) reported `action_required` and explicitly awaited maintainer approval, with no jobs started. No review had been submitted. The next upstream action is maintainer approval of the fork workflow and review; this status is separate from the completed local/fork validation above. No upstream merge occurred.

@@ -2,6 +2,8 @@
 
 This plan covers all **17 current reports in eight coherent PR groups**. Its original work packages described future implementation. Subsequent execution is recorded separately in [Group B feature acceptance](GROUP-B-ACCEPTANCE.md): reports 01, 02, 03, 10 and 11 are implemented and tested on an original-base feature branch. Group A and then Group B are integrated into local fork `main` at `72dc7c7`; [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) records later build/download evidence. Original upstream stable main is unchanged. Issue numbers organize the backlog by severity; they are not the execution order.
 
+Task 3 publication on 2026-10-07 followed the user's explicit order: separate scrolling [issue #12](https://github.com/Ding-Kyoma/AirFlash/issues/12) / [PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13), then Group B [issue #14](https://github.com/Ding-Kyoma/AirFlash/issues/14) / [PR #15](https://github.com/Ding-Kyoma/AirFlash/pull/15). Both remain unmerged and awaited maintainer workflow approval at publication. Exact source boundaries and validation are recorded in the [scrolling](SETTINGS-SCROLL-ACCEPTANCE.md) and [Group B](GROUP-B-ACCEPTANCE.md) acceptance records. This submission does not activate Groups C–H or the separate installer fix for upstream publication.
+
 Read the linked report and dedicated analysis page before changing an area. Evidence currently describes runtime `41190e0`. Recheck each trigger against the actual original-repository base used for implementation: a newer stable base may already fix or change a case. Do not import excluded development-preview behavior.
 
 ## PR groups and order
