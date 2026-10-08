@@ -1,0 +1,758 @@
+using AirFlash.App.Services;
+using AirFlash.Core;
+using Xunit;
+namespace AirFlash.Tests;
+
+// The actual coordinator is source-linked into this assembly. Time and DNS callbacks
+// are controlled independently: requesting cancellation is not proof of settlement.
+public sealed class DiscoveryLifecycleTests
+{
+    private const string Airplay = "_airplay._tcp.local";
+    private const string Name = "Office._airplay._tcp.local";
+
+    [Fact]
+    public void MissingInitialCallbackTimesOutAndRetriesOnlyWhenDue()
+    {
+        using var fixture = new Fixture();
+        fixture.StartAndAnnounce();
+        Assert.Equal(1, fixture.Discovery.Snapshot.PendingResolves);
+        fixture.TickAfter(TimeSpan.FromSeconds(5));
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.Single(fixture.Dns.Resolves);
+        Assert.Equal(1, fixture.Dns.Resolves[0].CancelCalls);
+        fixture.TickAfter(TimeSpan.FromMilliseconds(999));
+        Assert.Single(fixture.Dns.Resolves);
+        fixture.TickAfter(TimeSpan.FromMilliseconds(1));
+        Assert.Equal(2, fixture.Dns.Resolves.Count);
+        Assert.Equal(1, fixture.Discovery.Snapshot.PendingResolves);
+    }
+
+    [Fact]
+    public void FailedResolvesBackOffExponentiallyAndRepeatedPtrsDoNotResetFailures()
+    {
+        using var fixture = new Fixture();
+        fixture.StartAndAnnounce();
+        foreach (var seconds in new[] { 1, 2, 4, 8, 16, 30, 30 })
+        {
+            fixture.Dns.Resolves[^1].Resolved(1460, null);
+            var started = fixture.Dns.Resolves.Count;
+            fixture.Announce();
+            Assert.Equal(started, fixture.Dns.Resolves.Count);
+            fixture.TickAfter(TimeSpan.FromSeconds(seconds) - TimeSpan.FromTicks(1));
+            Assert.Equal(started, fixture.Dns.Resolves.Count);
+            fixture.TickAfter(TimeSpan.FromTicks(1));
+            Assert.Equal(started + 1, fixture.Dns.Resolves.Count);
+        }
+    }
+
+    [Fact]
+    public void CacheExpiryPreservesAdvertisedNameAndMissingRefreshCanRecover()
+    {
+        using var fixture = new Fixture();
+        fixture.StartAndAnnounce();
+        fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1"));
+        Assert.Equal("10.0.0.1", Assert.Single(fixture.Catalog).Address);
+        fixture.TickAfter(TimeSpan.FromSeconds(20));
+        Assert.Equal(2, fixture.Dns.Resolves.Count);
+        fixture.TickAfter(TimeSpan.FromSeconds(70));
+        Assert.Empty(fixture.Catalog);
+        Assert.Equal(0, fixture.Discovery.Snapshot.CachedRecords);
+        Assert.Equal(1, fixture.Discovery.Snapshot.AdvertisedNames);
+        fixture.TickAfter(TimeSpan.FromSeconds(1));
+        Assert.Equal(3, fixture.Dns.Resolves.Count);
+        fixture.Dns.Resolves[^1].Resolved(0, Record("10.0.0.2"));
+        Assert.Equal("10.0.0.2", Assert.Single(fixture.Catalog).Address);
+    }
+
+    [Fact]
+    public void PtrExpiryRemovesCatalogAndCancelsPendingRefresh()
+    {
+        using var fixture = new Fixture();
+        fixture.StartAndAnnounce(ttl: 25);
+        fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1"));
+        fixture.TickAfter(TimeSpan.FromSeconds(20));
+        var refresh = fixture.Dns.Resolves[^1];
+        fixture.TickAfter(TimeSpan.FromSeconds(5));
+        Assert.Empty(fixture.Catalog);
+        Assert.Equal(0, fixture.Discovery.Snapshot.AdvertisedNames);
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.Equal(1, refresh.CancelCalls);
+        fixture.TickAfter(TimeSpan.FromMinutes(1));
+        Assert.Equal(2, fixture.Dns.Resolves.Count);
+    }
+
+    [Fact]
+    public void MonotonicTimeoutAndRetryIgnoreWallClockChanges()
+    {
+        using var fixture = new Fixture();
+        fixture.StartAndAnnounce();
+        fixture.Clock.ShiftUtc(TimeSpan.FromDays(30));
+        fixture.Discovery.Tick();
+        Assert.Equal(1, fixture.Discovery.Snapshot.PendingResolves);
+        fixture.Clock.ShiftUtc(TimeSpan.FromDays(-60));
+        fixture.TickAfter(TimeSpan.FromSeconds(5));
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        fixture.TickAfter(TimeSpan.FromSeconds(1));
+        Assert.Equal(2, fixture.Dns.Resolves.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompletionAtDeadlineCannotPublishRegardlessOfTimerCallbackOrder(bool tickFirst)
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.SettleOnCancel = false;
+        fixture.StartAndAnnounce();
+        fixture.Clock.Advance(TimeSpan.FromSeconds(5));
+        if (tickFirst) fixture.Discovery.Tick();
+        fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1"));
+        if (!tickFirst) fixture.Discovery.Tick();
+        Assert.Empty(fixture.Catalog);
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        fixture.TickAfter(TimeSpan.FromSeconds(1));
+        Assert.Equal(2, fixture.Dns.Resolves.Count);
+    }
+
+    [Fact]
+    public void CompletionImmediatelyBeforeDeadlineIsAccepted()
+    {
+        using var fixture = new Fixture();
+        fixture.StartAndAnnounce();
+        fixture.Clock.Advance(TimeSpan.FromSeconds(5) - TimeSpan.FromTicks(1));
+        fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1"));
+        Assert.Equal("10.0.0.1", Assert.Single(fixture.Catalog).Address);
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CompletionAfterAdvertisementExpiryCannotPublishRegardlessOfTimerOrder(bool tickFirst)
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.SettleOnCancel = false;
+        fixture.StartAndAnnounce(ttl: 2);
+        fixture.Clock.Advance(TimeSpan.FromSeconds(2));
+        if (tickFirst) fixture.Discovery.Tick();
+        fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1"));
+        if (!tickFirst) fixture.Discovery.Tick();
+        Assert.Empty(fixture.Catalog);
+        Assert.Equal(0, fixture.Discovery.Snapshot.AdvertisedNames);
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        fixture.TickAfter(TimeSpan.FromSeconds(20));
+        Assert.Single(fixture.Dns.Resolves);
+    }
+
+    [Fact]
+    public void SameEpochLateCallbackCannotClearOrPublishReplacement()
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.SettleOnCancel = false;
+        fixture.StartAndAnnounce();
+        var old = fixture.Dns.Resolves[0];
+        fixture.TickAfter(TimeSpan.FromSeconds(5));
+        fixture.TickAfter(TimeSpan.FromSeconds(1));
+        var replacement = fixture.Dns.Resolves[^1];
+        Assert.NotEqual(old.Token, replacement.Token);
+        old.Resolved(0, Record("10.0.0.1"));
+        Assert.Equal(1, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.Empty(fixture.Catalog);
+        replacement.Resolved(0, Record("10.0.0.2"));
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.Equal("10.0.0.2", Assert.Single(fixture.Catalog).Address);
+    }
+
+    [Fact]
+    public void RemovalThenNewPtrKeepsOldCallbackFromRepopulatingOrRetiringNewRequest()
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.SettleOnCancel = false;
+        fixture.StartAndAnnounce();
+        var removed = fixture.Dns.Resolves[0];
+        fixture.Announce(ttl: 0);
+        Assert.Equal(0, fixture.Discovery.Snapshot.AdvertisedNames);
+        fixture.Announce();
+        var replacement = fixture.Dns.Resolves[^1];
+        Assert.NotEqual(removed.Token, replacement.Token);
+        removed.Resolved(0, Record("10.0.0.1"));
+        Assert.Empty(fixture.Catalog);
+        Assert.Equal(1, fixture.Discovery.Snapshot.PendingResolves);
+        replacement.Resolved(0, Record("10.0.0.2"));
+        Assert.Equal("10.0.0.2", Assert.Single(fixture.Catalog).Address);
+    }
+
+    [Fact]
+    public void OldEpochBrowseAndResolveCallbacksCannotAffectRestartedCatalog()
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.SettleOnCancel = false;
+        fixture.Adapters = [new("wifi", "Wi-Fi", "Physical", "10.0.0.3", true, 17)];
+        fixture.StartAndAnnounce();
+        var browse = fixture.Dns.Browses[0];
+        var old = fixture.Dns.Resolves[0];
+        var epoch = fixture.Discovery.Snapshot.Epoch;
+        fixture.Discovery.SetInterface("wifi");
+        Assert.True(fixture.Discovery.Snapshot.Epoch > epoch);
+        var started = fixture.Dns.Resolves.Count;
+        browse.Announced(0, new DnsAnnouncement("Ghost._airplay._tcp.local", 3600));
+        old.Resolved(0, Record("10.0.0.1"));
+        Assert.Equal(started, fixture.Dns.Resolves.Count);
+        Assert.Empty(fixture.Catalog);
+        Assert.Equal(0, fixture.Discovery.Snapshot.AdvertisedNames);
+        fixture.Announce();
+        fixture.Dns.Resolves[^1].Resolved(0, Record("10.0.0.2"));
+        Assert.Equal("10.0.0.2", Assert.Single(fixture.Catalog).Address);
+        Assert.All(fixture.Dns.Browses.Skip(2), operation => Assert.Equal(17u, operation.InterfaceIndex));
+    }
+
+    [Fact]
+    public void DisposeIsIdempotentAndLateCallbacksRaiseNoEvents()
+    {
+        var fixture = new Fixture();
+        fixture.Dns.SettleOnCancel = false;
+        fixture.StartAndAnnounce();
+        var before = fixture.EventCount;
+        fixture.Dispose();
+        fixture.Dispose();
+        fixture.Dns.Browses[0].Announced(0, new DnsAnnouncement(Name, 3600));
+        fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1"));
+        fixture.Clock.Advance(TimeSpan.FromDays(1));
+        fixture.Discovery.Tick();
+        Assert.Equal(before, fixture.EventCount);
+        Assert.All(fixture.Dns.Operations, operation => Assert.Equal(1, operation.CancelCalls));
+        fixture.Dns.SettleAll();
+        Assert.Equal(fixture.Dns.Allocations, fixture.Dns.Releases);
+        Assert.Equal(0, fixture.Discovery.Snapshot.NativeOwners);
+    }
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(5u)]
+    public void StartWithoutCallbackDoesNotLeaveResolvePendingUnlessDnsReportsPending(uint status)
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.OnCreated = operation => { if (operation.IsResolve) operation.StartStatus = status; };
+        fixture.StartAndAnnounce();
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.NotEmpty(fixture.Failures);
+        fixture.TickAfter(TimeSpan.FromSeconds(1));
+        Assert.Equal(2, fixture.Dns.Resolves.Count);
+    }
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(9506u)]
+    public void InlineResolveCompletionDuringStartIsAppliedOnce(uint status)
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.OnCreated = operation =>
+        {
+            if (!operation.IsResolve) return;
+            operation.StartStatus = status;
+            operation.DuringStart = () => operation.Resolved(0, Record("10.0.0.1"));
+        };
+        fixture.StartAndAnnounce();
+        Assert.Equal("10.0.0.1", Assert.Single(fixture.Catalog).Address);
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.Equal(2, fixture.Discovery.Snapshot.NativeOwners);
+        fixture.Discovery.Tick();
+        Assert.Single(fixture.Dns.Resolves);
+        Assert.Equal(1, fixture.Dns.Resolves[0].ReleaseCalls);
+        Assert.Empty(fixture.Failures);
+    }
+
+    [Fact]
+    public void InlineLateCompletionDuringTimeoutCancellationCannotPublish()
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.OnCreated = operation =>
+        {
+            if (operation.IsResolve) operation.DuringCancel = () => operation.Resolved(0, Record("10.0.0.1"));
+        };
+        fixture.StartAndAnnounce();
+        fixture.TickAfter(TimeSpan.FromSeconds(5));
+        Assert.Empty(fixture.Catalog);
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.Equal(1, fixture.Dns.Resolves[0].ReleaseCalls);
+        fixture.TickAfter(TimeSpan.FromSeconds(1));
+        Assert.Equal(2, fixture.Dns.Resolves.Count);
+    }
+
+    [Fact]
+    public async Task RestartCanRetireResolveWhileItsNativeStartHasNotReturned()
+    {
+        using var fixture = new Fixture();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        fixture.Adapters = [new("wifi", "Wi-Fi", "Physical", "10.0.0.3", true, 17)];
+        fixture.Dns.OnCreated = operation =>
+        {
+            if (operation.IsResolve) operation.DuringStart = () =>
+            {
+                entered.Set();
+                Assert.True(release.Wait(TimeSpan.FromSeconds(30)), "The fixture must release the gated native start.");
+                operation.Resolved(0, Record("10.0.0.1"));
+            };
+        };
+        fixture.Discovery.Start();
+        var announcement = Task.Run(() => fixture.Announce());
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(30)), "Resolve never reached the native start barrier.");
+        try
+        {
+            // This separate completion must progress before the old start is released.
+            await Task.Run(() => fixture.Discovery.SetInterface("wifi")).WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+            Assert.Empty(fixture.Catalog);
+        }
+        finally { release.Set(); }
+        await announcement.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Empty(fixture.Catalog);
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.Equal(1, fixture.Dns.Resolves[0].CancelCalls);
+        Assert.Equal(1, fixture.Dns.Resolves[0].ReleaseCalls);
+        Assert.Equal(2, fixture.Discovery.Snapshot.NativeOwners);
+    }
+
+    [Fact]
+    public void RestartFromInlineBrowseCallbackCannotPublishOldEpochRecord()
+    {
+        using var fixture = new Fixture();
+        fixture.Adapters = [new("wifi", "Wi-Fi", "Physical", "10.0.0.3", true, 17)];
+        var restarted = false;
+        fixture.Discovery.Changed += receivers =>
+        {
+            if (restarted || receivers.Count == 0) return;
+            restarted = true;
+            fixture.Discovery.SetInterface("wifi");
+        };
+        fixture.Dns.OnCreated = operation =>
+        {
+            if (operation.IsResolve) operation.DuringStart = () => operation.Resolved(0, Record("10.0.0.1"));
+        };
+        fixture.StartAndAnnounce();
+        Assert.True(restarted);
+        Assert.Empty(fixture.Catalog);
+        Assert.Equal(0, fixture.Discovery.Snapshot.CachedRecords);
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.Equal(2, fixture.Discovery.Snapshot.NativeOwners);
+    }
+
+    [Fact]
+    public async Task DisposeFromChangedSubscriberCannotCancelWhileHoldingPublicationLock()
+    {
+        using var fixture = new Fixture();
+        using var firstPublication = new ManualResetEventSlim();
+        using var disposeRequested = new ManualResetEventSlim();
+        using var otherResolveEntered = new ManualResetEventSlim();
+        using var otherBrowseReturned = new ManualResetEventSlim();
+        var cancellationTimedOut = false;
+        var cancellationInsidePublication = false;
+        var publication = typeof(WindowsDiscovery).GetField("_publication", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(fixture.Discovery)!;
+        const string otherName = "Kitchen._airplay._tcp.local";
+        fixture.Dns.OnCreated = operation =>
+        {
+            if (!operation.IsResolve || operation.Name != otherName) return;
+            operation.DuringStart = () =>
+            {
+                otherResolveEntered.Set();
+                operation.Resolved(0, Record("10.0.0.2") with
+                {
+                    Instance = otherName,
+                    Txt = new Dictionary<string, string> { ["deviceid"] = "AA:BB:CC:DD:EE:02" }
+                });
+            };
+        };
+        fixture.StartAndAnnounce();
+        fixture.Dns.Browses[0].DuringCancel = () =>
+        {
+            cancellationInsidePublication |= Monitor.IsEntered(publication);
+            // A real cancellation may wait for its active native browse callback.
+            // The fixture records the forbidden dependency and unblocks on failure.
+            cancellationTimedOut |= !otherBrowseReturned.Wait(TimeSpan.FromSeconds(10));
+        };
+        fixture.Discovery.Changed += receivers =>
+        {
+            if (receivers.Count != 1 || receivers[0].Address != "10.0.0.1") return;
+            firstPublication.Set();
+            if (!disposeRequested.Wait(TimeSpan.FromSeconds(30))) throw new TimeoutException("Reentrant dispose barrier was not released.");
+            fixture.Discovery.Dispose();
+        };
+        var first = Task.Run(() => fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1")));
+        Assert.True(firstPublication.Wait(TimeSpan.FromSeconds(30)), "The first callback never reached Changed.");
+        var other = Task.Run(() =>
+        {
+            try { fixture.Dns.Browses[0].Announced(0, new DnsAnnouncement(otherName, 3600)); }
+            finally { otherBrowseReturned.Set(); }
+        });
+        try
+        {
+            Assert.True(otherResolveEntered.Wait(TimeSpan.FromSeconds(30)), "The concurrent browse never reached its inline resolve.");
+            Assert.True(SpinWait.SpinUntil(() => fixture.Discovery.Snapshot.CachedRecords == 2, TimeSpan.FromSeconds(30)),
+                "The concurrent callback never committed its record before waiting to publish.");
+        }
+        finally { disposeRequested.Set(); }
+        await Task.WhenAll(first, other).WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.False(cancellationInsidePublication, "Native cancellation ran while the external Changed subscriber held publication.");
+        Assert.False(cancellationTimedOut, "Native cancellation and concurrent publication formed a circular wait.");
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.Equal(0, fixture.Discovery.Snapshot.CachedRecords);
+        Assert.Equal(0, fixture.Discovery.Snapshot.NativeOwners);
+    }
+
+    [Fact]
+    public void ReentrantRestartsCoalesceBoundedNativeWorkAndNeverStartRetiredEpochs()
+    {
+        using var fixture = new Fixture();
+        fixture.Adapters = Enumerable.Range(1, 40).Select(index => new DiscoveryAdapter($"nic{index}", "NIC", "Physical", "10.0.0.3", true, (uint)index)).ToArray();
+        var restarted = false;
+        fixture.Discovery.Changed += receivers =>
+        {
+            if (restarted || receivers.Count == 0) return;
+            restarted = true;
+            for (var index = 1; index <= 40; index++) fixture.Discovery.SetInterface($"nic{index}");
+        };
+        fixture.StartAndAnnounce();
+        fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1"));
+        Assert.True(restarted);
+        Assert.Equal(64, fixture.Dns.Allocations);
+        Assert.Equal(0, fixture.Discovery.Snapshot.NativeOwners);
+        Assert.All(fixture.Dns.Browses.Skip(2), operation => Assert.Equal(0, operation.StartCalls));
+        fixture.Discovery.Tick();
+        Assert.Equal(2, fixture.Discovery.Snapshot.NativeOwners);
+        Assert.All(fixture.Dns.Browses.TakeLast(2), operation =>
+        {
+            Assert.Equal(1, operation.StartCalls);
+            Assert.Equal(40u, operation.InterfaceIndex);
+        });
+    }
+
+    [Fact]
+    public void FailedSubscriberCanRestartAndNewEpochStillStartsAfterPublication()
+    {
+        using var fixture = new Fixture();
+        fixture.Adapters = [new("wifi", "Wi-Fi", "Physical", "10.0.0.3", true, 17)];
+        var restarted = false;
+        fixture.Discovery.Failed += _ =>
+        {
+            if (restarted) return;
+            restarted = true;
+            fixture.Discovery.SetInterface("wifi");
+        };
+        fixture.StartAndAnnounce();
+        fixture.Dns.Resolves[0].Resolved(5, null);
+        Assert.True(restarted);
+        Assert.Equal(2, fixture.Discovery.Snapshot.NativeOwners);
+        Assert.All(fixture.Dns.Browses.Skip(2), operation => Assert.Equal(1, operation.StartCalls));
+        fixture.Announce();
+        fixture.Dns.Resolves[^1].Resolved(0, Record("10.0.0.2"));
+        Assert.Equal("10.0.0.2", Assert.Single(fixture.Catalog).Address);
+    }
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(5u)]
+    public void CancelReturnWithoutSettlementRetainsPerNameCapacityUntilLateCompletion(uint status)
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.SettleOnCancel = false;
+        fixture.Dns.OnCreated = operation => operation.CancelStatus = status;
+        fixture.StartAndAnnounce();
+        fixture.TickAfter(TimeSpan.FromSeconds(5));
+        fixture.TickAfter(TimeSpan.FromSeconds(1));
+        fixture.TickAfter(TimeSpan.FromSeconds(5));
+        fixture.TickAfter(TimeSpan.FromSeconds(2));
+        Assert.Equal(2, fixture.Dns.Resolves.Count);
+        Assert.Equal(4, fixture.Discovery.Snapshot.NativeOwners);
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        fixture.Dns.Resolves[0].Resolved(995, null);
+        fixture.Discovery.Tick();
+        Assert.Equal(3, fixture.Dns.Resolves.Count);
+        Assert.Equal(4, fixture.Discovery.Snapshot.NativeOwners);
+        fixture.Dns.Resolves[1].Resolved(0, Record("10.0.0.1"));
+        Assert.Empty(fixture.Catalog);
+        Assert.Equal(1, fixture.Discovery.Snapshot.PendingResolves);
+        fixture.Dns.Resolves[^1].Resolved(0, Record("10.0.0.2"));
+        Assert.Equal("10.0.0.2", Assert.Single(fixture.Catalog).Address);
+    }
+
+    [Fact]
+    public void ThrowingObserversCannotAbandonDeferredCancellationAndStartBatch()
+    {
+        using var fixture = new Fixture(_ => throw new InvalidOperationException("Fixture log observer failure."));
+        fixture.Dns.SettleOnCancel = false;
+        fixture.Dns.OnCreated = operation => operation.CancelStatus = 5;
+        fixture.Adapters = [new("wifi", "Wi-Fi", "Physical", "10.0.0.3", true, 17)];
+        fixture.Discovery.Changed += _ => throw new InvalidOperationException("Fixture Changed observer failure.");
+        fixture.Discovery.Failed += _ => throw new InvalidOperationException("Fixture Failed observer failure.");
+        var cancellationDiagnostics = 0;
+        fixture.Discovery.Failed += _ => cancellationDiagnostics++;
+        var restarted = false;
+        fixture.Discovery.Changed += receivers =>
+        {
+            if (restarted || receivers.Count == 0) return;
+            restarted = true;
+            fixture.Discovery.SetInterface("wifi");
+        };
+        fixture.StartAndAnnounce();
+        fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1"));
+        Assert.True(restarted, "The throwing Changed subscriber must not prevent the later restart subscriber.");
+        Assert.Equal(2, cancellationDiagnostics);
+        Assert.Equal(4, fixture.Discovery.Snapshot.NativeOwners);
+        Assert.All(fixture.Dns.Browses.Take(2), operation => Assert.Equal(1, operation.CancelCalls));
+        Assert.All(fixture.Dns.Browses.Skip(2), operation => Assert.Equal(1, operation.StartCalls));
+        fixture.Announce();
+        fixture.Dns.Resolves[^1].Resolved(0, Record("10.0.0.2"));
+        Assert.Equal("10.0.0.2", Assert.Single(fixture.Catalog).Address);
+    }
+
+    [Fact]
+    public void QueuedCancellationFailureIsReportedForRetainedOwnerAndIgnoredAfterSettlementOrDispose()
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.SettleOnCancel = false;
+        fixture.StartAndAnnounce();
+        var operation = fixture.Dns.Resolves[0];
+        fixture.TickAfter(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, operation.CancellationFailureSubscriberCount);
+        operation.EmitCancellationFailure("Fixture cancellation denied.");
+        Assert.Equal(1, fixture.Failures.Count(message => message.Contains("Fixture cancellation denied.", StringComparison.Ordinal)));
+        Assert.Equal(3, fixture.Discovery.Snapshot.NativeOwners);
+        operation.Settle();
+        Assert.Equal(0, operation.CancellationFailureSubscriberCount);
+        var afterSettlement = fixture.EventCount;
+        operation.EmitCancellationFailure("Settled owner must not report.");
+        Assert.Equal(afterSettlement, fixture.EventCount);
+        fixture.Discovery.Dispose();
+        var afterDispose = fixture.EventCount;
+        fixture.Dns.Browses[0].EmitCancellationFailure("Disposed discovery must not report.");
+        Assert.Equal(afterDispose, fixture.EventCount);
+    }
+
+    [Fact]
+    public void RestartCountsRetiredBrowsersAndResolvesAgainstTotalOwnerLimit()
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.SettleOnCancel = false;
+        fixture.Adapters = Enumerable.Range(1, 40).Select(index => new DiscoveryAdapter($"nic{index}", "NIC", "Physical", "10.0.0.3", true, (uint)index)).ToArray();
+        fixture.StartAndAnnounce();
+        for (var index = 1; index <= 40; index++) fixture.Discovery.SetInterface($"nic{index}");
+        Assert.Equal(64, fixture.Dns.Allocations);
+        Assert.Equal(64, fixture.Discovery.Snapshot.NativeOwners);
+        Assert.NotEmpty(fixture.Failures);
+        fixture.Dns.SettleAll();
+        fixture.Discovery.Tick();
+        Assert.Equal(2, fixture.Discovery.Snapshot.NativeOwners);
+        Assert.Equal(66, fixture.Dns.Allocations);
+        Assert.All(fixture.Dns.Browses.TakeLast(2), operation => Assert.Equal(40u, operation.InterfaceIndex));
+    }
+
+    [Fact]
+    public void ManyAdvertisedNamesCannotExceedOwnerLimitAndOneSettlementAdmitsOneRetry()
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.SettleOnCancel = false;
+        fixture.Discovery.Start();
+        var announcements = Enumerable.Range(0, 64).Select(index => new DnsAnnouncement($"Office{index}._airplay._tcp.local", 3600)).ToArray();
+        fixture.Dns.Browses[0].Announced(0, announcements);
+        Assert.Equal(64, fixture.Discovery.Snapshot.AdvertisedNames);
+        Assert.Equal(62, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.Equal(64, fixture.Discovery.Snapshot.NativeOwners);
+        fixture.TickAfter(TimeSpan.FromSeconds(5));
+        fixture.TickAfter(TimeSpan.FromSeconds(1));
+        Assert.Equal(62, fixture.Dns.Resolves.Count);
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        fixture.Dns.Resolves[0].Resolved(995, null);
+        fixture.Discovery.Tick();
+        Assert.Equal(63, fixture.Dns.Resolves.Count);
+        Assert.Equal(1, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.Equal(64, fixture.Discovery.Snapshot.NativeOwners);
+    }
+
+    [Fact]
+    public void SameNameOwnerLimitIncludesRetiredEpochs()
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.SettleOnCancel = false;
+        fixture.Adapters = [new("nic1", "NIC", "Physical", "10.0.0.3", true, 1), new("nic2", "NIC", "Physical", "10.0.0.3", true, 2)];
+        fixture.StartAndAnnounce();
+        fixture.Discovery.SetInterface("nic1");
+        fixture.Announce();
+        fixture.Discovery.SetInterface("nic2");
+        fixture.Announce();
+        Assert.Equal(2, fixture.Dns.Resolves.Count);
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        fixture.Dns.Resolves[0].Resolved(995, null);
+        fixture.Discovery.Tick();
+        Assert.Equal(3, fixture.Dns.Resolves.Count);
+        Assert.Equal(2u, fixture.Dns.Resolves[^1].InterfaceIndex);
+    }
+
+    [Fact]
+    public void MissingSelectedAdapterNeverStartsAllInterfaceBrowseAndRestoresAfterAdapterCheck()
+    {
+        using var fixture = new Fixture();
+        fixture.Discovery.SetInterface("wifi");
+        fixture.Discovery.Start();
+        Assert.Empty(fixture.Dns.Operations);
+        Assert.NotEmpty(fixture.Failures);
+        fixture.Adapters = [new("wifi", "Wi-Fi", "Physical", "10.0.0.3", true, 17)];
+        fixture.TickAfter(TimeSpan.FromSeconds(19));
+        Assert.Empty(fixture.Dns.Operations);
+        fixture.TickAfter(TimeSpan.FromSeconds(1));
+        Assert.Equal(2, fixture.Dns.Browses.Count);
+        Assert.All(fixture.Dns.Browses, operation => Assert.Equal(17u, operation.InterfaceIndex));
+        fixture.Adapters = [];
+        fixture.TickAfter(TimeSpan.FromSeconds(20));
+        Assert.Equal(2, fixture.Dns.Browses.Count);
+        Assert.Equal(0, fixture.Discovery.Snapshot.NativeOwners);
+        Assert.All(fixture.Dns.Browses, operation => Assert.Equal(1, operation.CancelCalls));
+    }
+
+    [Fact]
+    public void FailedBrowseStartCanRecoverWithoutCreatingUnboundedOwners()
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.OnCreated = operation => { if (!operation.IsResolve) operation.StartStatus = 5; };
+        fixture.Discovery.Start();
+        Assert.Equal(2, fixture.Failures.Count);
+        Assert.Equal(0, fixture.Discovery.Snapshot.NativeOwners);
+        fixture.TickAfter(TimeSpan.FromSeconds(1));
+        Assert.Equal(4, fixture.Failures.Count);
+        Assert.Equal(4, fixture.Dns.Browses.Count);
+        fixture.Dns.OnCreated = null;
+        fixture.TickAfter(TimeSpan.FromSeconds(2) - TimeSpan.FromTicks(1));
+        Assert.Equal(4, fixture.Dns.Browses.Count);
+        fixture.TickAfter(TimeSpan.FromTicks(1));
+        Assert.Equal(2, fixture.Discovery.Snapshot.NativeOwners);
+        fixture.Announce();
+        fixture.Dns.Resolves[^1].Resolved(0, Record("10.0.0.1"));
+        Assert.Single(fixture.Catalog);
+    }
+
+    [Fact]
+    public void LoaderFailureDoesNotEscapeOrPreventStartingTheOtherBrowser()
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.OnCreated = operation =>
+        {
+            if (operation.Name != Airplay) return;
+            operation.DuringStart = () =>
+            {
+                operation.Settle(); // Native adapter has already proved non-admission.
+                throw new DllNotFoundException("Fixture DNS loader failure.");
+            };
+        };
+        fixture.Discovery.Start();
+        Assert.Equal(2, fixture.Dns.Browses.Count);
+        Assert.Equal(1, fixture.Discovery.Snapshot.NativeOwners);
+        Assert.NotEmpty(fixture.Failures);
+        fixture.Dns.OnCreated = null;
+        fixture.TickAfter(TimeSpan.FromSeconds(1));
+        Assert.Equal(3, fixture.Dns.Browses.Count);
+        Assert.Equal(2, fixture.Discovery.Snapshot.NativeOwners);
+    }
+
+    private static ServiceRecord Record(string address) => new(Name, Airplay, address, 7000, new Dictionary<string, string> { ["deviceid"] = "AA:BB:CC:DD:EE:FF" });
+
+    private sealed class Fixture : IDisposable
+    {
+        public readonly ManualClock Clock = new();
+        public readonly FakeDns Dns = new();
+        public readonly WindowsDiscovery Discovery;
+        public readonly List<string> Failures = [];
+        public IReadOnlyList<DiscoveryAdapter> Adapters = [];
+        public IReadOnlyList<Receiver> Catalog = [];
+        public int EventCount;
+        public Fixture(Action<string>? log = null)
+        {
+            Discovery = new(Dns, Clock, () => Adapters, log ?? (_ => { }));
+            Discovery.Changed += receivers => { Catalog = receivers; EventCount++; };
+            Discovery.Failed += message => { Failures.Add(message); EventCount++; };
+        }
+        public void StartAndAnnounce(uint ttl = 3600) { Discovery.Start(); Announce(ttl); }
+        public void Announce(uint ttl = 3600) => Dns.Browses.Last(operation => operation.Name == Airplay && !operation.CancelRequested).Announced(0, new DnsAnnouncement(Name, ttl));
+        public void TickAfter(TimeSpan duration) { Clock.Advance(duration); Discovery.Tick(); }
+        public void Dispose() { Discovery.Dispose(); Dns.SettleAll(); }
+    }
+
+    private sealed class ManualClock : TimeProvider
+    {
+        private long _timestamp;
+        private DateTimeOffset _utc = new(2026, 10, 8, 0, 0, 0, TimeSpan.Zero);
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => _timestamp;
+        public override DateTimeOffset GetUtcNow() => _utc;
+        public void Advance(TimeSpan duration) { _timestamp += duration.Ticks; _utc += duration; }
+        public void ShiftUtc(TimeSpan duration) => _utc += duration;
+    }
+
+    private sealed class FakeDns : IDnsServiceApi
+    {
+        public readonly List<FakeOperation> Operations = [];
+        public List<FakeOperation> Browses => Operations.Where(operation => !operation.IsResolve).ToList();
+        public List<FakeOperation> Resolves => Operations.Where(operation => operation.IsResolve).ToList();
+        public bool SettleOnCancel = true;
+        public Action<FakeOperation>? OnCreated;
+        public int Allocations;
+        public int Releases;
+        public IDnsServiceOperation CreateBrowse(string type, uint interfaceIndex, Action<uint, IReadOnlyList<DnsAnnouncement>> callback) => Create(type, type, interfaceIndex, callback, null);
+        public IDnsServiceOperation CreateResolve(string name, string type, uint interfaceIndex, Action<uint, ServiceRecord?> callback) => Create(name, type, interfaceIndex, null, callback);
+        private FakeOperation Create(string name, string type, uint index, Action<uint, IReadOnlyList<DnsAnnouncement>>? browse, Action<uint, ServiceRecord?>? resolve)
+        {
+            var operation = new FakeOperation(this, ++Allocations, name, type, index, browse, resolve);
+            Operations.Add(operation);
+            OnCreated?.Invoke(operation);
+            return operation;
+        }
+        public void SettleAll() { foreach (var operation in Operations.ToArray()) operation.Settle(); }
+    }
+
+    private sealed class FakeOperation(FakeDns owner, long token, string name, string type, uint index,
+        Action<uint, IReadOnlyList<DnsAnnouncement>>? browse, Action<uint, ServiceRecord?>? resolve) : IDnsServiceOperation
+    {
+        public long Token { get; } = token;
+        public string Name { get; } = name;
+        public string Type { get; } = type;
+        public uint InterfaceIndex { get; } = index;
+        public bool IsResolve => resolve is not null;
+        public bool IsSettled { get; private set; }
+        public bool CancelRequested { get; private set; }
+        public uint StartStatus = 9506;
+        public uint CancelStatus;
+        public int CancelCalls;
+        public int StartCalls;
+        public int ReleaseCalls;
+        public Action? DuringStart;
+        public Action? DuringCancel;
+        public event Action? Settled;
+        public event Action<string>? CancellationFailed;
+        public int CancellationFailureSubscriberCount => CancellationFailed?.GetInvocationList().Length ?? 0;
+        public void EmitCancellationFailure(string message) => CancellationFailed?.Invoke(message);
+        public uint Start()
+        {
+            StartCalls++;
+            DuringStart?.Invoke();
+            if (StartStatus != 9506) Settle();
+            return StartStatus;
+        }
+        public uint Cancel()
+        {
+            CancelCalls++;
+            CancelRequested = true;
+            DuringCancel?.Invoke();
+            if (owner.SettleOnCancel) Settle();
+            return CancelStatus;
+        }
+        public void Announced(uint status, params DnsAnnouncement[] announcements) => browse!(status, announcements);
+        public void Resolved(uint status, ServiceRecord? record) { resolve!(status, record); Settle(); }
+        public void Settle()
+        {
+            if (IsSettled) return;
+            IsSettled = true;
+            ReleaseCalls++;
+            owner.Releases++;
+            Settled?.Invoke();
+        }
+    }
+}
