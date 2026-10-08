@@ -39,12 +39,12 @@ AirFlash accepts `DnsServiceBrowse` start status `0` or `9506` (`DNS_REQUEST_PEN
 
 Callbacks enter through static thunks. The native context is an integer token in a process-wide table, not a managed pointer. If the operation was already removed, the callback frees the DNS memory and returns. Epoch checks reject cache mutations from replaced operations; a browse callback checks the epoch while processing each PTR, whereas a resolve callback checks it before reading its result.
 
-Each callback walks a `DNS_RECORDW` list and keeps PTR records, type 12. The code reads the type at byte offset 16 and the flags at offset 24.
+Each callback walks a `DNS_RECORDW` list and keeps PTR records, type 12. The code reads the type at byte offset 16 and the TTL at offset 24; the x64 flags field is at offset 20. This corrects the earlier audit's field label without changing its observed branch.
 
-- Flags `0` remove that instance name, its resolved record, and its `_pending` marker immediately. This branch does not cancel or dispose the native resolve operation. A late completion is rejected unless its token still matches; restart/dispose also clean up retained operations.
+- TTL `0` removes that instance name, its resolved record, and its `_pending` marker immediately. This branch does not cancel or dispose the native resolve operation. A late completion is rejected unless its token still matches; restart/dispose also clean up retained operations.
 - Any other PTR stores "this instance belongs to this service type" and starts a resolve, unless a resolve for that name is already in flight.
 
-A successful browse callback publishes after it has processed the whole record list. Resolved data may still be absent, so a publish at this moment can contain the same speakers as the previous one. The UI still receives the event. [After discovery](after-discovery.md) describes how identical lists are handled. The flags test describes AirFlash's branch, not a verified guarantee that Windows sends a flags-zero callback whenever a receiver disappears; this audit did not test removal delivery on a live network.
+A successful browse callback publishes after it has processed the whole record list. Resolved data may still be absent, so a publish at this moment can contain the same speakers as the previous one. The UI still receives the event. [After discovery](after-discovery.md) describes how identical lists are handled. The TTL test describes AirFlash's branch, not a verified guarantee that Windows sends a TTL-zero callback whenever a receiver disappears; this audit did not test removal delivery on a live network.
 
 ## The resolve
 
@@ -72,7 +72,7 @@ The 20-second timer does two different jobs:
 - If a specific adapter is selected and its interface index no longer matches the index used for the current browse, the timer calls `Restart`. The cache is cleared and an empty list is published.
 - Otherwise it deletes records whose 90-second expiry has passed, publishes what remains, and re-resolves every instance the browse still knows.
 
-A flags-zero PTR callback removes that instance immediately. A speaker whose refresh resolves fail remains visible until the first timer tick that observes its 90-second expiry; 90 seconds is the stored deadline, not a separate precise eviction timer. A network-address change, a network-availability change, an adapter switch, and the first `Start` all take the `Restart` path, which publishes the cleared cache before starting that epoch's new browse.
+A TTL-zero PTR callback removes that instance immediately. A speaker whose refresh resolves fail remains visible until the first timer tick that observes its 90-second expiry; 90 seconds is the stored deadline, not a separate precise eviction timer. A network-address change, a network-availability change, an adapter switch, and the first `Start` all take the `Restart` path, which publishes the cleared cache before starting that epoch's new browse.
 
 `NetworkChanged` and `NetworkAvailabilityChanged` call `Restart` with no look at which adapter changed. A virtual adapter, an IPv6 address refresh, or an unrelated NIC can clear the HomePod cache. The handler does not compare the previous IPv4 address with the new one.
 
@@ -85,7 +85,7 @@ A flags-zero PTR callback removes that instance immediately. A speaker whose ref
 - The next `Refresh` only re-resolves names still in `_instances`, so the expired name is not queried again.
 - A later browse callback that still sees the PTR calls `Resolve`, and `Resolve` returns immediately because `_pending` still contains the name.
 - A callback that arrives after expiry removes `_pending`. If no subsequent PTR restored `_instances` for that name, it returns without storing a record. If a subsequent PTR did restore the name, that same pending resolve can still supply a fresh record.
-- The name is queried again after a browse removal (`flags == 0` clears `_pending`) followed by a new PTR, or after `Restart`, which clears `_pending` along with everything else.
+- The name is queried again after a browse removal (`TTL == 0` clears `_pending`) followed by a new PTR, or after `Restart`, which clears `_pending` along with everything else.
 
 A resolve that never completes can therefore drop a previously resolved speaker from the published list and refuse further resolves for that instance until removal plus a new PTR, or restart. If the very first resolve never completes, there is no cached record to expire: the name and `_pending` marker remain, and each refresh skips another resolve. There is no resolve deadline or watchdog here. A late successful callback is another recovery when `_instances` still contains, or a newer PTR has restored, that name. Without that name, the late callback only clears `_pending`; another PTR is then needed to trigger a new resolve.
 
@@ -131,12 +131,12 @@ The audited code is the `41190e0` runtime baseline retained by `c077a05`; see [t
 | --- | --- |
 | Startup, saved interface, shutdown order | [`AppViewModel.cs:83–118, 420–428`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L83) |
 | Adapter enumeration and no fallback | [`NetworkAdapterCatalog.cs:8–25`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/NetworkAdapterCatalog.cs#L8), [`Receiver.cs:110–123`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Receiver.cs#L110) |
-| Restart, timer, PTR flags and pending resolves | [`WindowsDiscovery.cs:27–134`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L27) |
+| Restart, timer, PTR TTL and pending resolves | [`WindowsDiscovery.cs:27–134`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L27) |
 | Result validation, logging, publication, disposal | [`WindowsDiscovery.cs:136–245`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L136) |
 | Network Settings and check flag | [`SettingsViewModel.cs:278–309`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L278), [`App.xaml.cs:149–166`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/App.xaml.cs#L149) |
 | x64 target | [`AirFlash.App.csproj:10`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/AirFlash.App.csproj#L10) |
 
-[`DiscoveryTests.SelectedInterfaceNeverFallsBackToAllWhenMissingOrDisconnected`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/DiscoveryTests.cs#L9) covers pure interface selection. `AirFlash.Tests` references Core, not the WPF project; its discovery tests do not exercise `dnsapi.dll`, native cancellation races, the 20-second timer, hung callbacks, or flags-zero removal delivery. Those behavior paths are verified by source inspection here, not by a live receiver experiment.
+[`DiscoveryTests.SelectedInterfaceNeverFallsBackToAllWhenMissingOrDisconnected`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/DiscoveryTests.cs#L9) covers pure interface selection. `AirFlash.Tests` references Core, not the WPF project; its discovery tests do not exercise `dnsapi.dll`, native cancellation races, the 20-second timer, hung callbacks, or TTL-zero removal delivery. Those behavior paths are verified by source inspection here, not by a live receiver experiment.
 
 
 ## Implemented Group B behavior
@@ -146,3 +146,13 @@ The preceding audit remains the description of stable `41190e0`. This addendum d
 Group B changes desktop handling after publication. Empty, incomplete or repeated browse results, including adapter restart, preserve the active handshake/transport while catalog rows continue to describe current discovery availability. The panel overlays an owned active card with an availability label and Stop; it does not claim that an absent receiver was rediscovered.
 
 Browse, resolve, expiry and native DNS cancellation code are unchanged; DNS deadlines remain separate Group D work. The selected discovery interface still has no fallback when unavailable and still does not bind playback egress. The retained transport remains governed by worker health, explicit user actions and controller cleanup. The checklist records mock publication/adapter cases, without claiming live DNS, route or receiver validation.
+
+## Implemented Group D behavior
+
+The original audit and Group B addendum above retain their own source boundaries. Local branch `codex/fix-discovery-resolve`, tested head `4c79f2254910365dc9f5931fcdc52851c7043abe`, is based directly on stable `41190e0`, and remains unpushed and outside fork/upstream main. [Group D acceptance](../issues/GROUP-D-ACCEPTANCE.md) records API contracts, exact checks and limitations. Group C was completed first on its separate branch; these are standalone implementations, not a combined main build.
+
+Group D separates PTR advertisement expiry from the 90-second resolved-record cache. A five-second monotonic deadline retires logical blocking even for an initial request with no cached record, with bounded exponential retry and a 20-second successful refresh interval. Exact current token and epoch checks reject late results. Advertised names survive cache expiry; explicit PTR TTL-zero removal and advertisement expiry still remove them. The maintenance tick runs each second, while adapter checks retain their 20-second cadence and selected-unavailable no-fallback policy.
+
+Cancellation never frees inputs merely because a timer elapsed or Cancel returned success. Native owners retain request/name/cancel buffers until failed non-pending admission or terminal callback and safe frame completion. Limits of two resolves per name, 64 owners per discovery instance and 128 per process include old epochs and cancelled requests. Capacity recovers after settlement; unresolved cancellation can require process restart. Native cancellation requested from callbacks is deferred onto a coalesced worker, and publication defers reentrant starts/cancels until its lock releases. Async cancellation errors remain visible; observer/logging errors cannot discard remaining native work.
+
+The x64 PTR field correction is reflected in the original audit above: offset 24 is TTL, while flags are at offset 20. Fixed raw fixtures explicitly distinguish them. Actual callback ordering, callback loss and receiver disappearance on Windows remain unmeasured; fake native calls, real unmanaged test buffers and source-linked coordinator assertions establish the controlled lifecycle behavior only.

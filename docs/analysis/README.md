@@ -10,6 +10,8 @@ Read the table from top to bottom. The later pages describe mechanisms that cut 
 
 Group B's session/receiver changes were subsequently implemented and verified on `codex/fix-session-lifecycle` at `342aeb7`, based directly on original stable `41190e0`. Group A and then Group B are now merged into local fork `main` at `72dc7c7`; original upstream `main` remains unchanged. [Feature acceptance and actual checks](../issues/GROUP-B-ACCEPTANCE.md) distinguish tested feature behavior from this index's original stable-source audit. Affected pages retain their baseline descriptions and add an implementation section; [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) records later hosted-build and downloaded-binary evidence separately.
 
+Groups C and D were subsequently implemented one at a time on separate original-base local branches. [Group C acceptance](../issues/GROUP-C-ACCEPTANCE.md) covers settings preservation/validation; [Group D acceptance](../issues/GROUP-D-ACCEPTANCE.md) covers DNS deadlines and native ownership. Both are tested and locally committed, without push, issue/PR publication or integration into either main branch. Their affected analysis pages add separately bounded implementation sections.
+
 | Document | What it covers |
 | --- | --- |
 | [Discovery](discovery.md) | Windows DNS-SD browse and resolve, the record cache, and adapter filtering |

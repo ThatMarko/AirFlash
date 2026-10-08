@@ -2,6 +2,8 @@
 
 Verified on 2026-10-08. Reports 06 and 07 are implemented together on local branch `codex/fix-settings-recovery`, head `e1294668161fb1967448a186e2e0263444d0d3bd`, directly based on refreshed original stable `41190e0d13a63a714c08dffe73ababca1804875c`. This branch has not been pushed, published, or merged into either fork or upstream main.
 
+Worktree: `C:\Users\marko\.codex\worktrees\fix-settings-recovery\AirFlash`.
+
 ## Implemented behavior
 
 - The store reads bytes through the guarded load, decodes with compatible BOM detection, and never rereads a failing path from its recovery catch. Only actual missing-file/directory results mean absence; access and I/O failures create a pending preservation obligation.
@@ -35,4 +37,4 @@ Ignored implementation-worktree evidence is in `artifacts/group-c-tests/`, `arti
 
 Tests use synthetic temporary files and simulated services; the WPF suite uses isolated real window/tray identities. No real settings, credential store, discovery, receivers, capture or endpoint mutation is involved. Store serialization and atomic replacement do not establish power-loss durability or coordination with arbitrary external writers. No native engine source, schema-2 format or JSONL v1 contract changed.
 
-Next: implement Group D separately. Group C remains a local original-base implementation, ready for a later explicitly authorized Task 3 publication.
+Group D was subsequently implemented and verified separately; see [Group D acceptance](GROUP-D-ACCEPTANCE.md). Both remain local original-base implementations, ready for later explicitly authorized Task 3 publication.

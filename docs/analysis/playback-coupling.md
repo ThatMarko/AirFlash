@@ -37,7 +37,7 @@ An address, port, or stereo leader change still reaches `UpdateReceiverAsync`. A
 
 The network handlers do not receive the adapter that changed. Any address change on the machine, including a virtual adapter, takes the same path as a change on the NIC that reaches the HomePod.
 
-A second path drops one name without clearing the others. A flags-zero PTR removes the record and pending marker. A refresh tick deletes a record whose 90-second expiry has passed, including its instance name, and a hung resolve can leave `_pending` set so that name is not queried again. The expiry is processed by the 20-second timer rather than at a precise 90-second alarm. The details are in [Discovery](discovery.md).
+A second path drops one name without clearing the others. A TTL-zero PTR removes the record and pending marker. A refresh tick deletes a record whose 90-second expiry has passed, including its instance name, and a hung resolve can leave `_pending` set so that name is not queried again. The expiry is processed by the 20-second timer rather than at a precise 90-second alarm. The details are in [Discovery](discovery.md).
 
 `Discovery resolved:` is logged when the name is missing from `_records` or when its description changed. An identical description logged again can follow a cache miss, or an intervening description change that later reverted. The log does not label restart, expiry, or PTR-removal causes. Several resolve lines near one another are insufficient to identify a network event, a receiver reboot, or the state of the engine watches; this audit does not use local log counts as repository ground truth.
 

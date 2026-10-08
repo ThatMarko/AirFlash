@@ -6,10 +6,10 @@
 - **Severity**: HIGH — a stalled resolve can indefinitely suppress rediscovery and can expire a receiver participating in playback.
 - **Kind**: Defect
 - **Subsystem**: Windows DNS-SD resolve lifecycle
-- **Status**: Open — conditional failure path verified in source; fix proposed, not implemented
+- **Status**: Open in original stable main; tested local Group D implementation remains unsubmitted
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
-- **Evidence status**: Source inspected. Callback suppression is a planned fault injection, not a reproduced Windows/AP/IGMP failure or measured native memory leak.
-- **Implementation status**: Proposal only; no runtime change applied
+- **Evidence status**: Original logical-state probes executed against unchanged source; fixed coordinator/native-owner fault injections and mock WPF checks passed. [Group D acceptance](GROUP-D-ACCEPTANCE.md) distinguishes these from unmeasured Windows/AP/IGMP failures and native leaks.
+- **Implementation status**: Implemented and tested locally in Group D at `4c79f22`; see [feature acceptance](GROUP-D-ACCEPTANCE.md). Not pushed or integrated into stable main. The original behavior and proposed fixture/architecture sections below remain historical.
 - **Target file**: [WindowsDiscovery.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L82)
 - **Analysis context**: [Discovery](../analysis/discovery.md)
 
@@ -57,7 +57,7 @@ Keep manual receivers, interface selection, ReceiverCatalog identity, schema 2, 
 - A suppressed first completion reaches its configured deadline and permits a bounded retry; no cached record is required to trigger recovery.
 - A suppressed refresh completion cannot indefinitely suppress a later PTR-driven resolve after expiry.
 - A late old callback cannot publish over, remove, or complete a newer pending token.
-- In the fake API, successful cancellation/completion returns operation registration/allocation counts to baseline exactly once; removal and owner shutdown are idempotent.
+- In the fake API, terminal completion or cancellation settlement returns operation registration/allocation counts to baseline exactly once; cancellation return alone does not authorize reclamation, and removal/owner shutdown are idempotent.
 - Failed/late cancellation leaves safely owned native memory, no use-after-free, and a documented diagnostic/recovery path.
 - Repeated failed resolves are backoff/rate bounded; a missing selected NIC never falls back to all interfaces.
 - Manual rows and their sessions are unaffected by resolver housekeeping.

@@ -158,6 +158,8 @@ Agree a single recovery result/preservation policy used across both startup Load
 
 ## Group D — DNS operation lifecycle
 
+Subsequent local execution is recorded in [Group D acceptance](GROUP-D-ACCEPTANCE.md), head `4c79f22`. Report 04 is implemented and verified separately after Group C; both branches remain unpushed and outside fork/upstream main. The work-package text below retains the original requirements.
+
 ### ISSUE-04
 
 [Report](ISSUE-04-HIGH-dns-resolve-without-deadline-stalls-discovery.md). Read [discovery](../analysis/discovery.md). Touchpoints: `WindowsDiscovery` pending tokens, record TTL, registered native operations, Restart/Dispose.
