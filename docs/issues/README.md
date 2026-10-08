@@ -8,7 +8,7 @@ The original runtime evidence remains pinned to `41190e0`, unchanged by document
 
 Source links in baseline report sections resolve to the full audited upstream commit. Implementation sections link their feature source and record later checks separately, so current fork code does not silently replace the evidence for an original report.
 
-The separately reported Settings scrollbar issues have an [acceptance record](SETTINGS-SCROLL-ACCEPTANCE.md). A+B, scrolling and the separate [installer cache fix](INSTALLER-REFRESH-ACCEPTANCE.md) are integrated into fork main after the user's authorization. Final GitHub build/installer lifecycle checks, exact downloaded mock UI checks and local installer payload checks passed. Physical pointer/visual checking of the final download still needs an accessible desktop. These changes remain outside upstream main and do not activate another backlog group.
+The separately reported Settings scrollbar issues have an [acceptance record](SETTINGS-SCROLL-ACCEPTANCE.md). A+B, scrolling and the separate [installer cache fix](INSTALLER-REFRESH-ACCEPTANCE.md) are integrated into fork main after the user's authorization. Final GitHub build/installer lifecycle checks, exact downloaded mock UI checks, local installer payload checks, and the subsequent current-monitor native wheel/thumb/visual checks passed. These changes remain outside upstream main and do not activate another backlog group.
 
 ## Active reports
 
