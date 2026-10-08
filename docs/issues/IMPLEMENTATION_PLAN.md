@@ -136,6 +136,8 @@ Suggested internal commits: ownership/guarded retargeting; automatic admission p
 
 ## Group C — settings preservation and loaded validation
 
+Subsequent local execution is recorded in [Group C acceptance](GROUP-C-ACCEPTANCE.md), head `e129466`. Reports 06/07 are implemented and verified together; this branch remains unpushed and outside fork/upstream main. The work-package text below retains the original design/acceptance requirements.
+
 Agree a single recovery result/preservation policy used across both startup Load calls and later automatic saves. Capture readable original bytes once, then decode them compatibly for parsing, including existing BOM/encoding behavior. Keep the raw bytes for a byte-preserving backup; the current ReadAllText/WriteAllText string path alone cannot guarantee that. If contents were not captured, allow controlled defaults/diagnostics without silently authorizing replacement of an unreadable original. A subsequent save must preserve it successfully or report a controlled failure. Distinguish genuine absence, pending preservation and verified backup; retain future-schema rejection.
 
 ### ISSUE-06

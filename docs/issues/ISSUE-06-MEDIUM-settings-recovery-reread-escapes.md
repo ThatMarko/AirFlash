@@ -8,8 +8,8 @@
 - **Subsystem**: Core settings persistence / Desktop startup
 - **Status**: Open — source-confirmed recovery-path exception
 - **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
-- **Evidence status**: Source/catch path verified; locked-file reproduction specified but not executed against the .NET application
-- **Implementation status**: Proposal only
+- **Evidence status**: Original locked-read failure reproduced against unchanged Core; fixed Core/WPF checks recorded in [Group C acceptance](GROUP-C-ACCEPTANCE.md).
+- **Implementation status**: Implemented and tested locally in Group C at `e129466`; see [feature acceptance](GROUP-C-ACCEPTANCE.md). Not pushed or integrated into stable main.
 - **Target files**: [SettingsStore.cs:16–56](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SettingsStore.cs#L16), [App.xaml.cs:48–49,69–75](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/App.xaml.cs#L48)
 - **Analysis context**: [Settings load/backups](../analysis/settings.md)
 

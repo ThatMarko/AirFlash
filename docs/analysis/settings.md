@@ -2,6 +2,8 @@
 
 The runtime analysis below retains the audited original behavior. The subsequently reported Settings scrollbar overlap and Equalizer wheel routing are documented separately in [scrolling acceptance](../issues/SETTINGS-SCROLL-ACCEPTANCE.md). Those UI changes are verified locally with A+B and now integrated into the user's fork main; original upstream main remains unchanged.
 
+Group C subsequently implemented byte-preserving settings recovery and post-load validation on local original-base branch `codex/fix-settings-recovery` at `e129466`. Its [acceptance record](../issues/GROUP-C-ACCEPTANCE.md) distinguishes executed original Core failures from the fixed branch's Core/WPF checks. It is not pushed or integrated into fork/upstream main; the audited behavior below remains historical.
+
 The desktop panel and discovery configuration use the view model's live `AppSettings`. That object is loaded from `%APPDATA%\AirFlash\config.json` and written back by identity migration, by the 200 ms panel-edit timer, and by Settings → Apply. Settings edits a separate draft and the session controller clones playback settings. The native engine receives selected values through JSONL commands; it shares no `AppSettings` object and never reads this file.
 
 ## Load and the two backups
