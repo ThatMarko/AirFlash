@@ -6,10 +6,10 @@
 - **Severity**: HIGH — a passive discovery refresh can interrupt an otherwise running stream; no data loss or security failure is established.
 - **Kind**: Defect
 - **Subsystem**: Desktop discovery/catalog/session orchestration
-- **Status**: Implemented and verified on `codex/fix-session-lifecycle`; integrated into local fork `main`, unmerged in original upstream `main`.
+- **Status**: Implemented and verified on `codex/fix-session-lifecycle`; initial implementation integrated into fork `main`, follow-up validation separate, unmerged in original upstream `main`.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
 - **Evidence status**: The original audit inspected source and existing mock-harness assertions without executing the proposed reproduction. Subsequent isolated baseline observations reproduced empty/partial-discovery interruption; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No real-device dropout or network trigger was reproduced.
-- **Implementation status**: Feature head `342aeb7`, included in local fork integration `72dc7c7`; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
+- **Implementation status**: Current feature head `11c6046`; initial `342aeb7` is included in fork integration `72dc7c7`. The follow-up is validated separately before any further main integration; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
 - **Target files**: [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166), [WindowsDiscovery.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47)
 - **Analysis context**: [Playback coupling](../analysis/playback-coupling.md), [Discovery](../analysis/discovery.md), [After discovery](../analysis/after-discovery.md)
 

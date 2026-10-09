@@ -1,12 +1,12 @@
 # Combined fork integration acceptance
 
-Verification completed on 2026-10-07 for the authorized Group A + Group B fork integration. This is unofficial validation of `ThatMarko/AirFlash`; original `Ding-Kyoma/AirFlash:main` remains `41190e0d13a63a714c08dffe73ababca1804875c`. A fork merge does not imply upstream acceptance.
+Initial verification completed on 2026-10-07 for the authorized Group A + Group B fork integration. The historical acceptance below covers the initial Group B head `342aeb7`; a follow-up validation on 2026-10-08 is recorded separately at the end. This is unofficial validation of `ThatMarko/AirFlash`; original `Ding-Kyoma/AirFlash:main` remains `41190e0d13a63a714c08dffe73ababca1804875c`. A fork merge does not imply upstream acceptance.
 
 ## Source and branch boundaries
 
 - Group A: `codex/fix-build-preflight`, unchanged head `de13b6d3e22a177537ed9d5977fe693a5b497fc1`; upstream [PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11) is still open.
-- Group B: `codex/fix-session-lifecycle`, unchanged head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, with its earlier Core contract commit `4662796`. Its [separate checklist](GROUP-B-ACCEPTANCE.md) remains the report-by-report acceptance record.
-- The Group B feature branch was pushed to the fork and its remote head verified as `342aeb77cb85ff6f3f7f850161b3db79d8637945`. Group A's existing remote branch remains `de13b6d`; no PR branch rewrite was required.
+- Initial Group B: `codex/fix-session-lifecycle`, head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, with its earlier Core contract commit `4662796`. Its [separate checklist](GROUP-B-ACCEPTANCE.md) records both this initial acceptance and the newer follow-up.
+- At this initial integration, the Group B feature branch was pushed to the fork and its remote head verified as `342aeb77cb85ff6f3f7f850161b3db79d8637945`. Group A's existing remote branch remained `de13b6d`; no PR branch rewrite was required.
 - Local fork documentation history was preserved through `76c9a76`. Group A merged at `ca84c7c`, then Group B at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`, without source conflicts.
 - A local backup branch preserves the pre-integration fork main. Both implementation branches remain based directly on original stable main; their complete diffs and every outgoing commit exclude fork analysis/issues/planning and this validation workflow.
 - Historical source links in the fork's analysis/issues are now pinned to original `41190e0`; new feature behavior has separate links to the tested feature heads.
@@ -22,7 +22,7 @@ Verification completed on 2026-10-07 for the authorized Group A + Group B fork i
 
 ## Hosted build and exact downloaded binary
 
-Merged fork main was pushed at **`b2105c9c158769ca06f8dc4e39d0e525fb497402`**. Its [normal CI](https://github.com/ThatMarko/AirFlash/actions/runs/37677853767) and [fork package validation](https://github.com/ThatMarko/AirFlash/actions/runs/37677853674) both completed successfully on that exact source. Both feature heads remain unchanged, and all 19 integrated feature files match their independently reviewed branch blobs exactly.
+Merged fork main was pushed at **`b2105c9c158769ca06f8dc4e39d0e525fb497402`**. Its [normal CI](https://github.com/ThatMarko/AirFlash/actions/runs/37677853767) and [fork package validation](https://github.com/ThatMarko/AirFlash/actions/runs/37677853674) both completed successfully on that exact source. At that point both feature heads were unchanged, and all 19 integrated feature files matched their independently reviewed branch blobs exactly.
 
 The fork-only `Fork integration validation` workflow checks out the triggering SHA with a read-only token, runs Python/native/managed checks, publishes directly, builds both installer-host variants, verifies the embedded native hello and performs installer lifecycle checks only on the disposable hosted runner. It never invokes the version-reserving production build or Release workflow.
 
@@ -46,8 +46,48 @@ Local evidence is retained under ignored `artifacts/fork-integration/`: CI/packa
 
 ## Limits and next action
 
-Subsequent user-authorized fork validation added the separate Settings scrolling and installer payload-refresh fixes. Their [final A+B+scrolling build acceptance](SETTINGS-SCROLL-ACCEPTANCE.md#final-abscrolling-build) records the later artifact and exact downloaded checks; the A/B-only build evidence above remains historical. The original A and B feature branches retain their reviewed heads.
+Subsequent user-authorized fork validation added the separate Settings scrolling and installer payload-refresh fixes. Their [final A+B+scrolling build acceptance](SETTINGS-SCROLL-ACCEPTANCE.md#final-abscrolling-build) records the later `1303a09` artifact and exact downloaded checks; the A/B-only build evidence above remains historical. Those artifacts contain the initial B head, not the new follow-up below.
 
 No real configuration, credential store, receiver, capture or endpoint mutation is part of desktop validation. The mock UI does use isolated real tray/window registrations. Native localhost tests and mock tests do not establish hardware/acoustic reliability. MSI installation belongs exclusively to the disposable hosted runner.
 
 After this validation, the user authorized Task 3 publication: scrolling [issue #12](https://github.com/Ding-Kyoma/AirFlash/issues/12) / [PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13) first, then Group B [issue #14](https://github.com/Ding-Kyoma/AirFlash/issues/14) / [PR #15](https://github.com/Ding-Kyoma/AirFlash/pull/15). Their separate acceptance records contain the exact heads, original-base boundaries and upstream CI runs, both awaiting maintainer approval with no jobs started at publication. Group A required no production amendments, so its existing PR head remains unchanged. No upstream PR merging or public release publication occurred. Later commits that only record this evidence do not alter the tested runtime source or the artifact's exact build SHA.
+
+## Follow-up validation on 2026-10-08
+
+A deeper audit of existing issues/PRs found additional lifecycle gaps in Group B's published `342aeb7` runtime. [Follow-up acceptance](GROUP-B-ACCEPTANCE.md#follow-up-audit-on-2026-10-08) records the reproduced endpoint observations and retarget/settings cleanup failures, fixes, source hashes and standalone results. Current feature head is `11c60466465bc07c0d6ce519dcfc4d3a54b973f6`: 60 focused lifecycle tests, 253 full Core tests in each of Debug/Release, and 298 WPF checks in each language passed; builds had zero warnings/errors. Group A and scrolling required no source amendments in their fresh audits.
+
+| Fresh existing-PR audit | Source head and results |
+| --- | --- |
+| Group A, PR #11 | Unchanged `de13b6d`: 37 focused prerequisite tests and all 86 Python tests passed; Ruff lint and the new test's formatting passed |
+| Scrolling, PR #13 | Unchanged `54cd18e`: 163 Core tests, 350 English and 342 Chinese full WPF checks passed; Debug/Release builds had zero warnings/errors |
+| Scrolling layout coverage | 32 page/theme/size configurations per language at actual 880×640 and 640×440; every overflowing page gutter and both minimum-width band-label gutters measured 12 DIP |
+| Group B, PR #15 | Follow-up `11c6046`: 60 focused lifecycle tests, 253 full Core tests in each Debug/Release configuration, 298 WPF checks in each language; zero build warnings/errors |
+
+The unchanged-feature receipts are retained in each worktree's ignored artifacts: Group A `artifacts/pr-audit-group-a-receipt.json` and scrolling `artifacts/pr-audit-2026-10-08/scroll-audit-receipt.json`. These fresh scrolling checks used simulated routed input; the earlier native pointer observations remain bound to the specific historical binary and desktop session recorded in the separate scrolling acceptance.
+
+The separate validation branch `codex/verify-pr-session-audit` starts from fork `origin/main` at `78a61f5e91e331ef695e74e3cf99320eb875d09a` and merges only the Group B follow-up, producing source **`bfed430b0578f14600004b87c70d3c7b379d0036`**. It contains the existing A+B+scrolling/installer runtime, excludes the local unpublished C/D implementations, and has not merged this follow-up into fork `main` or upstream `main`.
+
+[Fork integration validation run 37870969984](https://github.com/ThatMarko/AirFlash/actions/runs/37870969984) completed successfully on that exact temporary-branch source using the existing read-only validation workflow. All 86 Python tests, 47 native tests and 253 Core tests passed, with zero Python/managed skips and one intentionally ignored existing native soak. Lint/icons, Release build/publish, default/explicit-host MSI generation, runtime-only early rejection, repeated installer payload refresh, embedded native hello, and disposable-runner install/repair/upgrade/uninstall checks passed. The hosted Core TRX and count/source receipt are retained under ignored `artifacts/pr-audit-2026-10-08/`.
+
+Artifact `fork-integration-bfed430b0578f14600004b87c70d3c7b379d0036-37870969984`, ID **11590072723**, was downloaded and its archive SHA-256 matched GitHub's API digest: `e34e05b97479bfdcbbad1c38d4e9c1bb5d206a1082e1d7bec398cbffefd1ca37`. The manifest binds repository `ThatMarko/AirFlash`, ref `refs/heads/codex/verify-pr-session-audit`, source `bfed430b0578f14600004b87c70d3c7b379d0036`, and run `37870969984`; its binary checksums were verified before desktop launch. SDK is 10.0.401. The informational version is `0.3.1-fork-validation.bfed430b0578f14600004b87c70d3c7b379d0036+bfed430b0578f14600004b87c70d3c7b379d0036`; numeric 0.3.1 remains an unreserved test value.
+
+| Follow-up downloaded binary | SHA-256 |
+| --- | --- |
+| AirFlash.exe | `c62cadf2210f81129a460cfff96bea2334abeac7c7690354f797c67883c16295` |
+| AirFlash-0.3.1.msi | `bd6fb10e0fc70c8ca2aae5002a0862549d4953efb818c06e5f9a625aae6eb39f` |
+| airflash-engine.exe | `8428019fb97a780ea0fb1560813b8a5ca0c605478e9e8904e66ee6d27e5fdcd6` |
+
+The **exact downloaded portable EXE passed 499 English and 491 Chinese mock UI checks on this desktop**. Each language retained all 273 prior non-scroll checks and passed 25 new Group B checks, for 298 non-scroll checks. The totals are derived from the current reports and measured layouts, rather than incrementing historical artifact totals with different realized window sizes.
+
+| Exact downloaded desktop check | Result |
+| --- | --- |
+| Realized Settings dimensions | 880×640 default and 640×440 minimum in both languages |
+| Unique page/theme/size configurations | 32 per language; 26 English and 24 Chinese configurations required vertical scrolling |
+| Scrolling checks | 201 English and 193 Chinese; every overflowing page gutter and both minimum-width frequency-label gutters measured 12 DIP |
+| Minimum-size visual inspection | English dark Equalizer top and Monitor bottom renders fit their content and scrollbar gutters |
+| Separate downloaded native hello | Correlated JSONL v1 response passed; no playback/pairing worker created |
+| Downloaded binary checksums | All three verified before and after desktop checks; unchanged |
+
+Binaries, manifest and archive receipts are retained under ignored `artifacts/fork-integration/scroll-github-bfed430/`. Final desktop reports, the source/blob/manifest-bound `receipt.json` and native hello observations are under `artifacts/pr-audit-2026-10-08/downloaded-desktop/`. These checks use synthetic services and routed input; no new native pointer or real accessory qualification was performed. They touched no real config, credentials, receiver, capture or endpoint and performed no local MSI installation or normal engine-cache extraction. No release version was reserved or published. The earlier accepted artifacts above remain historical and are not proof for this new follow-up.
+
+The follow-up push updated upstream PR #15 to `11c6046`; [upstream run 37870953320](https://github.com/Ding-Kyoma/AirFlash/actions/runs/37870953320) is `action_required` with zero jobs. Group A's [run 37660774239](https://github.com/Ding-Kyoma/AirFlash/actions/runs/37660774239) and scrolling's [run 37717295723](https://github.com/Ding-Kyoma/AirFlash/actions/runs/37717295723) remain at the same gate. Upstream maintainer approval is separate from fork validation; no gate was bypassed or upstream PR merged. No new reviews, review threads or comments appeared. Group A's sole historical Copilot review recorded a quota failure and contains no code finding.
