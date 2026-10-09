@@ -17,6 +17,67 @@ public sealed class NativeDnsOperationTests
     private const string Name = "Office._airplay._tcp.local";
 
     [Fact]
+    public void DocumentedBrowseCancellationStatusSettlesOwnerAndReleasesInputs()
+    {
+        using var calls = new FakeNativeCalls();
+        var before = Counters.Read();
+        var operation = new NativeDnsServiceApi(calls).CreateBrowse(Type, 17, (_, _) => { });
+        var settled = 0;
+        operation.Settled += () => settled++;
+        operation.Start(); operation.Cancel();
+        // DnsServiceBrowseCancel documents ERROR_CANCELLED, which is 1223,
+        // rather than ERROR_OPERATION_ABORTED (995).
+        NativeDnsServiceApi.DispatchBrowse(1223, new(operation.Token), IntPtr.Zero, calls);
+        Assert.True(operation.IsSettled);
+        Assert.Equal(1, settled);
+        before.AssertRestored(released: 1);
+    }
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(5u)]
+    [InlineData(995u)]
+    public void OtherBrowseStatusesCannotSettleCanceledOwnerBeforeDocumentedTerminalCallback(uint status)
+    {
+        using var calls = new FakeNativeCalls();
+        var before = Counters.Read();
+        var callbacks = 0;
+        var operation = new NativeDnsServiceApi(calls).CreateBrowse(Type, 17, (_, _) => callbacks++);
+        operation.Start(); operation.Cancel();
+        NativeDnsServiceApi.DispatchBrowse(status, new(operation.Token), calls.PtrRecord(Name, 90), calls);
+        Assert.False(operation.IsSettled);
+        Assert.Equal(before.Buffers + 3, NativeDnsServiceApi.AllocatedBufferCount);
+        Assert.Equal(0, callbacks);
+        Assert.Equal(1, calls.FreeRecordCalls);
+        NativeDnsServiceApi.DispatchBrowse(1223, new(operation.Token), IntPtr.Zero, calls);
+        before.AssertRestored(released: 1);
+    }
+
+    [Fact]
+    public void DocumentedBrowseTerminalCallbackDuringCancelRetainsInputsUntilNativeCancelReturns()
+    {
+        using var calls = new FakeNativeCalls();
+        var before = Counters.Read();
+        var operation = new NativeDnsServiceApi(calls).CreateBrowse(Type, 17, (_, _) => { });
+        operation.Start();
+        var heldDuringFree = false;
+        var heldAfterCallback = false;
+        calls.BeforeFree = _ => heldDuringFree = !operation.IsSettled && NativeDnsServiceApi.AllocatedBufferCount == before.Buffers + 3;
+        calls.DuringCancel = call =>
+        {
+            NativeDnsServiceApi.DispatchBrowse(1223, call.Context, calls.PtrRecord(Name, 90), calls);
+            heldAfterCallback = !operation.IsSettled && calls.ReadRequestName(call.Request) == Type
+                && Marshal.ReadIntPtr(call.Cancel) == call.Context;
+        };
+        operation.Cancel();
+        Assert.True(heldDuringFree);
+        Assert.True(heldAfterCallback);
+        Assert.Equal(1, calls.FreeRecordCalls);
+        Assert.True(operation.IsSettled);
+        before.AssertRestored(released: 1);
+    }
+
+    [Fact]
     public void NativeRequestAndInstanceLayoutsMatchX64DnsServiceAbi()
     {
         Assert.Equal(8, IntPtr.Size);
@@ -60,7 +121,7 @@ public sealed class NativeDnsOperationTests
         var settled = 0;
         operation.Settled += () => settled++;
         Assert.Equal(0u, operation.Cancel());
-        Assert.Equal(995u, operation.Start());
+        Assert.Equal(1223u, operation.Start());
         operation.Cancel();
         Assert.Equal(1, settled);
         Assert.Equal(0, calls.StartCalls);
@@ -269,7 +330,7 @@ public sealed class NativeDnsOperationTests
         Assert.Equal(0u, events[^1].Ttl);
         operation.Cancel();
         Assert.False(operation.IsSettled);
-        NativeDnsServiceApi.DispatchBrowse(995, new(operation.Token), calls.PtrRecord(Name, 90), calls);
+        NativeDnsServiceApi.DispatchBrowse(1223, new(operation.Token), calls.PtrRecord(Name, 90), calls);
         Assert.True(operation.IsSettled);
         Assert.Equal(2, events.Count);
         Assert.Equal(3, calls.FreeRecordCalls);
@@ -307,7 +368,7 @@ public sealed class NativeDnsOperationTests
             // Cancellation on the triggering callback stack would self-deadlock.
             if (!returned.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("Cancellation waited for the triggering callback to return.");
             nativeHeldInputs = !operation.IsSettled && calls.ReadRequestName(call.Request) == Type && NativeDnsServiceApi.AllocatedBufferCount == before.Buffers + 3;
-            NativeDnsServiceApi.DispatchBrowse(995, call.Context, IntPtr.Zero, calls);
+            NativeDnsServiceApi.DispatchBrowse(1223, call.Context, IntPtr.Zero, calls);
         };
         var records = calls.PtrRecord(Name, 90);
         var callback = Task.Run(() =>
@@ -338,7 +399,7 @@ public sealed class NativeDnsOperationTests
             try { await callback.WaitAsync(TimeSpan.FromSeconds(10)); }
             finally
             {
-                NativeDnsServiceApi.DispatchBrowse(995, new(operation.Token), IntPtr.Zero, calls);
+                NativeDnsServiceApi.DispatchBrowse(1223, new(operation.Token), IntPtr.Zero, calls);
                 await settled.Task.WaitAsync(TimeSpan.FromSeconds(10));
             }
         }
@@ -377,7 +438,7 @@ public sealed class NativeDnsOperationTests
             cancelEntered.TrySetResult();
             if (!returned.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("Canceling B joined the triggering callback of A.");
             nativeHeldInputs = !target.IsSettled && calls.ReadRequestName(call.Request) == Type;
-            NativeDnsServiceApi.DispatchBrowse(995, call.Context, IntPtr.Zero, calls);
+            NativeDnsServiceApi.DispatchBrowse(1223, call.Context, IntPtr.Zero, calls);
         };
         var payload = resolveCallback ? calls.Instance() : calls.PtrRecord(Name, 90);
         var callback = Task.Run(() =>
@@ -410,9 +471,9 @@ public sealed class NativeDnsOperationTests
             try { await callback.WaitAsync(TimeSpan.FromSeconds(10)); }
             finally
             {
-                NativeDnsServiceApi.DispatchBrowse(995, new(target.Token), IntPtr.Zero, calls);
+                NativeDnsServiceApi.DispatchBrowse(1223, new(target.Token), IntPtr.Zero, calls);
                 if (resolveCallback) NativeDnsServiceApi.DispatchResolve(995, new(source.Token), IntPtr.Zero, calls);
-                else { source.Cancel(); NativeDnsServiceApi.DispatchBrowse(995, new(source.Token), IntPtr.Zero, calls); }
+                else { source.Cancel(); NativeDnsServiceApi.DispatchBrowse(1223, new(source.Token), IntPtr.Zero, calls); }
                 await targetSettled.Task.WaitAsync(TimeSpan.FromSeconds(10));
             }
         }
@@ -460,7 +521,7 @@ public sealed class NativeDnsOperationTests
             else operation.Cancel();
             Assert.Equal(1, failureCount);
             Assert.Equal(1, calls.CancelCalls);
-            NativeDnsServiceApi.DispatchBrowse(995, new(operation.Token), IntPtr.Zero, calls);
+            NativeDnsServiceApi.DispatchBrowse(1223, new(operation.Token), IntPtr.Zero, calls);
             before.AssertRestored(released: 1);
         }
         finally
@@ -469,7 +530,7 @@ public sealed class NativeDnsOperationTests
             try { await callback.WaitAsync(TimeSpan.FromSeconds(10)); }
             finally
             {
-                NativeDnsServiceApi.DispatchBrowse(995, new(operation.Token), IntPtr.Zero, calls);
+                NativeDnsServiceApi.DispatchBrowse(1223, new(operation.Token), IntPtr.Zero, calls);
                 await settled.Task.WaitAsync(TimeSpan.FromSeconds(10));
             }
         }
@@ -544,7 +605,7 @@ public sealed class NativeDnsOperationTests
         NativeDnsServiceApi.DispatchResolve(0, new(long.MaxValue), calls.Instance(), calls);
         NativeDnsServiceApi.DispatchBrowse(0, new(long.MaxValue), calls.PtrRecord(Name, 90), calls);
         operation.Cancel();
-        NativeDnsServiceApi.DispatchBrowse(995, new(operation.Token), IntPtr.Zero, calls);
+        NativeDnsServiceApi.DispatchBrowse(1223, new(operation.Token), IntPtr.Zero, calls);
         NativeDnsServiceApi.DispatchBrowse(0, new(operation.Token), calls.PtrRecord(Name, 90), calls);
         Assert.Equal(2, calls.FreeInstanceCalls);
         Assert.Equal(2, calls.FreeRecordCalls);
@@ -680,7 +741,7 @@ public sealed class NativeDnsOperationTests
             foreach (var call in _calls.Values)
             {
                 if (call.Resolve) NativeDnsServiceApi.DispatchResolve(995, call.Context, IntPtr.Zero, this);
-                else NativeDnsServiceApi.DispatchBrowse(995, call.Context, IntPtr.Zero, this);
+                else NativeDnsServiceApi.DispatchBrowse(1223, call.Context, IntPtr.Zero, this);
             }
             foreach (var buffers in _results.Values) foreach (var buffer in buffers) Marshal.FreeHGlobal(buffer);
             _results.Clear();

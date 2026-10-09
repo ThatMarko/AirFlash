@@ -19,7 +19,7 @@ internal interface INativeDnsCalls
 internal sealed class NativeDnsServiceApi(INativeDnsCalls? calls = null) : IDnsServiceApi
 {
     internal const int OwnerLimit = 128;
-    private const uint RequestPending = 9506, Cancelled = 995;
+    private const uint RequestPending = 9506, Cancelled = 1223;
     private static readonly object Admission = new();
     private static readonly ConcurrentDictionary<long, Operation> Owners = new();
     private static long _nextToken, _allocatedBuffers, _releasedOwners;
@@ -291,6 +291,9 @@ internal sealed class NativeDnsServiceApi(INativeDnsCalls? calls = null) : IDnsS
 
         public void Browse(uint status, IntPtr records)
         {
+            // DnsServiceBrowseCancel promises a final ERROR_CANCELLED (1223)
+            // callback. Other errors, including ERROR_OPERATION_ABORTED (995),
+            // do not prove that the asynchronous browse is finished.
             bool entered = EnterCallback(status == Cancelled);
             try
             {
