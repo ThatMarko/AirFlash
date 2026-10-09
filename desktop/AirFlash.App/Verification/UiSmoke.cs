@@ -189,6 +189,7 @@ internal static class UiSmoke
             Check(engine.DisposedCount == engine.CreatedCount, "stop releases mock engine", checks);
             await UiRegression.RunAsync(checks, directory);
             await UiSessionLifecycle.RunAsync(checks, directory);
+            await UiSettingsRecovery.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
             await UiScrolling.RunAsync(checks, directory);
             await VerifyTrayLifecycleAsync(tray, app, trayGuid, () => menuOpened, () => quitRequestedFromTray, checks);

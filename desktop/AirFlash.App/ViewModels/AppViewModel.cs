@@ -180,7 +180,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         if (!SettingsMerge.Equal(_settings, reconciliation.Settings))
         {
             var revision = _editRevision;
-            await _store.SaveReceiverIdentityAsync(reconciliation.Settings, reconciliation.NeedsBackup);
+            await SaveSettingsAsync(reconciliation.Settings, reconciliation.NeedsBackup);
             var live = _settings.Clone(); var baseline = originalSettings.Clone();
             ReceiverCatalog.ApplyMigrations(live, reconciliation.Migrations, currentSnapshot.Receiver?.Id);
             ReceiverCatalog.ApplyMigrations(baseline, reconciliation.Migrations, currentSnapshot.Receiver?.Id);
@@ -342,6 +342,14 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private Receiver ResolvePlayback(Receiver receiver) => ReceiverSelection.ResolvePlayback(receiver, AllReceivers)
         ?? throw new InvalidOperationException(L.Get("The receiver selection is ambiguous."));
     private void ScheduleAutoConnect() { _autoTimer.Stop(); if (!_closing && !_controlledScheduling) _autoTimer.Start(); }
+    private async Task SaveSettingsAsync(AppSettings settings, bool? identityBackup = null)
+    {
+        var warning = (_store as SettingsStore)?.LoadWarning;
+        if (identityBackup is { } backup) await _store.SaveReceiverIdentityAsync(settings, backup);
+        else await _store.SaveAsync(settings);
+        if (warning is not null && Notice == warning && _store is SettingsStore store && store.LoadWarning != warning)
+            Notice = store.LoadWarning ?? "";
+    }
     internal async Task TryAutoConnectAsync()
     {
         var captured = Session.Capture();
@@ -392,7 +400,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             if (!_volumeDirty) return;
             var current = _settings.Clone();
             var revision = _editRevision;
-            using (UiPerformance.Measure("settings.persist")) await _store.SaveAsync(current);
+            using (UiPerformance.Measure("settings.persist")) await SaveSettingsAsync(current);
             saved = true;
             if (revision == _editRevision) _volumeDirty = false;
             await Session.UpdateSettingsAsync(current);
@@ -427,7 +435,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             using (UiPerformance.Measure("apply.persist"))
             {
                 if (changedAutostart) await _autostart.SetAsync(merged.StartAtLogin);
-                try { await _store.SaveAsync(merged); }
+                try { await SaveSettingsAsync(merged); }
                 catch (Exception saveError)
                 {
                     if (changedAutostart)
