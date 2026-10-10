@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Windows;
 using AirFlash.App.Services;
@@ -18,6 +19,26 @@ public partial class App : Application
     private bool _quitting;
     private string _uiLanguage = "system";
     private string _uiTheme = "system";
+    private readonly Exception? _verificationCultureError;
+    public App()
+    {
+        var args = Environment.GetCommandLineArgs();
+        if (!args.Any(a => a is "--ui-smoke" or "--tray-smoke" or "--ui-perf")) return;
+        try
+        {
+            var cultureIndex = Array.IndexOf(args, "--ui-culture");
+            if (cultureIndex < 0) return;
+            if (cultureIndex + 1 >= args.Length) throw new ArgumentException("--ui-culture requires a culture name.");
+            var culture = CultureInfo.GetCultureInfo(args[cultureIndex + 1]);
+            // Set before Run and async startup capture their dispatcher execution contexts.
+            // These verification cultures affect this process, never Windows regional settings.
+            CultureInfo.CurrentCulture = culture;
+            CultureInfo.CurrentUICulture = culture;
+            CultureInfo.DefaultThreadCurrentCulture = culture;
+            CultureInfo.DefaultThreadCurrentUICulture = culture;
+        }
+        catch (Exception error) { _verificationCultureError = error; }
+    }
     protected override async void OnStartup(StartupEventArgs args)
     {
         // Initialize before any windows, view models or static choice labels are created.
@@ -28,6 +49,11 @@ public partial class App : Application
         base.OnStartup(args);
         try
         {
+            if (_verificationCultureError is { } cultureError)
+            {
+                WriteOutput(args.Args, new { ok = false, error = cultureError.ToString() });
+                Shutdown(1); return;
+            }
             Resources["LatencyChoices"] = Choices.Latencies;
             if (args.Args.Contains("--update-check"))
             {
