@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text.Json;
 using System.Threading.Channels;
 using System.Windows;
@@ -25,6 +26,7 @@ internal static class UiSmoke
         AppPaths.DataDirectory = Path.Combine(directory, "isolated-data");
         var checks = new List<string>();
         object? iconEnvironment = null;
+        object? hiddenReceiverObservation = null;
         var store = new MemoryStore(); var engine = new MockFactory();
         await using var app = new AppViewModel(store, new MockDiscovery(), new MockAutostart(), new MockAudio(), engine, Application.Current.Dispatcher) { EngineVersion = "0.1.0（模拟）" };
         var panel = new ControlPanel(app); SettingsWindow? settings = null;
@@ -64,7 +66,7 @@ internal static class UiSmoke
             {
                 var initialIdentity = tray.Identity.ToString();
                 await VerifyTrayLifecycleAsync(tray, app, trayGuid, () => menuOpened, () => quitRequestedFromTray, checks, windowIdentityForVerification);
-                App.WriteOutput(args, new { ok = true, checks, tray_guid = trayGuid, identity = initialIdentity, window_identity_for_verification = windowIdentityForVerification, path = Environment.ProcessPath, note = "Isolated tray verification; engine/audio/discovery/autostart services are simulated." });
+                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name, tray_guid = trayGuid, identity = initialIdentity, window_identity_for_verification = windowIdentityForVerification, path = Environment.ProcessPath, note = "Isolated tray verification; engine/audio/discovery/autostart services are simulated." });
                 return 0;
             }
             var mode = Descendants(panel).OfType<ComboBox>().Single(); mode.IsDropDownOpen = true; await Pump();
@@ -139,11 +141,21 @@ internal static class UiSmoke
             retries.Text = "5"; await Pump();
             settings.ViewModel.AddManual("书房", "127.0.0.2", 7000); await settings.ViewModel.ApplyAsync();
             Check(app.Settings.ManualReceivers.Count == 1, "manual receiver persists", checks);
-            var firstId = app.Receivers[0].Receiver.Id;
+            // Select by session ownership, rather than culture-dependent receiver order.
+            var firstId = app.Snapshot.Receiver?.Id ?? throw new InvalidOperationException("The mock receiver must still be streaming.");
             settings.ViewModel.Draft.Options(firstId).Hidden = true; await settings.ViewModel.ApplyAsync();
-            Check(app.Receivers.All(r => r.Receiver.Id != firstId) && settings.ViewModel.Receivers.Any(r => r.Receiver.Id == firstId), "hidden receiver stays recoverable", checks);
+            hiddenReceiverObservation = new { culture = CultureInfo.CurrentCulture.Name, sorted_names = app.Receivers.Select(r => r.Receiver.Name).ToArray(), hidden_id = firstId, active_id = app.Snapshot.Receiver?.Id, state = app.Snapshot.State.ToString(), retained = app.Receivers.Any(r => r.Receiver.Id == firstId), stop_available = app.StopCommand.CanExecute(null) };
+            settings.Hide(); panel.ShowPanel(); await Pump();
+            var retainedRow = app.Receivers.Single(r => r.Receiver.Id == firstId);
+            var retainedStop = Descendants(panel).OfType<Button>().Single(b => ReferenceEquals(b.DataContext, retainedRow) && System.Windows.Automation.AutomationProperties.GetName(b) == L.Get("Stop playback / disconnect"));
+            Check(retainedRow.Active && retainedStop.IsVisible && retainedStop.IsEnabled && retainedRow.ToggleCommand.CanExecute(null) &&
+                settings.ViewModel.Receivers.Any(r => r.Receiver.Id == firstId), "hidden active receiver retains its bound Stop control and Settings recovery", checks);
+            Invoke(retainedStop); await Until(() => app.Snapshot.State == PlaybackState.Idle && app.Receivers.All(r => r.Receiver.Id != firstId));
+            Check(settings.ViewModel.Receivers.Any(r => r.Receiver.Id == firstId), "bound Stop removes the hidden inactive receiver while Settings keeps it recoverable", checks);
+            panel.Hide(); settings.Show(); await Pump();
             settings.ViewModel.Draft.Options(firstId).Hidden = false; await settings.ViewModel.ApplyAsync();
             Check(app.Receivers.Any(r => r.Receiver.Id == firstId), "unhide receiver", checks);
+            await app.ToggleAsync(app.AllReceivers.Single(r => r.Id == firstId)); await Until(() => app.Snapshot.State == PlaybackState.Streaming);
             settings.Close(); settings = new(app); settings.Show(); await Pump();
             Check(settings.ViewModel.Receivers.Count >= 3, "nullable overrides reopen", checks);
             foreach (var dark in new[] { false, true })
@@ -181,10 +193,10 @@ internal static class UiSmoke
             await UiSessionLifecycle.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyTrayLifecycleAsync(tray, app, trayGuid, () => menuOpened, () => quitRequestedFromTray, checks);
-            App.WriteOutput(args, new { ok = true, checks, icon_environment = iconEnvironment, note = "All engine/audio/discovery/autostart services are simulated. DPI renders do not replace physical multimonitor QA." });
+            App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name, hidden_receiver_observation = hiddenReceiverObservation, icon_environment = iconEnvironment, note = "All engine/audio/discovery/autostart services are simulated. DPI renders do not replace physical multimonitor QA." });
             return 0;
         }
-        catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name, hidden_receiver_observation = hiddenReceiverObservation, error = error.ToString() }); return 1; }
         finally { settings?.Close(); panel.ShutdownPanel(); }
     }
     private static async Task VerifyTrayLifecycleAsync(TrayService tray, AppViewModel app, Guid guid, Func<bool> settingsRequested, Func<bool> quitRequested, List<string> checks, bool windowIdentityForVerification = false)
