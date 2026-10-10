@@ -221,6 +221,8 @@ internal static class UiSmoke
         tray.Dispose();
         Check(!tray.IsRegistered && !tray.TryGetRectangle(out _), "disposed tray stops registration", checks);
         Check(!TrayRectangleExists(guid, tray.Identity, window), "disposed tray is removed from shell", checks);
+        var originalLanguage = CultureInfo.CurrentUICulture.Name;
+        var originalCatalogMarker = L.Get("Settings and devices");
         var originallyChinese = L.IsChinese;
         try
         {
@@ -234,7 +236,9 @@ internal static class UiSmoke
             }
             finally { rebuilt.Dispose(); replacement.ShutdownPanel(); }
         }
-        finally { L.Initialize([originallyChinese ? "zh-CN" : "en-US"]); }
+        finally { L.Initialize([originalLanguage]); }
+        Check(L.Get("Settings and devices") == originalCatalogMarker,
+            "tray language rebuild restores original UI catalog", checks);
     }
     [StructLayout(LayoutKind.Sequential)] private struct TrayIdentifier { public uint Size; public IntPtr Window; public uint Id; public Guid Guid; }
     private static bool TrayRectangleExists(Guid guid, TrayIdentity identity, IntPtr window)
