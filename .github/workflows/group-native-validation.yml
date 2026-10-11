@@ -28,7 +28,7 @@ jobs:
           if ($head -cne $env:REQUESTED_SOURCE) { throw 'Checkout does not match requested source.' }
           New-Item -ItemType Directory -Path artifacts/group-native -Force | Out-Null
           @{ source_sha = $head; repository = $env:GITHUB_REPOSITORY; run_id = $env:GITHUB_RUN_ID; run_attempt = $env:GITHUB_RUN_ATTEMPT; rust = (rustc --version); cargo = (cargo --version); unofficial = $true } | ConvertTo-Json | Set-Content artifacts/group-native/source.json
-      - name: Native tests, formatting, lint and build
+      - name: Native tests, lint and build
         shell: pwsh
         run: |
           ./scripts/build-native.ps1 -Check 2>&1 | Tee-Object -FilePath artifacts/group-native/checks.log
