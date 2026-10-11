@@ -307,6 +307,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     }
     private async Task<bool> StartLockedAsync(Receiver receiver, AppSettings settings, Func<Receiver, CancellationToken, Task<string?>>? requestPin, long? expectedIntent = null)
     {
+        EnsureMuteReady(settings);
         await StopLockedAsync().ConfigureAwait(false);
         long epoch;
         CancellationToken cancellation;
@@ -319,6 +320,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                 // create a replacement, so do not leave a ghost Connecting/Streaming snapshot.
                 if (_snapshot.IsActive) { _receiver = null; Publish(_generation, PlaybackState.Idle); }
                 return false;
+            }
+            if (!MuteRecoveryAvailable(settings))
+            {
+                _receiver = null; Publish(_generation, PlaybackState.Idle);
+                EnsureMuteReady(settings);
             }
             _settings = settings.Clone(); _receiver = receiver; epoch = ++_generation;
             _diagnostics = new(); _warnings.Clear();
@@ -440,6 +446,9 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         var attempts = 0;
         while (!cancellation.IsCancellationRequested)
         {
+            // A retry is a new capture attempt; unresolved recovery must not open
+            // another engine even if it was discovered during prior cleanup.
+            EnsureMuteReady(_settings);
             lock (_sync) { if (epoch == _generation && _receiver is not null) receiver = _receiver; }
             var startedAt = 0L;
             try
@@ -594,6 +603,13 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         log?.Invoke($"Session failure: {JsonSerializer.Serialize(diagnostics)}\n{error}");
         return notice;
     }
+    private void EnsureMuteReady(AppSettings settings)
+    {
+        if (!MuteRecoveryAvailable(settings))
+            throw new InvalidOperationException(L.Get("Review local audio recovery before starting playback that mutes this PC."));
+    }
+    private bool MuteRecoveryAvailable(AppSettings settings) => !settings.MuteWhileStreaming
+        || audio is not IMuteRecoveryService recovery || recovery.Recovery.CanMute;
     private sealed class PairCancelledException : OperationCanceledException;
     private static bool IsAuthenticationFailure(string message) => new[] { "pairing", "srp", "verification", "credentials", "signature", "identity", "authentication" }.Any(word => message.Contains(word, StringComparison.OrdinalIgnoreCase));
     private void SetConnection(IEngineConnection connection, string session) { lock (_sync) { _connection = connection; _sessionId = session; _equalizerReady = false; } }

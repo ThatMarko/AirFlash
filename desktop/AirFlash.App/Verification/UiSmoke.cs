@@ -40,6 +40,17 @@ internal static class UiSmoke
         Check(startupText.Contains("Startup stage=platform", StringComparison.Ordinal)
             && startupText.Contains("Startup stage=wpf-resources ready", StringComparison.Ordinal),
             "both startup stages are recorded in isolated smoke logs", checks);
+        if (args.Contains("--ui-mute-smoke"))
+        {
+            try
+            {
+                await UiMuteRecovery.RunAsync(checks, directory);
+                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
+                    ui_culture = CultureInfo.CurrentUICulture.Name, note = "Synthetic journal, endpoints and engine; real audio MTA/dispatcher integration." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
         if (args.Contains("--ui-pairing-smoke"))
         {
             try
@@ -284,6 +295,7 @@ internal static class UiSmoke
             await UiSessionLifecycle.RunAsync(checks, directory);
             await UiSettingsRecovery.RunAsync(checks, directory);
             await UiPairingInputs.RunAsync(checks);
+            await UiMuteRecovery.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyStartupFailureAsync(checks, directory);
             await UiScrolling.RunAsync(checks, directory);
