@@ -366,6 +366,87 @@ public sealed class SessionLifecycleTests
         }
     }
 
+    [Theory]
+    [InlineData("start", "pair", false)]
+    [InlineData("start", "pair", true)]
+    [InlineData("pair", "pair", false)]
+    [InlineData("pair", "pair", true)]
+    [InlineData("start", "stop", false)]
+    [InlineData("pair", "stop", false)]
+    [InlineData("start", "rejected pair", false)]
+    [InlineData("pair", "rejected pair", false)]
+    public async Task SupersededExplicitRequestCannotCommitAfterSerialization(string pendingAction, string newerAction, bool sameId)
+    {
+        var selected = new Connection(); var factory = new Factory(selected); var audio = new Audio();
+        await using var controller = new SessionController(factory, audio, timing: Timing);
+        var obsolete = Pod("obsolete");
+        var replacement = Pod(sameId ? obsolete.Id : "selected") with { Address = "192.0.2.20", Port = 7001 };
+        var publications = new ConcurrentQueue<SessionSnapshot>(); controller.Changed += publications.Enqueue;
+        var gate = audio.PauseNextRestore();
+        Task? holding = null; Task? pending = null; Task? newer = null;
+        try
+        {
+            holding = controller.UpdateSettingsAsync(Settings());
+            await gate.Entered.Task.WaitAsync(Deadline);
+            pending = pendingAction == "start" ? controller.StartAsync(obsolete, Settings())
+                : controller.PairAsync(obsolete, Settings(), (_, _) => Task.FromResult<string?>(null));
+            Assert.False(pending.IsCompleted);
+            if (newerAction == "rejected pair")
+                await Assert.ThrowsAsync<InvalidOperationException>(() => controller.PairAsync(replacement with { Online = false }, Settings(), (_, _) => Task.FromResult<string?>(null)));
+            else newer = newerAction == "pair" ? controller.PairAsync(replacement, Settings(), (_, _) => Task.FromResult<string?>(null))
+                : controller.StopAsync();
+            gate.Release.TrySetResult();
+            await holding.WaitAsync(Deadline); await pending.WaitAsync(Deadline);
+            if (newer is not null) await newer.WaitAsync(Deadline);
+            Assert.DoesNotContain(publications, snapshot => snapshot.Receiver == obsolete);
+            if (newerAction == "pair") await selected.PairSent.Task.WaitAsync(Deadline);
+            Assert.Equal(newerAction == "pair" ? 1 : 0, factory.OpenCount);
+            Assert.Equal(newerAction == "pair" ? PlaybackState.Pairing : PlaybackState.Idle, controller.Snapshot.State);
+            Assert.Equal(newerAction == "pair" ? replacement : null, controller.Snapshot.Receiver);
+            Assert.DoesNotContain(selected.Commands, command => command.Name == "start");
+        }
+        finally
+        {
+            gate.Release.TrySetResult();
+            if (holding is not null) await holding.WaitAsync(Deadline);
+            if (pending is not null) await pending.WaitAsync(Deadline);
+            if (newer is not null) await newer.WaitAsync(Deadline);
+        }
+    }
+
+    [Theory]
+    [InlineData("start", "pair")]
+    [InlineData("pair", "pair")]
+    [InlineData("start", "stop")]
+    [InlineData("pair", "stop")]
+    public async Task NewerExplicitIntentDuringCleanupPreventsSupersededCommit(string pendingAction, string newerAction)
+    {
+        var selected = new Connection(); var factory = new Factory(selected); var audio = new Audio();
+        await using var controller = new SessionController(factory, audio, timing: Timing);
+        var obsolete = Pod("obsolete"); var replacement = Pod("selected") with { Address = "192.0.2.20" };
+        var publications = new ConcurrentQueue<SessionSnapshot>(); controller.Changed += publications.Enqueue;
+        var gate = audio.PauseNextRestore(); Task? pending = null; Task? newer = null;
+        try
+        {
+            pending = pendingAction == "start" ? controller.StartAsync(obsolete, Settings())
+                : controller.PairAsync(obsolete, Settings(), (_, _) => Task.FromResult<string?>(null));
+            await gate.Entered.Task.WaitAsync(Deadline);
+            newer = newerAction == "pair" ? controller.PairAsync(replacement, Settings(), (_, _) => Task.FromResult<string?>(null))
+                : controller.StopAsync();
+            gate.Release.TrySetResult(); await pending.WaitAsync(Deadline); await newer.WaitAsync(Deadline);
+            Assert.DoesNotContain(publications, snapshot => snapshot.Receiver == obsolete);
+            if (newerAction == "pair") await selected.PairSent.Task.WaitAsync(Deadline);
+            Assert.Equal(newerAction == "pair" ? 1 : 0, factory.OpenCount);
+            Assert.Equal(newerAction == "pair" ? replacement : null, controller.Snapshot.Receiver);
+        }
+        finally
+        {
+            gate.Release.TrySetResult();
+            if (pending is not null) await pending.WaitAsync(Deadline);
+            if (newer is not null) await newer.WaitAsync(Deadline);
+        }
+    }
+
     [Fact]
     public async Task StopWaitingForSerializationPreventsAutomaticCommit()
     {
