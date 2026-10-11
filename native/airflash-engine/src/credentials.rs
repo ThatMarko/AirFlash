@@ -114,8 +114,8 @@ fn load_with<R: Read>(
 ) -> Result<Option<Credentials>> {
     let file = match open(target) {
         Ok(file) => file,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error).context("cannot open native credentials"),
+        // Regression mutation: emulate the old Boolean lookup hiding all open errors.
+        Err(_) => return Ok(None),
     };
     // Read the opened object, not the path again. Only the initial open can establish
     // absence; disappearance or other failures during reading must remain errors.
