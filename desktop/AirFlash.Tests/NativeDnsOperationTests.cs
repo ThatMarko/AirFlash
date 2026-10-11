@@ -483,6 +483,112 @@ public sealed class NativeDnsOperationTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task ReentrantDiscoveryDisposeCannotJoinTheNativeCallbackThatDrainsPublication(bool concurrentPublisherDrains)
+    {
+        using var calls = new FakeNativeCalls();
+        using var disposeRequested = new ManualResetEventSlim();
+        using var allowOtherPublication = new ManualResetEventSlim();
+        using var otherBrowseReturned = new ManualResetEventSlim();
+        var before = Counters.Read();
+        var api = new TrackingDnsApi(new NativeDnsServiceApi(calls));
+        var firstPublication = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var otherRecordCommitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var starts = new ConcurrentQueue<(NativeCall Call, string? Name)>();
+        var errors = new ConcurrentQueue<string>();
+        const string otherName = "Kitchen._airplay._tcp.local";
+        using var discovery = new WindowsDiscovery(api, new FixedClock(), () => [], message =>
+        {
+            if (!message.StartsWith("Discovery resolved:", StringComparison.Ordinal) || !message.Contains(otherName, StringComparison.Ordinal)) return;
+            otherRecordCommitted.TrySetResult();
+            // Hold B before Publish when A must take the deferred batch. A's native
+            // cancellation releases this gate; no scheduler winner is assumed.
+            if (!concurrentPublisherDrains && !allowOtherPublication.Wait(TimeSpan.FromSeconds(10)))
+                errors.Enqueue("The concurrent publication gate was not released.");
+        });
+        var publication = typeof(WindowsDiscovery).GetField("_publication", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(discovery)!;
+        calls.DuringStart = call =>
+        {
+            var name = calls.ReadRequestName(call.Request);
+            starts.Enqueue((call, name));
+            if (call.Resolve && name == otherName)
+                NativeDnsServiceApi.DispatchResolve(0, call.Context,
+                    calls.Instance(count: 1, withTxt: true, address: [10, 0, 0, 2], deviceId: "AA:BB:CC:DD:EE:02"), calls);
+        };
+        discovery.Start();
+        var browse = starts.Single(entry => !entry.Call.Resolve && entry.Name == Type).Call;
+        NativeDnsServiceApi.DispatchBrowse(0, browse.Context, calls.PtrRecord(Name, 3600), calls);
+        var firstResolve = starts.Single(entry => entry.Call.Resolve && entry.Name == Name).Call;
+        discovery.Changed += receivers =>
+        {
+            if (receivers.Count != 1 || receivers[0].Address != "10.0.0.1") return;
+            firstPublication.TrySetResult();
+            if (!disposeRequested.Wait(TimeSpan.FromSeconds(10))) errors.Enqueue("The dispose gate was not released.");
+            discovery.Dispose();
+        };
+        calls.DuringCancel = call =>
+        {
+            if (Monitor.IsEntered(publication)) errors.Enqueue("Native cancellation ran on the publication lock stack.");
+            allowOtherPublication.Set();
+            // This native boundary may join the in-flight browse callback. Calling
+            // it on B's own nested resolve/publication stack would self-deadlock.
+            if (!otherBrowseReturned.Wait(TimeSpan.FromSeconds(10)))
+                errors.Enqueue("Native cancellation joined its triggering browse callback.");
+            Assert.NotNull(calls.ReadRequestName(call.Request));
+            Assert.Equal(call.Context, Marshal.ReadIntPtr(call.Cancel));
+            NativeDnsServiceApi.DispatchBrowse(1223, call.Context, IntPtr.Zero, calls);
+        };
+        Task first = Task.CompletedTask, other = Task.CompletedTask;
+        try
+        {
+            first = Task.Factory.StartNew(() =>
+            {
+                void Resolve() => NativeDnsServiceApi.DispatchResolve(0, firstResolve.Context, calls.Instance(count: 1, withTxt: true), calls);
+                // An additional monitor frame makes A's Publish finally defer its
+                // drain. B then drains while still inside the real native browse
+                // callback, including its inline StartResolve/Resolve frames.
+                if (concurrentPublisherDrains) { lock (publication) Resolve(); }
+                else Resolve();
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            await firstPublication.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            other = Task.Factory.StartNew(() =>
+            {
+                try { NativeDnsServiceApi.DispatchBrowse(0, browse.Context, calls.PtrRecord(otherName, 3600), calls); }
+                finally { otherBrowseReturned.Set(); }
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            await otherRecordCommitted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(2, discovery.Snapshot.CachedRecords);
+            disposeRequested.Set();
+            await Task.WhenAll(first, other).WaitAsync(TimeSpan.FromSeconds(10));
+            await Task.WhenAll(api.SettlementTasks).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.True(SpinWait.SpinUntil(() => discovery.Snapshot.NativeOwners == 0, TimeSpan.FromSeconds(10)),
+                "Native settlement did not reach the discovery owner registry.");
+            Assert.Empty(errors);
+            Assert.Equal(2, calls.CancelCalls);
+            Assert.Equal(2, calls.FreeRecordCalls);
+            Assert.Equal(2, calls.FreeInstanceCalls);
+            Assert.Equal(0, discovery.Snapshot.CachedRecords);
+            Assert.Equal(0, discovery.Snapshot.PendingResolves);
+            Assert.Equal(0, discovery.Snapshot.NativeOwners);
+            before.AssertRestored(released: 4);
+        }
+        finally
+        {
+            disposeRequested.Set(); allowOtherPublication.Set(); otherBrowseReturned.Set();
+            try { await Task.WhenAll(first, other).WaitAsync(TimeSpan.FromSeconds(10)); }
+            finally
+            {
+                discovery.Dispose();
+                foreach (var operation in api.Operations)
+                    if (operation.IsResolve) NativeDnsServiceApi.DispatchResolve(995, new(operation.Token), IntPtr.Zero, calls);
+                    else NativeDnsServiceApi.DispatchBrowse(1223, new(operation.Token), IntPtr.Zero, calls);
+                await Task.WhenAll(api.SettlementTasks).WaitAsync(TimeSpan.FromSeconds(10));
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task QueuedCancellationStatusAndExceptionFailuresSignalOnceWithoutReleasingInputs(bool throws)
     {
         using var calls = new FakeNativeCalls { CancelStatus = 5, CancelError = throws ? new InvalidOperationException("Fixture queued cancellation failure.") : null };
@@ -662,6 +768,28 @@ public sealed class NativeDnsOperationTests
         }
     }
 
+    private sealed class FixedClock : TimeProvider
+    {
+        public override long GetTimestamp() => 0;
+    }
+
+    private sealed class TrackingDnsApi(IDnsServiceApi inner) : IDnsServiceApi
+    {
+        public readonly ConcurrentQueue<IDnsServiceOperation> Operations = new();
+        public readonly ConcurrentQueue<Task> SettlementTasks = new();
+        public IDnsServiceOperation CreateBrowse(string type, uint index, Action<uint, IReadOnlyList<DnsAnnouncement>> callback)
+            => Track(inner.CreateBrowse(type, index, callback));
+        public IDnsServiceOperation CreateResolve(string name, string type, uint index, Action<uint, ServiceRecord?> callback)
+            => Track(inner.CreateResolve(name, type, index, callback));
+        private IDnsServiceOperation Track(IDnsServiceOperation operation)
+        {
+            var settled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            operation.Settled += () => settled.TrySetResult();
+            Operations.Enqueue(operation); SettlementTasks.Enqueue(settled.Task);
+            return operation;
+        }
+    }
+
     private sealed record NativeCall(IntPtr Request, IntPtr Cancel, IntPtr Context, IntPtr Callback, bool Resolve);
     private sealed class FakeNativeCalls : INativeDnsCalls, IDisposable
     {
@@ -694,11 +822,12 @@ public sealed class NativeDnsOperationTests
             return CancelStatus;
         }
         public string? ReadRequestName(IntPtr request) => Marshal.PtrToStringUni(Marshal.PtrToStructure<NativeDnsServiceApi.NativeServiceRequest>(request).QueryName);
-        public IntPtr Instance(ushort port = 7000, uint count = 0, bool keysOnly = false, bool withTxt = false)
+        public IntPtr Instance(ushort port = 7000, uint count = 0, bool keysOnly = false, bool withTxt = false,
+            byte[]? address = null, string deviceId = "AA:BB:CC:DD:EE:FF")
         {
             var buffers = new List<IntPtr>();
-            var address = Allocate(4, buffers); Marshal.Copy(new byte[] { 10, 0, 0, 1 }, 0, address, 4);
-            var info = new NativeDnsServiceApi.NativeServiceInstance { Ipv4 = address, Port = port, Count = count };
+            var addressBuffer = Allocate(4, buffers); Marshal.Copy(address ?? [10, 0, 0, 1], 0, addressBuffer, 4);
+            var info = new NativeDnsServiceApi.NativeServiceInstance { Ipv4 = addressBuffer, Port = port, Count = count };
             if (keysOnly || withTxt)
             {
                 info.Keys = Allocate(IntPtr.Size, buffers);
@@ -707,7 +836,7 @@ public sealed class NativeDnsOperationTests
             if (withTxt)
             {
                 info.Values = Allocate(IntPtr.Size, buffers);
-                var value = Marshal.StringToHGlobalUni("AA:BB:CC:DD:EE:FF"); buffers.Add(value); Marshal.WriteIntPtr(info.Values, value);
+                var value = Marshal.StringToHGlobalUni(deviceId); buffers.Add(value); Marshal.WriteIntPtr(info.Values, value);
             }
             var result = Allocate(Marshal.SizeOf<NativeDnsServiceApi.NativeServiceInstance>(), buffers);
             Marshal.StructureToPtr(info, result, false);
