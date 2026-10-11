@@ -22,6 +22,7 @@ jobs:
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
+      DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
       # Unreserved test-package version, not a stable release or repository version change.
       VALIDATION_VERSION: '0.3.1'
     steps:
@@ -73,6 +74,16 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item -LiteralPath (Join-Path $publish 'AirFlash.exe') -Destination dist/AirFlash.exe
+          # Publish's compatibility target audits the exact bundle inputs. Bind that
+          # successful audit to this unreserved executable before package verification.
+          $auditPath = Join-Path $root 'artifacts/compatibility/bundle-audit.json'
+          $audit = Get-Content -LiteralPath $auditPath -Raw | ConvertFrom-Json
+          if (-not $audit.ok) { throw 'Bundle compatibility audit failed.' }
+          $packageHash = (Get-FileHash -LiteralPath dist/AirFlash.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($packageHash -ne (Get-FileHash -LiteralPath (Join-Path $publish 'AirFlash.exe') -Algorithm SHA256).Hash.ToLowerInvariant()) { throw 'Copied executable differs from the audited publish output.' }
+          $audit | Add-Member -NotePropertyName published_exe_sha256 -NotePropertyValue $packageHash -Force
+          $audit | Add-Member -NotePropertyName published_version -NotePropertyValue $version -Force
+          $audit | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $auditPath -Encoding utf8
           ./scripts/build-installer.ps1 -PublishPath $publish -OutputPath dist
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           . ./scripts/dotnet-common.ps1
@@ -144,5 +155,6 @@ jobs:
             artifacts/installer-refresh/*/report.json
             artifacts/installer-refresh/*/*-build.log
             artifacts/installer-refresh/*/*-decompile.log
+            artifacts/compatibility/
           if-no-files-found: warn
           retention-days: 14
