@@ -46,21 +46,27 @@ public sealed class DiscoveryLifecycleTests
     }
 
     [Fact]
-    public void CacheExpiryPreservesAdvertisedNameAndMissingRefreshCanRecover()
+    public void SuccessfulResolveRefreshesWhenDueAndKeepsCatalogDuringRetry()
     {
         using var fixture = new Fixture();
         fixture.StartAndAnnounce();
         fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1"));
         Assert.Equal("10.0.0.1", Assert.Single(fixture.Catalog).Address);
-        fixture.TickAfter(TimeSpan.FromSeconds(20));
+        fixture.TickAfter(TimeSpan.FromSeconds(20) - TimeSpan.FromTicks(1));
+        Assert.Single(fixture.Dns.Resolves);
+        fixture.TickAfter(TimeSpan.FromTicks(1));
         Assert.Equal(2, fixture.Dns.Resolves.Count);
-        fixture.TickAfter(TimeSpan.FromSeconds(70));
-        Assert.Empty(fixture.Catalog);
-        Assert.Equal(0, fixture.Discovery.Snapshot.CachedRecords);
+        fixture.Dns.Resolves[^1].Resolved(5, null);
+        Assert.Single(fixture.Catalog);
+        Assert.Equal(1, fixture.Discovery.Snapshot.CachedRecords);
         Assert.Equal(1, fixture.Discovery.Snapshot.AdvertisedNames);
         fixture.TickAfter(TimeSpan.FromSeconds(1));
         Assert.Equal(3, fixture.Dns.Resolves.Count);
         fixture.Dns.Resolves[^1].Resolved(0, Record("10.0.0.2"));
+        Assert.Equal("10.0.0.2", Assert.Single(fixture.Catalog).Address);
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.Equal(2, fixture.Discovery.Snapshot.ActiveQueries);
+        fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.99"));
         Assert.Equal("10.0.0.2", Assert.Single(fixture.Catalog).Address);
     }
 
@@ -477,7 +483,8 @@ public sealed class DiscoveryLifecycleTests
         fixture.StartAndAnnounce();
         fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1"));
         Assert.True(restarted);
-        Assert.Equal(64, fixture.Dns.Allocations);
+        Assert.Equal(65, fixture.Dns.Allocations); // The completed resolve freed one slot before publication.
+        Assert.Equal(64, fixture.Dns.MaximumConcurrentOwners);
         Assert.Equal(0, fixture.Discovery.Snapshot.NativeOwners);
         Assert.All(fixture.Dns.Browses.Skip(2), operation => Assert.Equal(0, operation.StartCalls));
         fixture.Discovery.Tick();
@@ -514,7 +521,7 @@ public sealed class DiscoveryLifecycleTests
     [Theory]
     [InlineData(0u)]
     [InlineData(5u)]
-    public void CancelReturnWithoutSettlementRetainsPerNameCapacityUntilLateCompletion(uint status)
+    public void CancelAndLateResultRetainCapacityUntilExplicitFakeQuiescence(uint status)
     {
         using var fixture = new Fixture();
         fixture.Dns.SettleOnCancel = false;
@@ -528,6 +535,10 @@ public sealed class DiscoveryLifecycleTests
         Assert.Equal(4, fixture.Discovery.Snapshot.NativeOwners);
         Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
         fixture.Dns.Resolves[0].Resolved(995, null);
+        fixture.Discovery.Tick();
+        Assert.Equal(2, fixture.Dns.Resolves.Count);
+        Assert.Equal(4, fixture.Discovery.Snapshot.NativeOwners);
+        fixture.Dns.Resolves[0].Settle(); // Explicit fake boundary signal, not a DNS result.
         fixture.Discovery.Tick();
         Assert.Equal(3, fixture.Dns.Resolves.Count);
         Assert.Equal(4, fixture.Discovery.Snapshot.NativeOwners);
@@ -559,8 +570,8 @@ public sealed class DiscoveryLifecycleTests
         fixture.StartAndAnnounce();
         fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1"));
         Assert.True(restarted, "The throwing Changed subscriber must not prevent the later restart subscriber.");
-        Assert.Equal(2, cancellationDiagnostics);
-        Assert.Equal(4, fixture.Discovery.Snapshot.NativeOwners);
+        Assert.Equal(3, cancellationDiagnostics);
+        Assert.Equal(5, fixture.Discovery.Snapshot.NativeOwners);
         Assert.All(fixture.Dns.Browses.Take(2), operation => Assert.Equal(1, operation.CancelCalls));
         Assert.All(fixture.Dns.Browses.Skip(2), operation => Assert.Equal(1, operation.StartCalls));
         fixture.Announce();
@@ -625,6 +636,7 @@ public sealed class DiscoveryLifecycleTests
         Assert.Equal(62, fixture.Dns.Resolves.Count);
         Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
         fixture.Dns.Resolves[0].Resolved(995, null);
+        fixture.Dns.Resolves[0].Settle(); // Fake native quiescence is controlled independently.
         fixture.Discovery.Tick();
         Assert.Equal(63, fixture.Dns.Resolves.Count);
         Assert.Equal(1, fixture.Discovery.Snapshot.PendingResolves);
@@ -645,6 +657,7 @@ public sealed class DiscoveryLifecycleTests
         Assert.Equal(2, fixture.Dns.Resolves.Count);
         Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
         fixture.Dns.Resolves[0].Resolved(995, null);
+        fixture.Dns.Resolves[0].Settle(); // Fake native quiescence is controlled independently.
         fixture.Discovery.Tick();
         Assert.Equal(3, fixture.Dns.Resolves.Count);
         Assert.Equal(2u, fixture.Dns.Resolves[^1].InterfaceIndex);
@@ -717,6 +730,39 @@ public sealed class DiscoveryLifecycleTests
 
     private static ServiceRecord Record(string address) => new(Name, Airplay, address, 7000, new Dictionary<string, string> { ["deviceid"] = "AA:BB:CC:DD:EE:FF" });
 
+    [Fact]
+    public async Task ProductionSchedulingKeepsBlockedNativeStartOffTheCallingThread()
+    {
+        var dns = new FakeDns();
+        var clock = new ManualClock();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var caller = Environment.CurrentManagedThreadId;
+        var nativeThread = caller;
+        dns.OnCreated = operation =>
+        {
+            if (operation.Name != Airplay) return;
+            operation.DuringStart = () =>
+            {
+                nativeThread = Environment.CurrentManagedThreadId; entered.Set();
+                if (!release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("Synthetic start was not released.");
+                completed.TrySetResult();
+            };
+        };
+        using var discovery = new WindowsDiscovery(dns, clock, () => [], _ => { }, queueNative: true);
+        try
+        {
+            discovery.Start(); // Must return before the native Start barrier releases.
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(10)));
+            Assert.NotEqual(caller, nativeThread);
+            discovery.Stop();
+            Assert.Equal(0, discovery.Snapshot.ActiveQueries);
+        }
+        finally { release.Set(); }
+        await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
     private sealed class Fixture : IDisposable
     {
         public readonly ManualClock Clock = new();
@@ -758,12 +804,14 @@ public sealed class DiscoveryLifecycleTests
         public Action<FakeOperation>? OnCreated;
         public int Allocations;
         public int Releases;
+        public int MaximumConcurrentOwners;
         public IDnsServiceOperation CreateBrowse(string type, uint interfaceIndex, Action<uint, IReadOnlyList<DnsAnnouncement>> callback) => Create(type, type, interfaceIndex, callback, null);
         public IDnsServiceOperation CreateResolve(string name, string type, uint interfaceIndex, Action<uint, ServiceRecord?> callback) => Create(name, type, interfaceIndex, null, callback);
         private FakeOperation Create(string name, string type, uint index, Action<uint, IReadOnlyList<DnsAnnouncement>>? browse, Action<uint, ServiceRecord?>? resolve)
         {
             var operation = new FakeOperation(this, ++Allocations, name, type, index, browse, resolve);
             Operations.Add(operation);
+            MaximumConcurrentOwners = Math.Max(MaximumConcurrentOwners, Allocations - Releases);
             OnCreated?.Invoke(operation);
             return operation;
         }
@@ -795,6 +843,7 @@ public sealed class DiscoveryLifecycleTests
         public Task DeferredCancellation { get; private set; } = Task.CompletedTask;
         public event Action? Settled;
         public event Action<string>? CancellationFailed;
+        public event Action<string>? CallbackFailed { add { } remove { } }
         public int CancellationFailureSubscriberCount => CancellationFailed?.GetInvocationList().Length ?? 0;
         public void EmitCancellationFailure(string message) => CancellationFailed?.Invoke(message);
         public uint Start()
@@ -834,7 +883,7 @@ public sealed class DiscoveryLifecycleTests
         public void Resolved(uint status, ServiceRecord? record)
         {
             lock (_callbackGate) _activeCallbacks++;
-            try { resolve!(status, record); Settle(); }
+            try { resolve!(status, record); }
             finally { ExitCallback(); }
         }
         private void ExitCallback()

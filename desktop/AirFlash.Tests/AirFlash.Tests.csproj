@@ -18,5 +18,8 @@
     <Compile Include="../AirFlash.App/Services/DnsServiceApi.cs" Link="DnsServiceApi.cs"/>
     <Compile Include="../AirFlash.App/Services/WindowsDiscovery.cs" Link="WindowsDiscovery.cs"/>
     <Compile Include="../AirFlash.App/Services/NativeDnsServiceApi.cs" Link="NativeDnsServiceApi.cs"/>
+    <Compile Include="../AirFlash.App/Services/ResolveProcessDnsServiceApi.cs" Link="ResolveProcessDnsServiceApi.cs"/>
+    <Compile Include="../AirFlash.App/Services/WindowsCapabilities.cs" Link="WindowsCapabilities.cs"/>
+    <Compile Include="../AirFlash.App/Services/NetworkAdapterCatalog.cs" Link="NetworkAdapterCatalog.cs"/>
   </ItemGroup>
 </Project>

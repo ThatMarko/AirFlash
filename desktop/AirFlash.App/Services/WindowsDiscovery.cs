@@ -3,8 +3,9 @@ using System.Net.NetworkInformation;
 using AirFlash.Core;
 namespace AirFlash.App.Services;
 
-// Logical deadlines do not settle native owners. A late callback can release its owner,
-// but only a current epoch/token may change advertised or cached receiver state.
+// Logical deadlines do not settle resource owners. Browse needs its documented
+// final callback; production resolve needs observed exit of its helper process.
+// Only a current epoch/token may change advertised or cached receiver state.
 public sealed partial class WindowsDiscovery : IDiscoveryService
 {
     private const uint PendingStatus = 9506;
@@ -16,6 +17,8 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
     private readonly Func<IReadOnlyList<DiscoveryAdapter>> _adapters;
     private readonly Action<string> _log;
     private readonly bool _enableInfrastructure;
+    private readonly bool _queueNative;
+    private readonly Func<bool> _dnsAvailable;
     private readonly DiscoveryPolicy _policy;
     private readonly Dictionary<string, Advertisement> _advertised = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, CachedRecord> _records = new(StringComparer.OrdinalIgnoreCase);
@@ -36,18 +39,22 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
     private bool _started;
     private bool _disposed;
     private bool _capacityReported;
+    private bool _running;
     private Work? _deferredNativeWork;
     public event Action<IReadOnlyList<Receiver>>? Changed;
     public event Action<string>? Failed;
+    public event Action<bool>? RunningChanged;
 
     internal WindowsDiscovery(IDnsServiceApi dns, TimeProvider clock,
         Func<IReadOnlyList<DiscoveryAdapter>> adapters, Action<string> log,
-        bool enableInfrastructure = false, DiscoveryPolicy? policy = null)
+        bool enableInfrastructure = false, DiscoveryPolicy? policy = null, Func<bool>? dnsAvailable = null, bool queueNative = false)
     {
         _dns = dns; _clock = clock; _origin = clock.GetTimestamp(); _adapters = adapters;
         _log = log; _enableInfrastructure = enableInfrastructure; _policy = policy ?? new();
+        _queueNative = enableInfrastructure || queueNative;
+        _dnsAvailable = dnsAvailable ?? (() => true);
         if (_policy.ResolveTimeout <= TimeSpan.Zero || _policy.RefreshInterval <= TimeSpan.Zero
-            || _policy.RecordTtl <= TimeSpan.Zero || _policy.RetryBase <= TimeSpan.Zero
+            || _policy.RetryBase <= TimeSpan.Zero
             || _policy.RetryMaximum < _policy.RetryBase || _policy.MaxOwners < 2
             || _policy.MaxResolveOwnersPerName < 1) throw new ArgumentOutOfRangeException(nameof(policy));
     }
@@ -55,7 +62,8 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
     private TimeSpan Now => _clock.GetElapsedTime(_origin, _clock.GetTimestamp());
     internal DiscoverySnapshot Snapshot
     {
-        get { lock (_sync) return new(_epoch, _advertised.Count, _records.Count, _pending.Count, _owners.Count); }
+        get { lock (_sync) return new(_epoch, _advertised.Count, _records.Count, _pending.Values.Count(owner => !owner.HasResult), _owners.Count,
+            _pending.Count + _browsers.Values.Count(browser => browser.Owner is { Retired: false })); }
     }
 
     public void SetInterface(string id)
@@ -65,13 +73,22 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         {
             if (_disposed || _interfaceId == id) return;
             _interfaceId = id;
-            if (!_started) return;
+            ++_epoch; ++_restartSequence;
+            _records.Clear();
         }
+        Publish();
         Restart();
     }
 
     public void Start()
     {
+        bool available;
+        lock (_sync) { if (_disposed || _started) return; available = _dnsAvailable(); }
+        if (!available)
+        {
+            Report(L.Get("Windows DNS-SD is unavailable. You can add a receiver manually and collect startup diagnostics."));
+            return;
+        }
         lock (_sync)
         {
             if (_disposed || _started) return;
@@ -82,11 +99,31 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
                 NetworkChange.NetworkAddressChanged += NetworkChanged;
                 NetworkChange.NetworkAvailabilityChanged += NetworkAvailabilityChanged;
                 // The one-second maintenance tick bounds deadlines independently of the
-                // less frequent adapter enumeration and successful resolve refreshes.
+                // less frequent adapter enumeration and successful-query refresh.
                 _timer = _clock.CreateTimer(_ => Tick(), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
             }
         }
         Restart();
+    }
+
+    public void Stop()
+    {
+        var work = new Work(); ITimer? timer;
+        lock (_sync)
+        {
+            if (_disposed || !_started) return;
+            _started = false; ++_epoch; ++_restartSequence; timer = _timer; _timer = null;
+            foreach (var owner in _owners.Values) RetireLocked(owner, work);
+            _pending.Clear(); _advertised.Clear();
+            foreach (var browser in _browsers.Values) browser.Owner = null;
+            if (_enableInfrastructure)
+            {
+                NetworkChange.NetworkAddressChanged -= NetworkChanged;
+                NetworkChange.NetworkAvailabilityChanged -= NetworkAvailabilityChanged;
+            }
+        }
+        timer?.Dispose(); Run(work);
+        // Suspended discovery preserves its catalog and does not revoke playback.
     }
 
     private void NetworkChanged(object? sender, EventArgs args) => Restart();
@@ -103,13 +140,16 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         uint? index; string? error = null;
         try { index = DiscoveryInterface.ResolveIndex(selected, _adapters()); }
         catch (NetworkInformationException exception) { error = exception.Message; index = null; }
-        var work = new Work { Publish = true };
+        var work = new Work();
         lock (_sync)
         {
             if (_disposed || !_started || sequence != _restartSequence || selected != _interfaceId) return;
             ++_epoch; _interfaceIndex = index; _nextAdapterCheck = Now + _policy.RefreshInterval;
             foreach (var owner in _owners.Values) RetireLocked(owner, work);
-            _pending.Clear(); _advertised.Clear(); _records.Clear();
+            _pending.Clear(); _advertised.Clear();
+            // Cached entries remain visible on resume until advertised again.
+            foreach (var name in _records.Keys.ToArray())
+                _records[name] = _records[name] with { Expires = Now + TimeSpan.FromSeconds(10) };
             foreach (var browser in _browsers.Values)
             {
                 browser.Owner = null; browser.Failures = 0; browser.NextAttempt = Now;
@@ -158,7 +198,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
             {
                 _records.Remove(name); work.Publish = true;
             }
-            foreach (var owner in _pending.Values.Where(owner => owner.Deadline <= now).ToArray())
+            foreach (var owner in _pending.Values.Where(owner => !owner.HasResult && owner.Deadline <= now).ToArray())
             {
                 FailResolveLocked(owner, now, work);
                 work.Errors.Add(L.Format("Receiver resolution timed out: {0}. Discovery will retry with backoff.", owner.Name));
@@ -216,7 +256,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
     {
         if (_capacityReported) return;
         _capacityReported = true;
-        work.Errors.Add(L.Get("Some discovery requests are paused because DNS operations have not finished cancellation. They will resume when those operations complete; restarting the app is the final recovery."));
+        work.Errors.Add(L.Get("Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery."));
     }
 
     private void RegisterLocked(Owner owner)
@@ -227,9 +267,14 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         {
             if (weak.TryGetTarget(out var target)) target.CancellationFailed(token, message);
         };
+        owner.CallbackFailedHandler = message =>
+        {
+            if (weak.TryGetTarget(out var target)) target.CallbackFailed(token, message);
+        };
         _owners.Add(token, owner);
         owner.Operation.Settled += owner.SettledHandler;
         owner.Operation.CancellationFailed += owner.CancellationFailedHandler;
+        owner.Operation.CallbackFailed += owner.CallbackFailedHandler;
     }
 
     private void Browse(Owner owner, uint status, IReadOnlyList<DnsAnnouncement> announcements)
@@ -252,8 +297,10 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
                 {
                     if (string.IsNullOrEmpty(announcement.Name)) continue;
                     if (announcement.Ttl == 0) { RemoveAdvertisementLocked(announcement.Name, work); continue; }
-                    if (_advertised.TryGetValue(announcement.Name, out var advertised)) advertised.Expires = now + TimeSpan.FromSeconds(announcement.Ttl);
-                    else _advertised[announcement.Name] = new(announcement.Name, owner.Type, now + TimeSpan.FromSeconds(announcement.Ttl), now);
+                    if (_advertised.TryGetValue(announcement.Name, out var advertised)) advertised.Expires = now + TimeSpan.FromSeconds(Math.Min(announcement.Ttl, 86400u));
+                    else _advertised[announcement.Name] = new(announcement.Name, owner.Type, now + TimeSpan.FromSeconds(Math.Min(announcement.Ttl, 86400u)), now);
+                    if (_records.TryGetValue(announcement.Name, out var cached))
+                        _records[announcement.Name] = cached with { Expires = _advertised[announcement.Name].Expires };
                 }
                 ScheduleLocked(now, work);
             }
@@ -266,14 +313,13 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         var work = new Work();
         lock (_sync)
         {
-            // Resolve callbacks are terminal: the adapter settles the owner after this
-            // handler returns, including ignored callbacks. No cancellation is needed.
-            owner.TerminalCallback = true;
+            // A copied helper result completes logical resolution, not resource
+            // ownership. The process stays counted until its exit is observed.
             if (_disposed || owner.Retired || owner.Epoch != _epoch || !_pending.TryGetValue(owner.Name, out var pending)
                 || !ReferenceEquals(pending, owner) || !_advertised.TryGetValue(owner.Name, out var advertisement)) return;
             var now = Now;
             if (advertisement.Expires <= now) RemoveAdvertisementLocked(owner.Name, work);
-            else if (owner.Deadline <= now)
+            else if (!owner.HasResult && owner.Deadline <= now)
             {
                 FailResolveLocked(owner, now, work);
                 work.Errors.Add(L.Format("Receiver resolution timed out: {0}. Discovery will retry with backoff.", owner.Name));
@@ -287,11 +333,16 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
             }
             else
             {
-                _pending.Remove(owner.Name); owner.Retired = true;
-                advertisement.Failures = 0; advertisement.NextAttempt = now + _policy.RefreshInterval;
+                owner.HasResult = true; advertisement.Failures = 0;
+                advertisement.NextAttempt = now + _policy.RefreshInterval;
+                _pending.Remove(owner.Name);
+                RetireLocked(owner, work);
                 if (!_records.TryGetValue(owner.Name, out var previous) || Describe(previous.Record) != Describe(record))
+                {
                     work.Logs.Add("Discovery resolved: " + Describe(record));
-                _records[owner.Name] = new(record, now + _policy.RecordTtl); work.Publish = true;
+                    work.Publish = true;
+                }
+                _records[owner.Name] = new(record, advertisement.Expires);
             }
         }
         Run(work);
@@ -330,7 +381,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
     private void RetireLocked(Owner owner, Work work)
     {
         owner.Retired = true;
-        if (owner.CancelRequested || owner.TerminalCallback || owner.Operation.IsSettled) return;
+        if (owner.CancelRequested || owner.Operation.IsSettled) return;
         owner.CancelRequested = true; work.Cancels.Add(owner.Operation);
     }
 
@@ -342,6 +393,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
             if (!_owners.Remove(token, out var owner)) return;
             owner.Operation.Settled -= owner.SettledHandler;
             owner.Operation.CancellationFailed -= owner.CancellationFailedHandler;
+            owner.Operation.CallbackFailed -= owner.CallbackFailedHandler;
             if (_disposed || owner.Retired || owner.Epoch != _epoch) return;
             // A non-pending Start can settle the adapter before its return value is
             // observed. Retire now, but retain the reason so Run reports that result.
@@ -355,7 +407,13 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
     private void CancellationFailed(long token, string message)
     {
         lock (_sync) { if (_disposed || !_owners.ContainsKey(token)) return; }
-        Report(L.Format("DNS cancellation failed: {0}. The operation remains safely owned until completion.", message));
+        Report(L.Format("DNS cancellation failed: {0}. Native resources remain safely owned; restarting the app is the final recovery if completion cannot be established.", message));
+    }
+
+    private void CallbackFailed(long token, string message)
+    {
+        lock (_sync) { if (_disposed || !_owners.ContainsKey(token)) return; }
+        Report(L.Format("Receiver discovery: {0}", message));
     }
 
     private void Run(Work work)
@@ -379,10 +437,11 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
                         deferred.Starts.Add(owner);
             }
         }
-        else RunNative(work);
+        else DispatchNative(work);
         foreach (var message in work.Logs) Log(message);
         foreach (var error in work.Errors) Report(error);
         if (work.Publish) Publish();
+        PublishRunning();
     }
 
     private void DrainDeferredNative()
@@ -393,8 +452,37 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
             Work? work;
             lock (_publication) { work = _deferredNativeWork; _deferredNativeWork = null; }
             if (work is null) return;
-            RunNative(work);
+            DispatchNative(work);
         }
+    }
+
+    private void DispatchNative(Work work)
+    {
+        if (!_queueNative) { RunNative(work); return; }
+        // Start/Cancel may block. Production callers include WPF visibility changes.
+        // Never execute those calls on the dispatcher or under a publication frame.
+        if (work.Cancels.Count != 0 || work.Starts.Count != 0)
+            ThreadPool.UnsafeQueueUserWorkItem(_ => RunNative(work), (object?)null);
+    }
+
+    private void PublishRunning()
+    {
+        try
+        {
+            lock (_publication)
+            {
+                bool running;
+                lock (_sync)
+                {
+                    running = !_disposed && _started && _interfaceIndex is not null
+                        && _browsers.Values.Any(browser => browser.Owner is { Retired: false });
+                    if (running == _running) return;
+                    _running = running;
+                }
+                InvokeObservers(RunningChanged, running, "running");
+            }
+        }
+        finally { DrainDeferredNative(); }
     }
 
     private void RunNative(Work work)
@@ -404,11 +492,11 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
             try
             {
                 var status = operation.Cancel();
-                if (status != 0 && !operation.IsSettled) Report(L.Format("DNS cancellation failed: {0}. The operation remains safely owned until completion.", new Win32Exception((int)status).Message));
+                if (status != 0 && !operation.IsSettled) Report(L.Format("DNS cancellation failed: {0}. Native resources remain safely owned; restarting the app is the final recovery if completion cannot be established.", new Win32Exception((int)status).Message));
             }
             catch (Exception error) when (IsOperationFailure(error))
             {
-                Report(L.Format("DNS cancellation failed: {0}. The operation remains safely owned until completion.", error.Message));
+                Report(L.Format("DNS cancellation failed: {0}. Native resources remain safely owned; restarting the app is the final recovery if completion cannot be established.", error.Message));
             }
         }
         foreach (var owner in work.Starts)
@@ -569,11 +657,12 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         public bool Resolve { get; } = resolve;
         public TimeSpan Deadline { get; init; }
         public bool Retired { get; set; }
-        public bool TerminalCallback { get; set; }
+        public bool HasResult { get; set; }
         public bool UnexpectedSettlement { get; set; }
         public bool CancelRequested { get; set; }
         public Action? SettledHandler { get; set; }
         public Action<string>? CancellationFailedHandler { get; set; }
+        public Action<string>? CallbackFailedHandler { get; set; }
     }
     private sealed class Work
     {

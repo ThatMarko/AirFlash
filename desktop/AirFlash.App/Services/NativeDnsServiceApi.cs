@@ -22,13 +22,26 @@ internal sealed class NativeDnsServiceApi(INativeDnsCalls? calls = null) : IDnsS
     private const uint RequestPending = 9506, Cancelled = 1223;
     private static readonly object Admission = new();
     private static readonly ConcurrentDictionary<long, Operation> Owners = new();
-    private static long _nextToken, _allocatedBuffers, _releasedOwners;
+    private static long _allocatedBuffers, _releasedOwners;
     [ThreadStatic] private static int _dispatchDepth;
     private readonly INativeDnsCalls _calls = calls ?? WindowsCalls.Instance;
 
     internal static int CurrentOwnerCount => Owners.Count;
     internal static long AllocatedBufferCount => Interlocked.Read(ref _allocatedBuffers);
     internal static long ReleasedOwnerCount => Interlocked.Read(ref _releasedOwners);
+    internal static int RetainedResolveOwnerCount => Owners.Values.Count(owner => owner.IsResolve && owner.IsRetired);
+
+    // Fixture teardown only: the fake boundary independently joins every worker
+    // before calling this. Windows DNS exposes no corresponding resolve signal.
+    // This is never a production settlement path or proof of OS quiescence.
+    internal static void SettleQuiescentTestBoundary(INativeDnsCalls calls)
+    {
+        if (calls is WindowsCalls) throw new InvalidOperationException("A real Windows DNS boundary cannot be settled by a fixture.");
+        foreach (var owner in Owners.Values.Where(owner => ReferenceEquals(owner.Calls, calls)))
+            owner.SettleQuiescentTestBoundary();
+    }
+    internal static Task PendingCancellationWorkers(INativeDnsCalls calls)
+        => Task.WhenAll(Owners.Values.Where(owner => ReferenceEquals(owner.Calls, calls)).Select(owner => owner.CancellationWorker));
 
     public IDnsServiceOperation CreateBrowse(string type, uint interfaceIndex, Action<uint, IReadOnlyList<DnsAnnouncement>> callback)
     {
@@ -50,10 +63,14 @@ internal sealed class NativeDnsServiceApi(INativeDnsCalls? calls = null) : IDnsS
         {
             // Retained owners from every instance count, including previous discovery epochs.
             if (Owners.Count >= OwnerLimit) throw new DnsServiceCapacityException();
-            if (_nextToken == long.MaxValue) throw new InvalidOperationException("DNS operation tokens are exhausted.");
-            var operation = new Operation(++_nextToken, name, type, index, _calls, browse, resolve);
-            Owners[operation.Token] = operation;
-            return operation;
+            var token = DnsServiceOwnership.Acquire();
+            try
+            {
+                var operation = new Operation(token, name, type, index, _calls, browse, resolve);
+                Owners[operation.Token] = operation;
+                return operation;
+            }
+            catch { DnsServiceOwnership.Release(); throw; }
         }
     }
 
@@ -72,6 +89,7 @@ internal sealed class NativeDnsServiceApi(INativeDnsCalls? calls = null) : IDnsS
             if (Owners.TryGetValue(context.ToInt64(), out var owner) && !owner.IsResolve) owner.Browse(status, records);
             else if (records != IntPtr.Zero) (fallbackCalls ?? WindowsCalls.Instance).FreeRecords(records);
         }
+        catch (Exception error) { TraceFailure("DNS-SD browse thunk", error); }
         finally { --_dispatchDepth; }
     }
 
@@ -83,6 +101,7 @@ internal sealed class NativeDnsServiceApi(INativeDnsCalls? calls = null) : IDnsS
             if (Owners.TryGetValue(context.ToInt64(), out var owner) && owner.IsResolve) owner.Resolve(status, instance);
             else if (instance != IntPtr.Zero) (fallbackCalls ?? WindowsCalls.Instance).FreeInstance(instance);
         }
+        catch (Exception error) { TraceFailure("DNS-SD resolve thunk", error); }
         finally { --_dispatchDepth; }
     }
 
@@ -96,13 +115,18 @@ internal sealed class NativeDnsServiceApi(INativeDnsCalls? calls = null) : IDnsS
         private IntPtr _name, _request, _cancel;
         private bool _startInvoked, _startReturned, _cancelRequested, _cancelIssued, _cancelScheduled, _terminal, _released;
         private int _activeCalls, _activeCallbacks;
+        private Task _cancellationWorker = Task.CompletedTask;
         private uint _startStatus = RequestPending, _cancelStatus;
         public long Token { get; }
         public string Name { get; }
         public bool IsResolve { get; }
+        internal INativeDnsCalls Calls => _calls;
+        internal bool IsRetired { get { lock (_gate) return _cancelRequested || _terminal; } }
+        internal Task CancellationWorker { get { lock (_gate) return _cancellationWorker; } }
         public bool IsSettled { get { lock (_gate) return _released; } }
         public event Action? Settled;
         public event Action<string>? CancellationFailed;
+        public event Action<string>? CallbackFailed;
 
         public Operation(long token, string name, string type, uint index, INativeDnsCalls calls,
             Action<uint, IReadOnlyList<DnsAnnouncement>>? browse, Action<uint, ServiceRecord?>? resolve)
@@ -238,8 +262,7 @@ internal sealed class NativeDnsServiceApi(INativeDnsCalls? calls = null) : IDnsS
         {
             try
             {
-                if (!ThreadPool.UnsafeQueueUserWorkItem(static (Operation owner) => owner.RunQueuedCancellation(), this, preferLocal: false))
-                    throw new InvalidOperationException("The DNS cancellation worker could not be queued.");
+                lock (_gate) _cancellationWorker = Task.Run(RunQueuedCancellation);
             }
             catch (Exception error)
             {
@@ -273,7 +296,9 @@ internal sealed class NativeDnsServiceApi(INativeDnsCalls? calls = null) : IDnsS
 
         public void Resolve(uint status, IntPtr instance)
         {
-            bool entered = EnterCallback(true);
+            // Neither a result nor an error status proves query completion. The
+            // resolve API has no documented final cancellation notification.
+            bool entered = EnterCallback(false);
             try
             {
                 if (!entered) return;
@@ -281,10 +306,11 @@ internal sealed class NativeDnsServiceApi(INativeDnsCalls? calls = null) : IDnsS
                 lock (_gate) callback = _resolve;
                 if (callback is not null) callback(status, status == 0 && instance != IntPtr.Zero ? ReadInstance(instance) : null);
             }
-            catch (Exception error) { System.Diagnostics.Trace.TraceError("DNS-SD resolve callback: {0}", error.Message); }
+            catch (Exception error) { NotifyFailure(CallbackFailed, error.Message); }
             finally
             {
                 try { if (instance != IntPtr.Zero) _calls.FreeInstance(instance); }
+                catch (Exception error) { NotifyFailure(CallbackFailed, error.Message); }
                 finally { if (entered) ExitCallback(); }
             }
         }
@@ -302,10 +328,11 @@ internal sealed class NativeDnsServiceApi(INativeDnsCalls? calls = null) : IDnsS
                 lock (_gate) callback = _browse;
                 if (callback is not null) callback(status, status == 0 ? ReadRecords(records) : Array.Empty<DnsAnnouncement>());
             }
-            catch (Exception error) { System.Diagnostics.Trace.TraceError("DNS-SD browse callback: {0}", error.Message); }
+            catch (Exception error) { NotifyFailure(CallbackFailed, error.Message); }
             finally
             {
                 try { if (records != IntPtr.Zero) _calls.FreeRecords(records); }
+                catch (Exception error) { NotifyFailure(CallbackFailed, error.Message); }
                 finally { if (entered) ExitCallback(); }
             }
         }
@@ -357,9 +384,21 @@ internal sealed class NativeDnsServiceApi(INativeDnsCalls? calls = null) : IDnsS
         {
             if (_released || !_terminal || _activeCalls != 0 || _activeCallbacks != 0) return null;
             _released = true; _browse = null; _resolve = null;
-            FreeInputs(); Owners.TryRemove(Token, out _); Interlocked.Increment(ref _releasedOwners);
-            var handlers = Settled; Settled = null; CancellationFailed = null;
+            FreeInputs(); Owners.TryRemove(Token, out _); DnsServiceOwnership.Release(); Interlocked.Increment(ref _releasedOwners);
+            var handlers = Settled; Settled = null; CancellationFailed = null; CallbackFailed = null;
             return handlers;
+        }
+
+        internal void SettleQuiescentTestBoundary()
+        {
+            Action? settled;
+            lock (_gate)
+            {
+                if (_activeCalls != 0 || _activeCallbacks != 0 || _cancelScheduled)
+                    throw new InvalidOperationException("The fake DNS boundary still has an active or queued frame.");
+                _terminal = true; settled = ReleaseIfSafe();
+            }
+            Notify(settled);
         }
 
         private void FreeInputs() { Free(ref _name); Free(ref _request); Free(ref _cancel); }
@@ -377,19 +416,27 @@ internal sealed class NativeDnsServiceApi(INativeDnsCalls? calls = null) : IDnsS
             if (settled is null) return;
             foreach (Action callback in settled.GetInvocationList())
                 try { callback(); }
-                catch (Exception error) { System.Diagnostics.Trace.TraceError("DNS-SD settlement callback: {0}", error.Message); }
+                catch (Exception error) { TraceFailure("DNS-SD settlement callback", error); }
         }
         private static void NotifyFailure(Action<string>? failed, string? message)
         {
             if (failed is null || message is null) return;
             foreach (Action<string> callback in failed.GetInvocationList())
                 try { callback(message); }
-                catch (Exception error) { System.Diagnostics.Trace.TraceError("DNS-SD cancellation failure callback: {0}", error.Message); }
+                catch (Exception error) { TraceFailure("DNS-SD failure observer", error); }
         }
     }
 
+    private static void TraceFailure(string context, Exception error)
+    {
+        try { System.Diagnostics.Trace.TraceError("{0}: {1}", context, DiagnosticText.Protect(error.Message)); }
+        catch { } // Even a custom Trace listener must not escape a reverse P/Invoke.
+    }
+
     // DNS-SD pages do not promise callback quiescence when Cancel returns. Retain
-    // all three input buffers until terminal callback, including successful Cancel.
+    // all three input buffers after successful Cancel. Browse has a documented
+    // final1223 callback; pending resolve has no documented quiescence signal,
+    // so its retired owner remains bounded and rooted until process exit.
     // https://learn.microsoft.com/windows/win32/api/windns/nf-windns-dnsserviceresolvecancel
     // https://learn.microsoft.com/windows/win32/api/windns/nf-windns-dnsservicebrowsecancel
     [StructLayout(LayoutKind.Sequential)]
