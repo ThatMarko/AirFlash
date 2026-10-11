@@ -50,6 +50,16 @@ internal static class UiSmoke
             }
             catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
         }
+        if (args.Contains("--ui-settings-recovery-smoke"))
+        {
+            try
+            {
+                await UiSettingsRecovery.RunAsync(checks, directory);
+                App.WriteOutput(args, new { ok = true, checks, note = "Concrete settings recovery with synthetic files and simulated services only." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
         if (args.Contains("--ui-scroll-smoke"))
         {
             try
