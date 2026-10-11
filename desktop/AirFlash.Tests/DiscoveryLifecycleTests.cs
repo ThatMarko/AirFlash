@@ -338,24 +338,39 @@ public sealed class DiscoveryLifecycleTests
         Assert.Equal(2, fixture.Discovery.Snapshot.NativeOwners);
     }
 
-    [Fact]
-    public async Task DisposeFromChangedSubscriberCannotCancelWhileHoldingPublicationLock()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DisposeFromChangedSubscriberCannotCancelWhileHoldingPublicationLock(bool concurrentCallbackDrains)
     {
-        using var fixture = new Fixture();
-        using var firstPublication = new ManualResetEventSlim();
         using var disposeRequested = new ManualResetEventSlim();
-        using var otherResolveEntered = new ManualResetEventSlim();
+        using var allowOtherPublication = new ManualResetEventSlim();
         using var otherBrowseReturned = new ManualResetEventSlim();
-        var cancellationTimedOut = false;
-        var cancellationInsidePublication = false;
-        var publication = typeof(WindowsDiscovery).GetField("_publication", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(fixture.Discovery)!;
+        var firstPublication = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var otherRecordCommitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstReturned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationTimedOut = 0;
+        var cancellationInsidePublication = 0;
+        var nativeCancellationInsidePublication = 0;
+        var publicationGateTimedOut = 0;
+        var disposeGateTimedOut = 0;
+        var firstThread = 0;
+        var otherThread = 0;
+        var cancellationThread = 0;
         const string otherName = "Kitchen._airplay._tcp.local";
+        using var fixture = new Fixture(message =>
+        {
+            if (!message.Contains(otherName, StringComparison.Ordinal)) return;
+            otherRecordCommitted.TrySetResult();
+            if (!allowOtherPublication.Wait(TimeSpan.FromSeconds(30))) Interlocked.Exchange(ref publicationGateTimedOut, 1);
+        });
+        var publication = typeof(WindowsDiscovery).GetField("_publication", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(fixture.Discovery)!;
         fixture.Dns.OnCreated = operation =>
         {
             if (!operation.IsResolve || operation.Name != otherName) return;
             operation.DuringStart = () =>
             {
-                otherResolveEntered.Set();
                 operation.Resolved(0, Record("10.0.0.2") with
                 {
                     Instance = otherName,
@@ -364,40 +379,87 @@ public sealed class DiscoveryLifecycleTests
             };
         };
         fixture.StartAndAnnounce();
-        fixture.Dns.Browses[0].DuringCancel = () =>
+        var browser = fixture.Dns.Browses[0];
+        browser.DeferCancellationUntilCallbacksReturn = true;
+        browser.DuringCancelRequest = () =>
         {
-            cancellationInsidePublication |= Monitor.IsEntered(publication);
-            // A real cancellation may wait for its active native browse callback.
-            // The fixture records the forbidden dependency and unblocks on failure.
-            cancellationTimedOut |= !otherBrowseReturned.Wait(TimeSpan.FromSeconds(10));
+            cancellationThread = Environment.CurrentManagedThreadId;
+            if (Monitor.IsEntered(publication)) Interlocked.Exchange(ref cancellationInsidePublication, 1);
+            if (!concurrentCallbackDrains) allowOtherPublication.Set();
+            cancellationRequested.TrySetResult();
+        };
+        browser.DuringCancel = () =>
+        {
+            if (Monitor.IsEntered(publication)) Interlocked.Exchange(ref nativeCancellationInsidePublication, 1);
+            // This is the native join, after the fake operation accepted the request.
+            // Like the production adapter, it cannot synchronously join its own callback.
+            if (!otherBrowseReturned.Wait(TimeSpan.FromSeconds(10))) Interlocked.Exchange(ref cancellationTimedOut, 1);
         };
         fixture.Discovery.Changed += receivers =>
         {
             if (receivers.Count != 1 || receivers[0].Address != "10.0.0.1") return;
-            firstPublication.Set();
-            if (!disposeRequested.Wait(TimeSpan.FromSeconds(30))) throw new TimeoutException("Reentrant dispose barrier was not released.");
+            firstPublication.TrySetResult();
+            if (!disposeRequested.Wait(TimeSpan.FromSeconds(30))) Interlocked.Exchange(ref disposeGateTimedOut, 1);
             fixture.Discovery.Dispose();
         };
-        var first = Task.Run(() => fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1")));
-        Assert.True(firstPublication.Wait(TimeSpan.FromSeconds(30)), "The first callback never reached Changed.");
-        var other = Task.Run(() =>
-        {
-            try { fixture.Dns.Browses[0].Announced(0, new DnsAnnouncement(otherName, 3600)); }
-            finally { otherBrowseReturned.Set(); }
-        });
+        Task? first = null;
+        Task? other = null;
         try
         {
-            Assert.True(otherResolveEntered.Wait(TimeSpan.FromSeconds(30)), "The concurrent browse never reached its inline resolve.");
-            Assert.True(SpinWait.SpinUntil(() => fixture.Discovery.Snapshot.CachedRecords == 2, TimeSpan.FromSeconds(30)),
-                "The concurrent callback never committed its record before waiting to publish.");
+            first = Task.Factory.StartNew(() =>
+            {
+                firstThread = Environment.CurrentManagedThreadId;
+                try
+                {
+                    if (concurrentCallbackDrains)
+                    {
+                        // One test-owned recursion makes the first Publish's finally
+                        // defer draining. Releasing it lets the other callback take the
+                        // batch deterministically, instead of relying on monitor fairness.
+                        lock (publication) fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1"));
+                    }
+                    else fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1"));
+                }
+                finally { firstReturned.TrySetResult(); }
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            await firstPublication.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            other = Task.Factory.StartNew(() =>
+            {
+                otherThread = Environment.CurrentManagedThreadId;
+                try { browser.Announced(0, new DnsAnnouncement(otherName, 3600)); }
+                finally { otherBrowseReturned.Set(); }
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            await otherRecordCommitted.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(2, fixture.Discovery.Snapshot.CachedRecords);
+            disposeRequested.Set();
+            if (concurrentCallbackDrains)
+            {
+                await firstReturned.Task.WaitAsync(TimeSpan.FromSeconds(30));
+                allowOtherPublication.Set();
+            }
+            await Task.WhenAll(first, other).WaitAsync(TimeSpan.FromSeconds(30));
+            await cancellationRequested.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            await browser.DeferredCancellation.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(concurrentCallbackDrains ? otherThread : firstThread, cancellationThread);
+            Assert.Equal(0, disposeGateTimedOut);
+            Assert.Equal(0, publicationGateTimedOut);
+            Assert.Equal(0, cancellationInsidePublication);
+            Assert.Equal(0, nativeCancellationInsidePublication);
+            Assert.Equal(0, cancellationTimedOut);
+            Assert.Equal(1, browser.CancelCalls);
+            Assert.Equal(1, browser.ReleaseCalls);
+            Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+            Assert.Equal(0, fixture.Discovery.Snapshot.CachedRecords);
+            Assert.Equal(0, fixture.Discovery.Snapshot.NativeOwners);
         }
-        finally { disposeRequested.Set(); }
-        await Task.WhenAll(first, other).WaitAsync(TimeSpan.FromSeconds(30));
-        Assert.False(cancellationInsidePublication, "Native cancellation ran while the external Changed subscriber held publication.");
-        Assert.False(cancellationTimedOut, "Native cancellation and concurrent publication formed a circular wait.");
-        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
-        Assert.Equal(0, fixture.Discovery.Snapshot.CachedRecords);
-        Assert.Equal(0, fixture.Discovery.Snapshot.NativeOwners);
+        finally
+        {
+            disposeRequested.Set();
+            allowOtherPublication.Set();
+            if (first is not null) await first.WaitAsync(TimeSpan.FromSeconds(30));
+            if (other is not null) await other.WaitAsync(TimeSpan.FromSeconds(30));
+            await browser.DeferredCancellation.WaitAsync(TimeSpan.FromSeconds(30));
+        }
     }
 
     [Fact]
@@ -711,6 +773,9 @@ public sealed class DiscoveryLifecycleTests
     private sealed class FakeOperation(FakeDns owner, long token, string name, string type, uint index,
         Action<uint, IReadOnlyList<DnsAnnouncement>>? browse, Action<uint, ServiceRecord?>? resolve) : IDnsServiceOperation
     {
+        private readonly object _callbackGate = new();
+        private int _activeCallbacks;
+        private bool _cancelDeferred;
         public long Token { get; } = token;
         public string Name { get; } = name;
         public string Type { get; } = type;
@@ -724,7 +789,10 @@ public sealed class DiscoveryLifecycleTests
         public int StartCalls;
         public int ReleaseCalls;
         public Action? DuringStart;
+        public Action? DuringCancelRequest;
         public Action? DuringCancel;
+        public bool DeferCancellationUntilCallbacksReturn;
+        public Task DeferredCancellation { get; private set; } = Task.CompletedTask;
         public event Action? Settled;
         public event Action<string>? CancellationFailed;
         public int CancellationFailureSubscriberCount => CancellationFailed?.GetInvocationList().Length ?? 0;
@@ -740,12 +808,44 @@ public sealed class DiscoveryLifecycleTests
         {
             CancelCalls++;
             CancelRequested = true;
+            DuringCancelRequest?.Invoke();
+            lock (_callbackGate)
+            {
+                if (DeferCancellationUntilCallbacksReturn && _activeCallbacks != 0)
+                {
+                    _cancelDeferred = true;
+                    return 0;
+                }
+            }
+            return CompleteCancellation();
+        }
+        private uint CompleteCancellation()
+        {
             DuringCancel?.Invoke();
             if (owner.SettleOnCancel) Settle();
             return CancelStatus;
         }
-        public void Announced(uint status, params DnsAnnouncement[] announcements) => browse!(status, announcements);
-        public void Resolved(uint status, ServiceRecord? record) { resolve!(status, record); Settle(); }
+        public void Announced(uint status, params DnsAnnouncement[] announcements)
+        {
+            lock (_callbackGate) _activeCallbacks++;
+            try { browse!(status, announcements); }
+            finally { ExitCallback(); }
+        }
+        public void Resolved(uint status, ServiceRecord? record)
+        {
+            lock (_callbackGate) _activeCallbacks++;
+            try { resolve!(status, record); Settle(); }
+            finally { ExitCallback(); }
+        }
+        private void ExitCallback()
+        {
+            lock (_callbackGate)
+            {
+                if (--_activeCallbacks != 0 || !_cancelDeferred) return;
+                _cancelDeferred = false;
+                DeferredCancellation = Task.Run(CompleteCancellation);
+            }
+        }
         public void Settle()
         {
             if (IsSettled) return;
