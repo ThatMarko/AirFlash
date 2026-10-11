@@ -130,12 +130,12 @@ impl Loopback {
         let mut out = Vec::with_capacity(FRAMES * 4);
         let mut marker = None;
         let now = qpc_ns();
-        let mut padded = 0u64;
+        let mut underrun = false;
         for _ in 0..FRAMES {
             let frame = if let Some(f) = s.frames.pop_front() {
                 f
             } else {
-                padded += 1;
+                underrun = true;
                 Frame {
                     left: 0.0,
                     right: 0.0,
@@ -157,12 +157,8 @@ impl Loopback {
                 out.extend(((value * 32767.0).round() as i16).to_be_bytes());
             }
         }
-        if padded > 0 {
+        if underrun {
             s.metrics.underrun_packets += 1;
-        }
-        s.metrics.padded_frames = s.metrics.padded_frames.saturating_add(padded);
-        if padded == FRAMES as u64 {
-            s.metrics.fully_padded_packets = s.metrics.fully_padded_packets.saturating_add(1);
         }
         Ok((out, marker))
     }
