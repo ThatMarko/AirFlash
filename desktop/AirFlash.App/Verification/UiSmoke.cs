@@ -25,6 +25,16 @@ internal static class UiSmoke
         var directory = Path.GetDirectoryName(report)!; Directory.CreateDirectory(directory);
         AppPaths.DataDirectory = Path.Combine(directory, "isolated-data");
         var checks = new List<string>();
+        if (args.Contains("--ui-scroll-smoke"))
+        {
+            try
+            {
+                await UiScrolling.RunAsync(checks, directory, args.Contains("--ui-scroll-hold"));
+                App.WriteOutput(args, new { ok = true, checks, note = "Settings scrolling with simulated services only." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
         object? iconEnvironment = null;
         object? hiddenReceiverObservation = null;
         var store = new MemoryStore(); var engine = new MockFactory();
@@ -192,6 +202,7 @@ internal static class UiSmoke
             await UiRegression.RunAsync(checks, directory);
             await UiSessionLifecycle.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
+            await UiScrolling.RunAsync(checks, directory);
             await VerifyTrayLifecycleAsync(tray, app, trayGuid, () => menuOpened, () => quitRequestedFromTray, checks);
             App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name, hidden_receiver_observation = hiddenReceiverObservation, icon_environment = iconEnvironment, note = "All engine/audio/discovery/autostart services are simulated. DPI renders do not replace physical multimonitor QA." });
             return 0;
