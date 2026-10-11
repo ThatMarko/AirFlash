@@ -11,6 +11,11 @@ on:
         required: false
         default: false
         type: boolean
+      dns_helper:
+        description: Run receiver-free discovery helper process qualification
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: read
 jobs:
@@ -61,6 +66,13 @@ jobs:
         timeout-minutes: 3
         run: |
           dotnet desktop/AirFlash.App/bin/Release/net10.0-windows/win-x64/AirFlash.dll --ui-smoke --ui-pairing-smoke --ui-pairing-clipboard --ui-language en --ui-culture en-US --output artifacts/group-native/pin-ui/report.json
+          exit $LASTEXITCODE
+      - name: Receiver-free DNS helper process qualification
+        if: inputs.dns_helper
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          dotnet desktop/AirFlash.App/bin/Release/net10.0-windows/win-x64/AirFlash.dll --dns-resolve-helper-check --output artifacts/group-native/dns-helper/report.json
           exit $LASTEXITCODE
       - name: Preserve exact-source results
         if: always()

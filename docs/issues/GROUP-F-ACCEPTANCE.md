@@ -1,0 +1,23 @@
+# Group F acceptance
+
+Feature branch `codex/fix-jsonl-control`, managed worktree `fix-jsonl-control/AirFlash`, is based on verified original stable `91698d8cd3bdf5666b417a12eaaf8d6a1ea36363`. Reviewed head `0ce71396f344a74dff3f54182b597852c2404c6a` is committed and pushed to the user's fork. Its seven-file complete diff and every outgoing commit exclude fork-only analysis/issues/planning. It is not integrated into original stable or fork main by this entry; no upstream issue/PR was created.
+
+## Process-owned IPC failure
+
+The desktop recognizes only the defined version-1 `error` / `command_error` / `ipc` rejection with explicit empty request/session strings, null host and retryable false before ordinary session filtering. Startup hello, Connecting, Streaming and Pairing preserve the original structured detail and terminal retry flag. Ordinary stale/near-match events remain filtered, cancellation remains controlled, and nonfatal EQ feedback remains nonfatal. Malformed/non-object process output now produces the report's required controlled nonretryable protocol failure; no reader allocation/size/writer policy is changed. Pairing failures also retain structured diagnostics. Obsolete controller generations cannot record or publish a fault.
+
+The new 36-case Core fixture ran against unchanged stable runtime: 15 failures, 21 controls passed. With the fix, all 36 pass; full Core suite is 235/235 and Release solution build has zero warnings/errors. One intermediate fixture failure assumed playback's two cleanup restoration requests also occurred in pairing; correcting that phase-specific assertion made both pairing cases pass without a runtime change. All failed TRX files remain under feature `artifacts/group-f-2026-10-11/`.
+
+Native receiver-free real-child fixtures assert the existing 65,536-byte budget includes LF, reject 65,537 ASCII bytes and oversized UTF-8 by bytes, preserve empty-correlated IPC fields for malformed/schema failures, then accept a subsequent valid hello and clean EOF. These commands never open receivers or capture. Native command-loop recovery is distinct from the desktop attempt's terminal classification.
+
+## Truthful EQ preparation
+
+Mailbox mutation atomically returns Accepted / Idempotent / Stale / Conflict plus the retained sequence and preparation. Equality uses the already supported prepared-value comparison. Newer updates and identical replay retain compatible `equalizer_changed`; stale/conflicting requests retain the mailbox and produce compatible nonfatal `equalizer_error`. Successful metadata comes from the retained preparation and acknowledges preparation adoption, not DSP pickup or fade completion.
+
+At both supported rates, serialized production envelopes and mailbox state are asserted together for 10/A, 9/B, 10/B, 10/A and 11/B. Invalid structure/gains/sequence, absent/wrong sessions, probe/pair slots and subsequent valid recovery remain covered. A separate preserved validation branch `codex/verify-eq-reply-regression` at `78649b300bf8e1637a92b66e450cf0a8a0928cdb` ignores the mailbox outcome as the old handler did. Exact-source hosted run `38165179020` fails `equalizer_replies_match_retained_mailbox_through_rejection_and_replay` after 27 library controls pass. This is a source-equivalent handler regression mutation, not literal unchanged source, and must never be merged.
+
+## Executed qualification and limits
+
+Exact head `0ce7139`, own-fork Windows run `38165067327`: 51 native tests passed, one existing qualification test ignored; warnings-denied clippy, release/static-CRT build and compatibility audit passed; 235 Core tests and warning-free Release solution build passed. The workflow did not request the unrelated modal clipboard step. Its source receipt explicitly identifies the tested feature SHA rather than the workflow main SHA. Raw logs/results are downloaded to fork `artifacts/continuation-2026-10-11/ci-f-0ce7139/`; mutation logs to `ci-f-mutation-78649b3/`.
+
+Independent review of final code and regression assertions is clear, including the extracted fault recorder's obsolete-generation early return. Local formatting checks pass the new integration fixture and equalizer source; whole `main.rs` formatting check reports pre-existing long command blocks and is preserved without unrelated reformatting. Local Rust/MSVC/Windows SDK are absent; Windows hosted compilation/testing provides native qualification. All data are synthetic and isolated; no real receiver, credential, capture or endpoint mutation, release reservation, desktop MSI or upstream publication occurred. Group F is locally complete on its feature branch; physical receiver behavior remains unqualified.
