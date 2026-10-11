@@ -17,7 +17,8 @@ internal static class UiSessionLifecycle
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(6);
     public static async Task RunAsync(List<string> checks, string directory)
     {
-        await ExplicitAdmissionNoticeAsync(checks);
+        await RunEngineAdmissionAsync(checks);
+        await RunAdmissionNoticeAsync(checks);
         await ExplicitSaveOwnershipAsync(checks);
         await EndpointOwnershipAsync(checks, directory);
         await EndpointRestoreAsync(checks);
@@ -37,6 +38,75 @@ internal static class UiSessionLifecycle
         await AdapterRetentionAsync(checks);
         await FaultAndMuteAsync(checks);
         await ShutdownDuringAutomaticSaveAsync(checks);
+    }
+    public static async Task RunEngineAdmissionAsync(List<string> checks)
+    {
+        foreach (var automatic in new[] { false, true })
+        {
+            var attempt = 0; var retryGate = new Gate();
+            await using var initialization = new EngineInitialization(async cancellation =>
+            {
+                var currentAttempt = Interlocked.Increment(ref attempt);
+                if (currentAttempt == 2)
+                {
+                    retryGate.Entered.TrySetResult();
+                    await retryGate.Release.Task.WaitAsync(cancellation);
+                    throw new IOException("synthetic initialization failure");
+                }
+                if (currentAttempt == 4) throw new IOException("synthetic initialization failure during owned playback");
+                return "synthetic engine";
+            });
+            await initialization.InitializeAsync();
+            var receiver = Pod(automatic ? "ready-automatic" : "ready-explicit");
+            var settings = Settings(automatic); SeedAliases(settings, receiver);
+            await using var fixture = await Fixture.CreateAsync(settings, [receiver], initialization: initialization);
+            using var editor = new SettingsViewModel(fixture.App);
+            var saveGate = fixture.Store.Hold(); fixture.App.MasterVolume = 61;
+            var pending = automatic ? fixture.App.TryAutoConnectAsync() : fixture.App.ToggleAsync(receiver);
+            Task retry = Task.CompletedTask;
+            ControlPanel? panel = null;
+            try
+            {
+                await saveGate.Entered.Task.WaitAsync(Limit);
+                retry = initialization.InitializeAsync();
+                await retryGate.Entered.Task.WaitAsync(Limit); await DrainAsync();
+                Check(!fixture.App.EngineReady && !fixture.App.Receivers.Single().ToggleCommand.CanExecute(null)
+                    && !editor.Receivers.Single().PairCommand.CanExecute(null),
+                    "retry initialization disables new Play and Pair controls during held " + (automatic ? "automatic" : "explicit") + " persistence", checks);
+                saveGate.Release.TrySetResult(); await pending.WaitAsync(Limit); await DrainAsync();
+                Check(fixture.Engine.OpenCount == 0 && fixture.App.Session.Snapshot.State == PlaybackState.Idle
+                    && fixture.Store.Saved.MasterVolume == 61 && fixture.Store.Saved.LastReceiverId == "previous",
+                    "lost engine readiness rejects delayed " + (automatic ? "automatic" : "explicit") + " admission without losing a valid save or recording an attempt", checks);
+                retryGate.Release.TrySetResult(); await retry; await DrainAsync();
+                await fixture.App.PairAsync(receiver, (_, _) => throw new InvalidOperationException("Failed initialization must not open a PIN prompt."));
+                Check(fixture.App.EngineFailed && fixture.App.RetryEngineCommand.CanExecute(null) && fixture.Engine.OpenCount == 0,
+                    "failed initialization preserves retry while the app pairing wrapper rejects a new process", checks);
+                await initialization.InitializeAsync(); await DrainAsync();
+                if (automatic) await fixture.App.TryAutoConnectAsync(); else await fixture.App.ToggleAsync(receiver);
+                await StateAsync(fixture, PlaybackState.Streaming);
+                Check(fixture.Engine.OpenCount == 1 && fixture.App.Session.Snapshot.Receiver?.Id == receiver.Id
+                    && fixture.Store.Saved.LastReceiverId == receiver.Id,
+                    "successful initialization retry admits the same previously rejected " + (automatic ? "automatic" : "explicit") + " receiver", checks);
+                await initialization.InitializeAsync(); await DrainAsync();
+                panel = new ControlPanel(fixture.App); panel.ShowPanel(); await DrainAsync();
+                var row = fixture.App.Receivers.Single();
+                var stop = UiSmoke.Descendants(panel).OfType<Button>().Single(button => ReferenceEquals(button.Command, row.ToggleCommand));
+                Check(fixture.App.EngineFailed && fixture.App.Session.Snapshot.State == PlaybackState.Streaming
+                    && stop.IsVisible && stop.IsEnabled && fixture.App.StopCommand.CanExecute(null)
+                    && !editor.Receivers.Single().PairCommand.CanExecute(null),
+                    "later initialization failure retains owned playback and its visible Stop control while new Pair stays disabled", checks);
+                var peer = new ButtonAutomationPeer(stop); ((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)!).Invoke();
+                await StateAsync(fixture, PlaybackState.Idle);
+                Check(fixture.Engine.Connections.Single().Disposed && fixture.Audio.MuteBit == fixture.Audio.OriginalBit,
+                    "Stop after readiness recovery still cleans up the admitted process and exact prior mute state", checks);
+            }
+            finally
+            {
+                panel?.ShutdownPanel();
+                saveGate.Release.TrySetResult(); retryGate.Release.TrySetResult();
+                await retry; await pending;
+            }
+        }
     }
     private static Receiver Pod(string id, string address = "192.0.2.10", int port = 7000) => new(id, id, address, port);
     private static Receiver Pair(string id = "stereo:fixture") => Pod(id) with
@@ -75,21 +145,25 @@ internal static class UiSessionLifecycle
     private static Task EndpointChangedAsync(AppViewModel app)
         => (Task)typeof(AppViewModel).GetMethod("OnEndpointsChangedAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(app, null)!;
 
-    private static async Task ExplicitAdmissionNoticeAsync(List<string> checks)
+    public static async Task RunAdmissionNoticeAsync(List<string> checks)
     {
+        foreach (var automatic in new[] { false, true })
         foreach (var scenario in new[] { "pair", "stop" })
         {
+            var source = automatic ? "automatic connection" : "explicit Play";
             var a = Pod("admitted-a"); var b = Pod("selected-b", "192.0.2.20", 7001) with { IsManual = true };
             var settings = Settings(true); SeedAliases(settings, a);
             settings.ManualReceivers.Add(new(b.Id, b.Name, b.Address, b.Port)); settings.Options(b.Id).AutoConnect = false;
             await using var fixture = await Fixture.CreateAsync(settings, [a]);
-            var gate = new Gate(); fixture.App.AfterExplicitAdmission = gate.WaitAsync;
-            var pending = fixture.App.ToggleAsync(a); ControlPanel? panel = null;
+            var gate = new Gate();
+            if (automatic) fixture.App.AfterAutomaticAdmission = gate.WaitAsync;
+            else fixture.App.AfterExplicitAdmission = gate.WaitAsync;
+            var pending = automatic ? fixture.App.TryAutoConnectAsync() : fixture.App.ToggleAsync(a); ControlPanel? panel = null;
             try
             {
                 await gate.Entered.Task.WaitAsync(Limit); await StateAsync(fixture, PlaybackState.Streaming);
                 Check(!pending.IsCompleted && fixture.Engine.OpenCount == 1 && fixture.App.Settings.LastReceiverId == "previous",
-                    "explicit Play is admitted while its dispatcher bookkeeping continuation remains held: " + scenario, checks);
+                    source + " is admitted while its dispatcher bookkeeping continuation remains held: " + scenario, checks);
                 if (scenario == "pair")
                 {
                     var pairing = new ScriptedConnection(false); fixture.Engine.Enqueue(pairing);
@@ -101,7 +175,7 @@ internal static class UiSessionLifecycle
                     panel = new(fixture.App); panel.ShowPanel(); await DrainAsync(); panel.UpdateLayout();
                     var row = fixture.App.Receivers.Single(receiver => receiver.Receiver.Id == a.Id);
                     var stop = UiSmoke.Descendants(panel).OfType<Button>().Single(button => button.Command == row.ToggleCommand);
-                    Check(stop.IsVisible && stop.IsEnabled, "admitted Play exposes a reachable bound Stop before its continuation resumes", checks);
+                    Check(stop.IsVisible && stop.IsEnabled, "admitted " + source + " exposes a reachable bound Stop before its continuation resumes", checks);
                     var peer = new ButtonAutomationPeer(stop); ((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)!).Invoke();
                     await StateAsync(fixture, PlaybackState.Idle);
                 }
@@ -109,22 +183,22 @@ internal static class UiSessionLifecycle
                 fixture.App.ShowError(new IOException("notice from newer " + scenario));
                 gate.Release.TrySetResult(); await pending; await DrainAsync();
                 Check(fixture.App.Notice == "notice from newer " + scenario,
-                    "an admitted old Play continuation preserves the notice from newer explicit " + scenario, checks);
+                    "an admitted old " + source + " continuation preserves the notice from newer explicit " + scenario, checks);
                 Check(fixture.App.Session.Capture().Owner == owned.Owner && fixture.App.Session.Snapshot.Receiver == owned.Snapshot.Receiver
                     && fixture.App.Session.Snapshot.State == owned.Snapshot.State && fixture.Engine.OpenCount == opens
                     && fixture.App.Settings.LastReceiverId == a.Id && fixture.Store.Saved.LastReceiverId == a.Id,
-                    "admitted Play remains recorded without replacing newer ownership: " + scenario, checks);
-                fixture.App.AfterExplicitAdmission = null;
+                    "admitted " + source + " remains recorded without replacing newer ownership: " + scenario, checks);
+                fixture.App.AfterExplicitAdmission = null; fixture.App.AfterAutomaticAdmission = null;
                 if (scenario == "pair") await fixture.App.StopAsync(false);
                 await StateAsync(fixture, PlaybackState.Idle);
                 await fixture.App.TryAutoConnectAsync();
                 Check(fixture.Engine.OpenCount == opens && fixture.App.Snapshot.State == PlaybackState.Idle,
-                    scenario == "pair" ? "admitted old Play remains attempted after the newer Pair ends"
-                        : "admitted old Play continuation preserves newer user Stop suppression", checks);
+                    scenario == "pair" ? "admitted old " + source + " remains attempted after the newer Pair ends"
+                        : "admitted old " + source + " continuation preserves newer user Stop suppression", checks);
             }
             finally
             {
-                gate.Release.TrySetResult(); fixture.App.AfterExplicitAdmission = null; panel?.ShutdownPanel();
+                gate.Release.TrySetResult(); fixture.App.AfterExplicitAdmission = null; fixture.App.AfterAutomaticAdmission = null; panel?.ShutdownPanel();
                 await pending.WaitAsync(Limit);
             }
         }
@@ -1033,15 +1107,15 @@ internal static class UiSessionLifecycle
         public Engine Engine { get; } = new();
         public UiSmoke.MockDiscovery Discovery { get; } = new() { Items = [] };
         public AppViewModel App { get; }
-        private Fixture(AppSettings settings, bool original)
+        private Fixture(AppSettings settings, bool original, EngineInitialization? initialization)
         {
             Store = new(settings); Audio = new(original);
-            App = new(Store, Discovery, new UiSmoke.MockAutostart(), Audio, Engine, Application.Current.Dispatcher);
+            App = new(Store, Discovery, new UiSmoke.MockAutostart(), Audio, Engine, Application.Current.Dispatcher, initialization);
             App.UseControlledScheduling();
         }
-        public static async Task<Fixture> CreateAsync(AppSettings settings, IReadOnlyList<Receiver> receivers, bool original = false)
+        public static async Task<Fixture> CreateAsync(AppSettings settings, IReadOnlyList<Receiver> receivers, bool original = false, EngineInitialization? initialization = null)
         {
-            var fixture = new Fixture(settings, original);
+            var fixture = new Fixture(settings, original, initialization);
             try
             {
                 fixture.App.Start(); await fixture.App.Startup; await DrainAsync();
