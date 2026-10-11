@@ -28,6 +28,11 @@
   "Stop streaming": "停止流送",
   "Quit": "退出",
   "Receiver discovery failed: {0}. You can add a receiver manually.": "设备发现失败：{0}。可手动添加接收器。",
+  "Some discovery requests are paused because DNS operations have not finished cancellation. They will resume when those operations complete; restarting the app is the final recovery.": "DNS 操作尚未完成取消，部分发现请求已暂停。这些操作结束后将恢复；若始终未结束，请重启应用。",
+  "DNS cancellation failed: {0}. The operation remains safely owned until completion.": "DNS 取消失败：{0}。操作资源将安全保留至完成。",
+  "DNS request did not remain pending: {0}. Discovery will retry with backoff.": "DNS 请求未保持待处理状态：{0}。发现将延迟重试。",
+  "Receiver resolution failed: {0}. Discovery will retry with backoff.": "接收器解析失败：{0}。发现将延迟重试。",
+  "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "接收器解析超时：{0}。发现将延迟重试。",
   "Receiver discovery: {0}": "设备发现：{0}",
   "Resolving receiver: {0}": "解析接收器：{0}",
   "Third-party licenses": "第三方许可",
@@ -254,5 +259,15 @@
   "Changes are previewed during playback. Apply saves them; Cancel or closing restores the last saved sound. Automatic attenuation reduces clipping risk and may lower the volume.": "播放时可即时试听。点击应用保存，取消或关闭恢复最近保存的音效。自动衰减可降低削波风险，可能使整体音量变小。",
   "Equalizer requires ten finite band gains and a preamp between -12 and +12 dB.": "均衡器需要 10 个有效频段增益，频段和前级增益须在 -12 至 +12 dB 之间。",
   "Could not update the equalizer.": "无法更新均衡器。",
-  "Could not update the equalizer: {0}": "无法更新均衡器：{0}"
+  "Could not update the equalizer: {0}": "无法更新均衡器：{0}",
+  "Configuration contains invalid values: {0}": "配置包含无效值：{0}",
+  "Configuration contains ambiguous schema version fields.": "配置包含相互冲突的架构版本字段。",
+  "Configuration schema version must be an integer.": "配置架构版本必须为整数。",
+  "Could not read the previous configuration: {0} Saving is blocked until the original can be read and preserved.": "无法读取原配置：{0} 在能够读取并保留原文件之前，无法保存。",
+  "Could not read the previous configuration: {0} The captured original requires a recovery backup before replacement.": "无法读取原配置：{0} 已保留原始内容，替换前必须创建恢复备份。",
+  "The previous configuration could not be preserved. Saving has been blocked.": "无法保留原配置，已阻止保存。",
+  "The previous configuration was preserved in a recovery backup: {0}": "原配置已保存在恢复备份中：{0}",
+  "Could not verify the configuration backup.": "无法验证配置备份。",
+  "Configuration contains invalid receiver or manual-receiver collections.": "配置包含无效的接收器或手动接收器列表。",
+  "Manual receivers require unique, nonempty identifiers and a valid address and port (1–65535).": "手动接收器需要唯一且非空的标识符，以及有效的地址和端口（1–65535）。"
 }

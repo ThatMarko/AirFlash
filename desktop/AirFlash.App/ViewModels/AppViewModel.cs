@@ -88,6 +88,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         _discovery.SetInterface(_settings.DiscoveryInterfaceId);
         Session = new(factory, audio, AppPaths.Log);
         Session.Changed += SessionChanged;
+        Session.EndpointRecoveryFailed += error => _dispatcher.BeginInvoke(() => { if (!_closing) ShowError(error); });
         _discovery.Changed += list => _dispatcher.BeginInvoke(() => OnDiscovered(list));
         _discovery.Failed += message => _dispatcher.BeginInvoke(() => ShowError(new IOException(message)));
         _volumeTimer = new(TimeSpan.FromMilliseconds(200), DispatcherPriority.Background, async (_, _) => { _volumeTimer!.Stop(); try { await FlushVolumeAsync(); } catch (Exception error) { ShowError(error); } }, dispatcher);
@@ -138,15 +139,18 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private async Task OnEndpointsChangedAsync()
     {
         if (_closing) return;
+        var captured = Session.Capture();
         await _settingsGate.WaitAsync();
         try
         {
             if (_closing) return;
             var next = await _audio.GetDefaultEndpointIdAsync();
             if (_closing) return;
-            if (_settings.CaptureMode == "loopback" && next != _defaultEndpoint && _snapshot.IsActive && _snapshot.State != PlaybackState.Pairing && _snapshot.Receiver is { } receiver) await Session.StartAsync(receiver, _settings.Clone());
+            var changed = next != _defaultEndpoint;
             _defaultEndpoint = next;
-            if (!_snapshot.IsActive) await _audio.RestoreAsync();
+            if (_settings.CaptureMode == "loopback" && changed)
+                await Session.TryRestartForEndpointAsync(_settings.Clone(), captured.Owner, captured.AutomaticIntent);
+            await Session.TryRestoreAudioIfInactiveAsync(captured.Owner, captured.AutomaticIntent);
         }
         catch (Exception error) { ShowError(error); }
         finally { _settingsGate.Release(); }
@@ -176,7 +180,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         if (!SettingsMerge.Equal(_settings, reconciliation.Settings))
         {
             var revision = _editRevision;
-            await _store.SaveReceiverIdentityAsync(reconciliation.Settings, reconciliation.NeedsBackup);
+            await SaveSettingsAsync(reconciliation.Settings, reconciliation.NeedsBackup);
             var live = _settings.Clone(); var baseline = originalSettings.Clone();
             ReceiverCatalog.ApplyMigrations(live, reconciliation.Migrations, currentSnapshot.Receiver?.Id);
             ReceiverCatalog.ApplyMigrations(baseline, reconciliation.Migrations, currentSnapshot.Receiver?.Id);
@@ -219,7 +223,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             // Browse availability does not revoke an already owned transport/handshake.
             if (discovered.TryGetValue(id, out var next) && next.Online && next.Complete
                 && (!ReceiverEqual(current, next) || !SettingsMerge.Equal(originalSettings, _settings)))
-                await Session.TryUpdateReceiverAsync(next, _settings.Clone(), captured.Owner);
+                await Session.TryUpdateReceiverAsync(next, _settings.Clone(), captured.Owner, captured.AutomaticIntent);
         }
         ScheduleAutoConnect();
     }
@@ -338,6 +342,14 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private Receiver ResolvePlayback(Receiver receiver) => ReceiverSelection.ResolvePlayback(receiver, AllReceivers)
         ?? throw new InvalidOperationException(L.Get("The receiver selection is ambiguous."));
     private void ScheduleAutoConnect() { _autoTimer.Stop(); if (!_closing && !_controlledScheduling) _autoTimer.Start(); }
+    private async Task SaveSettingsAsync(AppSettings settings, bool? identityBackup = null)
+    {
+        var warning = (_store as SettingsStore)?.LoadWarning;
+        if (identityBackup is { } backup) await _store.SaveReceiverIdentityAsync(settings, backup);
+        else await _store.SaveAsync(settings);
+        if (warning is not null && Notice == warning && _store is SettingsStore store && store.LoadWarning != warning)
+            Notice = store.LoadWarning ?? "";
+    }
     internal async Task TryAutoConnectAsync()
     {
         var captured = Session.Capture();
@@ -388,7 +400,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             if (!_volumeDirty) return;
             var current = _settings.Clone();
             var revision = _editRevision;
-            using (UiPerformance.Measure("settings.persist")) await _store.SaveAsync(current);
+            using (UiPerformance.Measure("settings.persist")) await SaveSettingsAsync(current);
             saved = true;
             if (revision == _editRevision) _volumeDirty = false;
             await Session.UpdateSettingsAsync(current);
@@ -423,7 +435,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             using (UiPerformance.Measure("apply.persist"))
             {
                 if (changedAutostart) await _autostart.SetAsync(merged.StartAtLogin);
-                try { await _store.SaveAsync(merged); }
+                try { await SaveSettingsAsync(merged); }
                 catch (Exception saveError)
                 {
                     if (changedAutostart)
