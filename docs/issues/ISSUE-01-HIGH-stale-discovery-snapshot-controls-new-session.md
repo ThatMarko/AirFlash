@@ -6,12 +6,18 @@
 - **Severity**: HIGH — an unrelated discovery transaction can cancel a new user-selected pairing session or overwrite its receiver.
 - **Kind**: Defect
 - **Subsystem**: Desktop discovery/session concurrency
-- **Status**: Implemented and verified on `codex/fix-session-lifecycle`; initial implementation integrated into fork `main`, follow-up validation separate, unmerged in original upstream `main`.
+- **Status**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
 - **Evidence status**: The original audit specified the asynchronous interleaving without executing it. Subsequent isolated baseline observations reproduced both stale-control branches; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No field incident is attributed to it.
-- **Implementation status**: Current feature head `11c6046`; initial `342aeb7` is included in fork integration `72dc7c7`. The follow-up is validated separately before any further main integration; see [Group B acceptance and actual verification](GROUP-B-ACCEPTANCE.md).
+- **Implementation status**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
 - **Target files**: [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166), [SettingsWindow.xaml.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs#L20), [SessionController.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L212)
 - **Analysis context**: [Playback coupling](../analysis/playback-coupling.md), [After discovery](../analysis/after-discovery.md), [Session](../analysis/session.md)
+
+## Current local implementation
+
+`ReconcileDiscoveryAsync` captures the owner and explicit-intent token atomically before identity persistence. Complete online updates go through `TryUpdateReceiverAsync`, which validates ownership/intent under `_serial` and rechecks intent around replacement cleanup. Passive absence no longer calls Stop. A new Pair, same-id replacement or explicit intent therefore prevents stale reconciliation from controlling its session.
+
+Source audit: [AppViewModel](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs), [SessionController](../../desktop/AirFlash.Core/SessionController.cs), [ReceiverSelection](../../desktop/AirFlash.Core/ReceiverSelection.cs) and their [lifecycle](../../desktop/AirFlash.Tests/SessionLifecycleTests.cs), [selection](../../desktop/AirFlash.Tests/ReceiverSelectionTests.cs) and [WPF](../../desktop/AirFlash.App/Verification/UiSessionLifecycle.cs) assertions were read against source main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. No application/build/test execution occurs in this audit. The following original behavior/proposal/coverage statements remain pinned to `41190e0`; missing-fixture statements describe that baseline, not the current test tree.
 
 ## 1. Original baseline behavior and impact
 
@@ -61,4 +67,4 @@ Safety: mocks only; no credential files, PINs, device pairing, or audio probes. 
 
 ## Executed implementation and fork integration
 
-The source and proposed-fixture discussion above describes the original 41190e0 audit. This report's acceptance criteria are now covered by the combined locally tested Group B package. [Group B local acceptance](GROUP-B-ACCEPTANCE.md) records the separate checklist, original-base failure observations, branch commits, actual Core/WPF checks, independent review and limitations. During the initial acceptance, upstream remained at `41190e0` and initial B was integrated into fork `main`. As verified on 2026-10-10, A/scrolling are merged upstream, while B PR #15 remains closed without merge. Current pushed B `0a2c1ac` is tested separately from that initial integration; [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) records later build/download evidence separately. No hardware incident is attributed to this defect.
+The source and proposed-fixture discussion above describes the original `41190e0` audit. [Group B acceptance](GROUP-B-ACCEPTANCE.md) records reproduced original-base failures, implementation/follow-up commits and their executed Core/WPF evidence. Current pushed B `0a2c1ac` is now included in local main `9e894ab`; original upstream has merged A/scrolling, while B PR #15 remains closed without merge. [Combined acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) keeps earlier tested compositions separate from this merge's deferred main testing. No hardware incident is attributed to this defect.

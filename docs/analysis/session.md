@@ -1,5 +1,13 @@
 # Session control
 
+## Current local main and historical boundary
+
+The state diagram, call table and source-linked detailed body below describe the audited **`41190e0`** baseline. In local main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`, passive discovery loss no longer calls Stop, and automatic starts use `TryStartAutomaticAsync`; explicit Play/Pair/Stop still retain their ordinary serialized lifecycle paths. Manual/group selection no longer redirects by shared address. Those baseline edges must not be read as current main behavior.
+
+Current [SessionController](../../desktop/AirFlash.Core/SessionController.cs) separates `_generation` (desktop owner) from `_automaticIntent` (new explicit intent), captured atomically by `Capture`. Native retries retain the owner and create a fresh process/session UUID; a replacement lifecycle changes owner. `TryStartAutomaticAsync`, `TryUpdateReceiverAsync` and `TryRestartForEndpointAsync` guard stale callers under `_serial`, while replacement cleanup rechecks intent after awaits. `TryRestoreAudioIfInactiveAsync` defers restoration behind an unfinished worker without holding `_serial` while waiting; its consumer rechecks owner/intent/state/disposal and reports deferred failure through `EndpointRecoveryFailed`. [AppViewModel](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs) captures endpoint ownership before enumeration and dispatches that error to the notice. The JSONL connection, retry policy, PIN workflow and production AudioService remain otherwise unchanged.
+
+This source audit executes no controller, engine, build, test or endpoint operation. Recorded branch/composition results below predate this merge; new main testing is deferred until after reboot. Final B `0a2c1ac`, C `c3a1d5e` and D `48e7ab62` are included locally; A/scrolling are merged upstream, B PR #15 remains closed without merge, and C/D are unpushed/unpublished. See [integration acceptance](../issues/ABCD-INTEGRATION-ACCEPTANCE.md).
+
 [`SessionController`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs) is the desktop owner of a playback attempt. [`AppViewModel`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs) decides when to call it. The Rust process it opens is described in [Engine](engine.md). This document covers the state machine, the process boundary, and the rules that replace or keep that process.
 
 ## Doors into the controller
@@ -166,7 +174,7 @@ These desktop tests use fake engine/audio connections. They verify controller se
 
 ## Implemented Group B behavior
 
-The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. This feature is included in local fork `main` at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`; original upstream `main` remains at `41190e0` without these fixes. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate implementation and later integration evidence.
+The preceding baseline audit describes `41190e0`. Initial B at `342aeb77cb85ff6f3f7f850161b3db79d8637945` was integrated historically at `72dc7c7`; later production follow-up `11c6046` and verification-only fixes advanced the pushed feature to `0a2c1ac`. All are now ancestors of local main `9e894ab`. B remains unmerged upstream with PR #15 closed. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate dated test evidence.
 
 `SessionCapture` atomically returns the snapshot, desktop lifecycle owner, and automatic-intent token. Metrics and native retries retain that owner; retries still open a fresh native process/session id. A new lifecycle, including replacement with the same receiver id, has a different owner. Guarded receiver updates reject stale owners under controller serialization.
 

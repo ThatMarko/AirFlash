@@ -1,6 +1,12 @@
 # Playback coupling
 
-When the desktop applies a discovery snapshot that lacks an active non-manual receiver, or contains its incomplete stereo group, it calls `Session.StopAsync`. The engine's TCP and UDP health is not consulted for this decision. Reconciliation performs any required identity save before reaching this check; a save failure exits that transaction and leaves the catalog/session untouched by that snapshot. This page describes the current tree's source behavior. [Discovery](discovery.md) describes cache publication. [Session](session.md) describes stop and the new process that may follow.
+## Current local main and historical boundary
+
+Local main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7` now contains final B `0a2c1ac`, C `c3a1d5e` and D `48e7ab62`. In current [AppViewModel.ReconcileDiscoveryAsync](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs), missing/offline/incomplete discovery data does not revoke Connecting, Pairing, Streaming or Standby. A complete online reappearance may retarget only the captured owner/intent through [SessionController.TryUpdateReceiverAsync](../../desktop/AirFlash.Core/SessionController.cs). Its effective transport/settings signature can still restart an active non-pairing stream. The active panel overlay keeps Stop available while catalog availability remains truthful; after stop/terminal completion, rows retained only for ownership disappear.
+
+The remainder through the original verification table describes **historical `41190e0`** discovery-driven cancellation, its controls and mute consequences. Explicit stop, shutdown, engine faults, PIN cancellation and applicable signature/endpoint changes still follow current controller cleanup; passive discovery loss does not. A selected discovery adapter still does not bind the native media route. No physical mute/acoustic reliability conclusion follows from the earlier mock checks. This merge/source audit executes no app, build, test, DNS or audio operation; new main testing is deferred until after reboot. C/D remain unpushed/unpublished, and B PR #15 remains closed without merge. See [integration acceptance](../issues/ABCD-INTEGRATION-ACCEPTANCE.md).
+
+At the pinned baseline, when the desktop applied a discovery snapshot that lacked an active non-manual receiver, or contained its incomplete stereo group, it called `Session.StopAsync`. The engine's TCP and UDP health was not consulted for this decision. Reconciliation performed any required identity save before reaching this check; a save failure exited that transaction and left the catalog/session untouched by that snapshot. [Discovery](discovery.md) describes cache publication. [Session](session.md) describes stop and the new process that may follow.
 
 ## The check
 
@@ -79,7 +85,7 @@ Force reconnect defaults off. It does not apply to a discovery stop anyway, beca
 
 ## Implemented Group B behavior
 
-The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. This feature is included in local fork `main` at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`; original upstream `main` remains at `41190e0` without these fixes. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate implementation and later integration evidence.
+The preceding baseline audit describes `41190e0`. Initial B at `342aeb77cb85ff6f3f7f850161b3db79d8637945` was integrated historically at `72dc7c7`; later production follow-up `11c6046` and verification-only fixes advanced the pushed feature to `0a2c1ac`. All are now ancestors of local main `9e894ab`. B remains unmerged upstream with PR #15 closed. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate dated test evidence.
 
 Empty, partial, overfull or repeated discovery results do not cancel an owned handshake/stream or reopen its engine. Catalog availability remains truthful while the full active transport stays in the session. An active card remains visible, including when hidden or removed from the selected-adapter catalog, with an availability label and a bound Stop button. After stop or terminal completion, a card retained solely by ownership disappears.
 

@@ -8,6 +8,7 @@
 - **Status**: Open; proposal only, not implemented
 - **Evidence status**: Source and standard-library contract verified; fault-injection reproduction is specified but not executed
 - **Implementation status**: Proposal only; no runtime change applied
+- **Merged-main review (2026-10-10)**: Still unimplemented at local source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. [credentials::load](../../native/airflash-engine/src/credentials.rs) (line 105) and saved-versus-transient selection in [Member::connect](../../native/airflash-engine/src/session.rs) are unchanged from `41190e0`; the [Rust existence-probe contract](https://doc.rust-lang.org/std/path/struct.Path.html#method.exists) was rechecked. No filesystem fault injection, credential access, or authentication exchange was executed.
 - **Runtime baseline**: `41190e0`; documentation baseline `c077a05` with the audited [credentials/IPC](../analysis/credentials-and-ipc.md) and [authentication](../analysis/auth.md) pages
 - **Target files**: [credentials.rs:105–121](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L105-L121), [session.rs:232–251](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/session.rs#L232-L251)
 - **Analysis context**: [Credentials and IPC](../analysis/credentials-and-ipc.md), [Authentication](../analysis/auth.md)

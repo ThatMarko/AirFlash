@@ -7,8 +7,8 @@
 - **Kind**: Defect / Recovery gap / Enhancement
 - **Status**: Open — proposal not implemented
 - **Evidence status**: Source verified / Mock reproduced / Hardware reproduced; name what was actually executed
-- **Runtime baseline**: Runtime commit and documentation baseline; current reports use `41190e0` and `c077a05` plus the audited [analysis index](../analysis/README.md)
-- **Implementation status**: Proposal only; no runtime change applied
+- **Runtime baseline**: Pin the exact source being reported and its documentation baseline. Original reports use `41190e0`/`c077a05`; integrated local source is `9e894ab` as of 2026-10-10. Check the actual revision and [analysis index](../analysis/README.md) before drafting; do not reuse historical baseline links as current evidence.
+- **Implementation status**: Proposal only, or exact implemented commit and scope; keep this consistent with Status and executed evidence
 - **Analysis context**: Portable links to the dedicated audited analysis pages
 - **Target files**: Portable links to the exact implementation lines and relevant tests
 - **Related items**: Link active reports; link the corresponding PR group and dependencies in [the implementation plan](IMPLEMENTATION_PLAN.md)
@@ -43,7 +43,7 @@ Avoid real receiver addresses, MAC addresses, PINs, credential files, user paths
 
 ## 4. Proposed fix and compatibility
 
-Mark the fix unimplemented. Explain the minimum ownership/state/interface change, why it addresses this trigger, and how cancellation and error paths remain bounded. Avoid a speculative patch unless verified against the actual architecture.
+For a proposal, mark the fix unimplemented. If the fix already exists locally, identify its source commit and separate implemented behavior from planned work. Explain the minimum ownership/state/interface change, why it addresses this trigger, and how cancellation and error paths remain bounded. Avoid a speculative patch unless verified against the actual architecture.
 
 State impacts on `config.json` schema 2 and JSONL v1. Preserve:
 
@@ -63,11 +63,11 @@ List observable pass/fail criteria covering the reported case, normal behavior, 
 Select the relevant checks for the later implementation:
 
 ```powershell
-dotnet test desktop/AirFlash.Tests/AirFlash.Tests.csproj
+./scripts/dotnet.ps1 test AirFlash.Tests/AirFlash.Tests.csproj '-p:RestoreLockedMode=true'
 cargo test --manifest-path native/airflash-engine/Cargo.toml
 uv run --locked pytest -q -ra
 ```
 
-The WPF mock verification entry point is `--ui-smoke` on a correctly built app; it is separate from the core xUnit assembly. `scripts/dotnet.ps1` accepts paths relative to `desktop/`. There is no `scripts/test.ps1` in this baseline. An ignored localhost soak is not an automatic hardware test or a prerequisite for every change.
+Run these examples from the repository root only when execution is authorized and the required toolchains are available. The WPF mock verification entry point is `--ui-smoke` on a correctly built app; it is separate from the core xUnit assembly. `scripts/dotnet.ps1` accepts paths relative to `desktop/` and preserves the selected host/global.json policy. There is no `scripts/test.ps1` in either the original or integrated baseline. An ignored localhost soak is not an automatic hardware test or a prerequisite for every change. Current all-branch merge testing is explicitly deferred until after the user's reboot; reading a command or prior receipt is not fresh execution evidence.
 
 Declare runtime/hardware/toolchain limits honestly. Default to fixtures that send no audio. Any separately authorized real-device finite probe must remain at gain at most **0.1**, duration at most **five seconds**, and the repository's quiet WAV limit; never run a hardware soak. Do not claim acoustic latency, PTP lock, successful playback, or physical mute persistence from mock tests.

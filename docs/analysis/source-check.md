@@ -1,6 +1,12 @@
 # Source check
 
-This page checks earlier investigation and briefing claims against runtime commit `41190e0`, unchanged by documentation commit `c077a05`. It is a source audit, not a reproduction of a household incident. The removed reports are not evidence, and the issue proposals under `docs/issues/` are not applied patches. [Audit results](audit.md) records the 2026-10-06 verification scope and limitations. No household addresses, adapter addresses, or credentials are repeated here.
+This page checks earlier investigation and briefing claims against runtime commit `41190e0`, unchanged by documentation commit `c077a05`. It is a source audit, not a reproduction of a household incident. The removed reports are not evidence, and an issue proposal under `docs/issues/` does not by itself establish an applied patch. Implementation and acceptance addenda identify subsequently applied fixes. [Audit results](audit.md) records the 2026-10-06 verification scope and limitations. No household addresses, adapter addresses, or credentials are repeated here.
+
+## Current local source review — 2026-10-10
+
+All retained local branches are merged into local `main` at `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. The tables below deliberately retain their original `41190e0` assertions and immutable source links; they are not assertions that every original defect persists. Group B changes discovery-to-playback policy: current [AppViewModel.ReconcileDiscoveryAsync](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs) does not stop an owned session when browse availability disappears, uses guarded session updates for complete replacements, and retains its active receiver row and Stop control even if hidden/offline. [SessionController](../../desktop/AirFlash.Core/SessionController.cs) gates passive work by session owner and user intent. Group D replaces indefinite logical resolve blocking with monotonic deadlines, backoff and token/epoch checks while retaining native input ownership until settlement; see [Discovery](discovery.md). Group C adds conservative configuration preservation and future-schema refusal; see [Settings](settings.md).
+
+The Rust engine, `EngineConnection`, `AudioService`, receiver adapter selection and baseline latency presets remain unchanged from the pinned runtime. The JSONL boundary and the native capture/timing/control qualifications below still describe those source files. Build preflight, MSI payload refresh, scrolling and Traditional Chinese catalog support are additional integrated changes. This pass reviews source and retained evidence only: no build, test or app execution was performed for `9e894ab`; verification after the requested reboot remains outstanding. Earlier [combined acceptance](../issues/ABCD-INTEGRATION-ACCEPTANCE.md) pins other tested sources and binaries.
 
 ## Supported, with the stated bounds
 
@@ -48,7 +54,7 @@ This page checks earlier investigation and briefing claims against runtime commi
 
 ## Reading a gap report
 
-A discovered row disappearing, `StopAsync`, and a later playback starting with reconnects at zero match the implemented desktop policy. They do not identify what produced the empty/incomplete snapshot or exclude a simultaneous engine fault. Record the discovery epoch/restart reason, reconciled receiver id, session id, and native fault sequence before assigning a cause.
+A discovered row disappearing, `StopAsync`, and later playback starting with reconnects at zero match the historical `41190e0` desktop policy. They do not identify what produced the empty/incomplete snapshot or exclude a simultaneous engine fault. Merged Group B no longer passively stops an owned attempt for that disappearance, so establish the actual running build before applying the historical explanation. Record the discovery epoch/restart reason, reconciled receiver id, session id and native fault sequence before assigning a cause.
 
 A large underrun count with zero dropped frames is compatible with an idle loopback endpoint. It is also compatible with other shortages that never overflowed the queue. `dropped_frames` includes stale-frame discard during schedule recovery as well as capacity overflow; neither metric measures network packet loss.
 

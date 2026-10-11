@@ -1,6 +1,14 @@
 # Additional A/B/C/D integration acceptance
 
-Additional testing corrected two C/D implementation defects and B's regional mock-fixture expectation, then proved/fixed a tray-harness catalog restoration gap. Current B is `0a2c1ac`; private composition **`6fe467b585e80fde0b8bfa47598195f51b8e9a5a`** passed build/Core, six exact portable regional/catalog runs and MSI payload/refresh checks. Current hosted A/B-only `d70f30d` also passed build/package/runner checks and six exact downloaded desktop runs. Earlier results retain their executed scope. C/D remain unpublished.
+Additional testing corrected two C/D implementation defects and B's regional mock-fixture expectation, then proved/fixed a tray-harness catalog restoration gap. B feature head is `0a2c1ac`; previously verified private composition **`6fe467b585e80fde0b8bfa47598195f51b8e9a5a`** passed build/Core, six exact portable regional/catalog runs and MSI payload/refresh checks. Hosted A/B-only `d70f30d` also passed build/package/runner checks and six exact downloaded desktop runs. These results retain their executed scope. C/D remain unpublished.
+
+## Subsequent local main integration — 2026-10-10
+
+At the user's instruction, all 17 pre-existing local branch tips were integrated into fork `main`, ending at source **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`**. The four merge commits preserve the composition, separate regional-validation ancestry, historical Group A workflow and earlier scrolling-validation history. The older scrolling branch conflicted only in four documentation files; its evidence already existed in the newer records, which were retained. Every original non-main branch tip remains unchanged, and `codex/main-before-all-local-20261010` preserves pre-merge main `877a854`.
+
+The merged desktop/native/scripts/tests/installer trees are identical to verified `6fe467b`. Private analysis/issue records also differ; the only additional tracked non-documentation file is the historical Group A workflow. It checks out `de13b6d` and is not proof for this main. C/D and all B follow-ups are now locally integrated. No branch was deleted, and no remote push/publication was performed.
+
+**This merge and documentation audit run no application, build or tests.** The user deferred execution until after a manual reboot. Existing binaries and receipts below retain their original source metadata and must not be relabeled `9e894ab`. [All-file source audit](../analysis/audit.md#merged-main-documentation-audit--2026-10-10) records the 44-page review. After reboot, validate the current merged main through isolated managed/UI/tooling checks and appropriately source-bound packaging; any real-device testing requires its own bounded scope.
 
 ## Standalone checks and corrections
 
@@ -19,7 +27,7 @@ D also executed a finite Windows DNS-SD-only probe: two browse operations, four 
 
 ## Local composition and cross-group fixtures
 
-Worktree: `C:\Users\marko\.codex\worktrees\verify-abcd\AirFlash`, local branch `codex/verify-abcd`. It combines A/B/scrolling/installer runtime with corrected C/D, actual upstream `d4aa068` and 19 WPF cross-group assertions. After regional-fixture source `122500d`, it incorporated the UiSmoke-only catalog restoration at current **`6fe467b585e80fde0b8bfa47598195f51b8e9a5a`**. C/D production blobs and all 19 assertions are unchanged. This composition remains separate from either main and the public A/B-only branch.
+Worktree: `C:\Users\marko\.codex\worktrees\verify-abcd\AirFlash`, retained local branch `codex/verify-abcd`. It combines A/B/scrolling/installer runtime with corrected C/D, upstream `d4aa068` and 19 WPF cross-group assertions. After regional-fixture source `122500d`, it incorporated UiSmoke-only catalog restoration at **`6fe467b585e80fde0b8bfa47598195f51b8e9a5a`**. C/D production blobs and all 19 assertions are unchanged. This was a separate composition during verification; it is now an ancestor of local main as recorded above, and remains distinct from the public A/B-only branch.
 
 The cross-group fixtures use a concrete temporary SettingsStore with gated I/O, synthetic engine/audio services and the real application dispatcher. They exercise a locked automatic preflush before engine admission, changed/relocked configuration revisions, exact-encoding preservation during a delayed valid save, newer Pair/Stop overriding stale automatic admission, and deferred endpoint cleanup errors preserving the newer notice through a later real-store save. Assertions count playback/mute/autostart effects and inspect saved bytes/ownership rather than merely invoking helper methods.
 
@@ -36,7 +44,7 @@ Ignored evidence is in the validation worktree's `artifacts/abcd-tests/final/`, 
 
 ## Upstream status and remaining work
 
-The 2026-10-10 refresh found [A PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11) and [scrolling PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13) merged. Actual stable main is **`d4aa0686fc411de6655aac313243f0f6bf71e439`**, including later Traditional Chinese localization. Original source proofs and earlier build artifacts remain pinned to their historical SHA; they do not validate that new composition automatically.
+The 2026-10-10 refresh found [A PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11) and [scrolling PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13) merged. Actual **upstream** stable main is **`d4aa0686fc411de6655aac313243f0f6bf71e439`**, including later Traditional Chinese localization. Original source proofs and earlier build artifacts remain pinned to their historical SHA; they do not validate a new composition automatically.
 
 [B PR #15](https://github.com/Ding-Kyoma/AirFlash/pull/15) is closed without merge; issue #14 is open and A/scrolling issues #10/#12 are closed. The [maintainer's regional assertion request](https://github.com/Ding-Kyoma/AirFlash/pull/15#issuecomment-6073940012) was reproduced/corrected in `bceb440`; later catalog restoration was fixed in pushed current B `0a2c1ac`. Closed PR #15 still presents `11c6046`, with no reopen/new PR action. [B acceptance](GROUP-B-ACCEPTANCE.md#current-upstream-status-on-2026-10-10) records exact proof/current results. Old run 37870953320 had failure/zero jobs, distinct from executed desktop proof.
 
@@ -50,7 +58,7 @@ Those six runs realized 880×640/640×440, 32 page/theme/size and two frequency-
 
 These checks ran before the new final-catalog assertion. Main Traditional Chinese renders/recovery checks ran with the correct catalog, but the old tray helper subsequently restored its static catalog to Simplified Chinese. Async caller culture reporting alone did not detect that global drift. A desired marker assertion on unchanged old cleanup failed after 14 preceding Traditional Chinese tray checks while English/Simplified controls passed 15. The before-proof receipt and current [B acceptance](GROUP-B-ACCEPTANCE.md#current-upstream-status-on-2026-10-10) distinguish that verification defect from production behavior. Older passed reports do not establish exact catalog restoration.
 
-## Final current local verification
+## Verified local 6fe467b composition
 
 | Check on local `6fe467b` | Current result |
 | --- | --- |
@@ -93,4 +101,4 @@ The exact downloaded EXE passed all six actual regional/catalog pairs used in th
 
 The source/run/archive/manifest/report/binary-bound `artifacts/regional-verification/hosted-d70f30d/final-desktop-receipt.json` links hosted and desktop receipts plus native hello evidence. This hosted engine hash differs from local composition's verified `098c0a1` input `7710ddcb...a3043c`; native binary parity is not claimed. Public A/B-only validation excludes C/D, whose runtime acceptance is the separate local proof above. No desktop MSI installation or real accessory/audio/credential/configuration/Windows-region mutation occurred.
 
-Current local and hosted/downloaded verification is complete within these recorded scopes. Keep C/D unpublished until Task 3 activation and review standalone diffs against actual upstream before publication. Mocks, native hello and the bounded DNS probe do not qualify real accessories, physical mute restoration, acoustic output, crash durability, physical multi-monitor/DPI behavior or a hardware soak. No Windows regional setting change, desktop MSI installation, release or upstream merge was performed.
+Prior local-composition and hosted/downloaded verification is complete within those recorded scopes; new-main execution is deferred as stated above. Keep C/D unpublished until Task 3 activation and review clean standalone diffs against actual upstream before publication. Mocks, native hello and the bounded DNS probe do not qualify real accessories, physical mute restoration, acoustic output, crash durability, physical multi-monitor/DPI behavior or a hardware soak. No Windows regional setting change, desktop MSI installation, release or upstream merge was performed.

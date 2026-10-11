@@ -1,5 +1,7 @@
 # Control traffic and local mute
 
+The main audit below describes pinned historical `41190e0`. The final section describes the merged local source at `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`, reviewed on 2026-10-10 without executing the app, builds, or tests.
+
 The WPF process owns local endpoint mute. The native session has one volume worker, one feedback worker per member, and one PTP worker when timing is PTP. Discovery does not drive those workers, but it can cause the desktop to stop the session; that indirectly tears them down. See [Playback coupling](playback-coupling.md).
 
 ## Local mute ownership and restoration
@@ -72,8 +74,10 @@ The NTP responder binds wildcard IPv4 on an ephemeral port for each worker attem
 
 ## Implemented Group B behavior
 
-The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. This feature is included in local fork `main` at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`; original upstream `main` remains at `41190e0` without these fixes. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate implementation and later integration evidence.
+Local merged `main` includes the complete Group B branch at `0a2c1ac2f95fa51d040b4ef0beb84f1e6aae6c26`, alongside A/C/D, scrolling, installer fixes, and pinned upstream `d4aa068`. See [Group B acceptance](../issues/GROUP-B-ACCEPTANCE.md) and [A+B+C+D validation](../issues/ABCD-INTEGRATION-ACCEPTANCE.md) for prior, separately executed evidence and publication status. That earlier validation does not certify the new merge; runtime checks for this merge are deferred until after reboot.
 
 Passive empty or incomplete discovery no longer stops an owned session or requests mute restoration. Its active card retains an accessible Stop button and reports unavailable discovery while the transport/handshake continues. Explicit stop, terminal faults, PIN cancellation and retries still run the existing cancellation/disposal and audio-restoration paths.
 
-Mock cases exercise both previously muted and unmuted endpoint bits, including retained playback, terminal failure, retry and explicit cleanup; restoration preserves the exact prior bit. Production audio-service and native control/PTP code are unchanged. This is neither a process-crash recovery journal nor verification of physical COM restoration, timing or egress choice; those limits and executed checks are recorded centrally.
+Endpoint notifications now capture both owner and automatic-intent tokens before asynchronous work. [AppViewModel.OnEndpointsChangedAsync](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs) calls guarded restart/restore methods rather than applying a stale snapshot to a replacement session. [SessionController.TryRestoreAudioIfInactiveAsync](../../desktop/AirFlash.Core/SessionController.cs) defers one recovery while terminal worker cleanup remains unsettled, then rechecks ownership, intent, inactivity, and worker completion before restoring. A fresh notification can replace stale recovery for the same worker; deferred failure is surfaced through `EndpointRecoveryFailed`, and disposal drains admitted recovery. It does not hold session serialization while waiting for a retrying worker.
+
+Mock cases exercise both previously muted and unmuted endpoint bits, including retained playback, terminal failure, retry and explicit cleanup; restoration preserves the exact prior bit. Production [AudioService](../../desktop/AirFlash.App/Services/AudioService.cs) and native control/PTP code remain unchanged from `41190e0`. The in-memory `_originalMute` dictionary still has no crash-recovery journal; [ISSUE-13](../issues/ISSUE-13-MEDIUM-endpoint-mute-crash-recovery-gap.md) remains unimplemented. These mocks do not verify physical COM restoration, timing, egress choice, or endpoint persistence across termination/reboot.

@@ -5,14 +5,20 @@
 - **PR group**: C — Settings preservation/validation
 - **Severity**: MEDIUM
 - **Kind**: Defect — persisted configuration validation
-- **Status**: Open in original stable main; tested local Group C implementation remains unsubmitted
+- **Status**: Implemented in local main `9e894ab`; Group C remains unpushed/unpublished and unmerged upstream. Main execution/testing is deferred until after reboot.
 - **Evidence status**: Original loader/validation failures executed in isolated Core; fixed constructor/startup checked with WPF mocks. [Group C acceptance](GROUP-C-ACCEPTANCE.md) specifies the executed case boundaries.
-- **Implementation status**: Implemented and tested locally in Group C at `e129466`; see [feature acceptance](GROUP-C-ACCEPTANCE.md). Not pushed or integrated into stable main.
+- **Implementation status**: Corrected Group C head `c3a1d5e` (after initial `e129466`) is integrated locally. [Feature acceptance](GROUP-C-ACCEPTANCE.md) records executed feature evidence; [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) keeps earlier composition results separate from this source-only main audit.
 - **Runtime baseline**: `41190e0`; documentation baseline `c077a05` and audited [settings](../analysis/settings.md), [session](../analysis/session.md), and [after-discovery](../analysis/after-discovery.md) pages
 - **Target files**: [SettingsStore.cs:16–55](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SettingsStore.cs#L16-L55), [Settings.cs:88–110](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Settings.cs#L88-L110), [AppViewModel.cs:78–97](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L78-L97)
 - **Analysis context**: [Settings](../analysis/settings.md), [Session](../analysis/session.md), [After discovery](../analysis/after-discovery.md)
 
-## 1. Current behavior and impact
+## Current local implementation
+
+[SettingsStore.Load](../../desktop/AirFlash.Core/SettingsStore.cs) normalizes supported null collections/options and broadcast aliases, then calls [AppSettings.Validate](../../desktop/AirFlash.Core/Settings.cs) before returning settings to runtime. Validation returns a diagnostic for null manual elements, blank/duplicate ordinal ids, blank hosts, invalid ports, unsupported/null sample rates, enums, ranges and malformed equalizer values. Recovery returns defaults plus a warning and exact-byte preservation obligation rather than returning the invalid object; an unavailable selected adapter is retained. Manual-host validation is deliberately a nonblank/range check, without DNS or the UI dialog's stricter host-syntax/IPv6/duplicate-endpoint rules. Nullable manual display names, supported nullable overrides and root/equalizer extension fields remain compatible.
+
+Normal startup still performs its separate read-only engine `hello`; the no-playback/no-mute rejection contract applies to playback admission, not to eliminating that startup probe. [AppViewModel](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs) consumes the validated second load, and [UiSettingsRecovery](../../desktop/AirFlash.App/Verification/UiSettingsRecovery.cs) uses concrete temporary stores with counted fake playback/audio/autostart services. These sources and [Core assertions](../../desktop/AirFlash.Tests/SettingsRecoveryTests.cs) were read at main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`, without executing them. The original behavior/proposal/missing-test sections below remain pinned to `41190e0`; historical acceptance counts are not new main results.
+
+## 1. Original baseline behavior and impact
 
 `SettingsStore.Load` parses and deserializes configuration, normalizes several collections, and returns without invoking `AppSettings.Validate`. It filters null entries from `Receivers` but only replaces a null `ManualReceivers` collection; it does not reject null elements. Valid JSON can therefore enter the running app while violating assumptions already checked by Settings Apply.
 

@@ -1,4 +1,4 @@
-# [LOW] Remove ten statically unused Chinese catalog entries after reference review
+# [LOW] Remove ten statically unused keys from the Chinese catalogs after reference review
 
 - **Issue ID**: ISSUE-17
 - **Implementation plan**: [Work package ISSUE-17](IMPLEMENTATION_PLAN.md#issue-17)
@@ -10,12 +10,14 @@
 - **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
 - **Evidence status**: Exact-string catalog/C#/XAML scan and lookup traced; no live language-switch test run
 - **Implementation status**: Proposal only; entries remain present
+- **Merged-main review (2026-10-10)**: Still unimplemented at local source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. The ten keys below are now present in both [Simplified Chinese](../../desktop/AirFlash.Core/Strings.zh.json) and upstream-added [Traditional Chinese](../../desktop/AirFlash.Core/Strings.zh-TW.json); a fresh fixed-string scan still finds no desktop C#/XAML reference for any of them. Both withdrawn keys remain absent from both catalogs. [L.SelectLanguage/Initialize](../../desktop/AirFlash.Core/L.cs) selects the Traditional catalog for zh-TW/zh-HK/zh-MO preferences, so cleanup must review both catalogs. No catalog was edited and no app, build, or test was executed.
 - **Target files**: [Strings.zh.json](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Strings.zh.json), [LocalizationTests.cs:35–46](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/LocalizationTests.cs#L35)
+- **Additional current targets**: [Strings.zh-TW.json](../../desktop/AirFlash.Core/Strings.zh-TW.json), current [LocalizationTests](../../desktop/AirFlash.Tests/LocalizationTests.cs) for both embedded catalogs
 - **Analysis context**: [Settings/localization](../analysis/settings.md), [Equalizer editor](../analysis/equalizer.md)
 
 ## Corrected inventory and effect
 
-These ten keys are present in the catalog but have no exact-string occurrence in scanned `desktop/**/*.cs` or `desktop/**/*.xaml`, including test/harness code. They are static cleanup candidates, not a playback defect or proof about all possible dynamically constructed lookups.
+These ten keys were present in the historical Simplified catalog and are present in both current Chinese catalogs, but have no exact-text occurrence in scanned `desktop/**/*.cs` or `desktop/**/*.xaml`, including test/harness code. They are static cleanup candidates, not a playback defect or proof about all possible dynamically constructed lookups. The table pins the original evidence; the merged-main review above records the additional Traditional catalog.
 
 | Key | Catalog evidence |
 | --- | --- |
@@ -30,7 +32,7 @@ These ten keys are present in the catalog but have no exact-string occurrence in
 | `Statistics come from the current audio session and update about once per second. Target latency and local timing are not measurements of audio reaching HomePod.` | [194](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Strings.zh.json#L194) |
 | `Desktop 0.2.0 · WPF` | [195](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Strings.zh.json#L195) |
 
-The original `Local output is muted while streaming.` and `Always retry connection` keys are absent from the current catalog and are withdrawn from the inventory. This validates that report's candidate list; it does not claim exactly ten unused entries across the entire dictionary.
+The original `Local output is muted while streaming.` and `Always retry connection` keys are absent from both current catalogs and are withdrawn from the inventory. This validates that report's candidate list; it does not claim exactly ten unused keys across either complete dictionary.
 
 Monitor uses `Local underrun packets` and `Local dropped frames` at [SettingsWindow.xaml:227,233](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml#L227), and an expanded caveat at [line 297](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml#L297). About uses a computed label at [line 319](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml#L319), backed by [AppPaths.cs:11](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/AppPaths.cs#L11). Removing old entries must preserve the current labels/translations. Keep `Copy diagnostics` for ISSUE-15's existing command.
 
@@ -42,11 +44,11 @@ Some lookups use runtime page/choice values. A universal CI assertion that every
 
 ## Verification, proposal, and acceptance
 
-The issue-validation pass parsed the JSON dictionary and, for each original candidate, ran a case-sensitive fixed-string search over desktop `*.cs` and `*.xaml`, with the equivalent of `rg -l -F -g '*.cs' -g '*.xaml' -- <key> desktop`. None of the ten present keys had a match; the other two were absent from the parsed catalog. This searches exact text occurrences, not an AST or runtime lookup graph. No catalog modification or WPF run was performed. Review dynamic lookup sources before removal, then remove only these ten candidates. An optional scanner should report review candidates and support dynamic/intentional entries, rather than failing on substring counts.
+The original issue-validation pass parsed the Simplified JSON dictionary and, for each original candidate, ran a case-sensitive fixed-string search over desktop `*.cs` and `*.xaml`, with the equivalent of `rg -l -F -g '*.cs' -g '*.xaml' -- <key> desktop`. None of the ten present keys had a match; the other two were absent from the parsed catalog. The merged-main pass repeated this scan and parsed both current catalogs with the results above. This searches exact text occurrences, not an AST or runtime lookup graph. No catalog modification or WPF run was performed. Review dynamic lookup sources before removal, then remove only these ten candidates from each catalog. An optional scanner should report review candidates and support dynamic/intentional entries, rather than failing on substring counts.
 
-- The ten listed entries are removed; current Monitor labels/caveat, version display, and `Copy diagnostics` remain supported.
+- The ten listed keys are removed from both Chinese catalogs after dynamic-reference review; current Monitor labels/caveat, version display, and `Copy diagnostics` remain supported.
 - Embedded JSON loads, translations are nonempty, and format arguments remain intact.
 - No configuration property, JSONL command, controller, or audio code changes.
-- English/Chinese mock WPF page checks pass after cleanup.
+- English, Simplified Chinese, and Traditional Chinese mock WPF page checks pass after cleanup, including exact catalog restoration after a temporary language switch.
 
 [LocalizationTests.cs:35–46](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/LocalizationTests.cs#L35) checks catalog content/format parity, not reachability. [UiEqualizer.cs:22](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiEqualizer.cs#L22) and [UiSmoke.cs:137–162](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiSmoke.cs#L137) provide relevant future page verification. No receiver/audio failure or external issue-number relationship is established.

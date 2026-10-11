@@ -1,4 +1,6 @@
-# Analysis audit — 2026-10-06
+# Analysis source audits
+
+## Original audit — 2026-10-06
 
 All sixteen original files in `docs/analysis/` were read and checked against their implementation, callers, state transitions, and relevant test sources. The resulting pages correct the claims that were false or too broad and identify what source inspection cannot establish. This report adds provenance and a cross-cutting verification record; the dedicated subsystem pages remain the detailed map.
 
@@ -106,4 +108,65 @@ Review-setting correction — **2026-10-07**: Marko subsequently identified that
 
 ## Subsequent fork integration — 2026-10-07
 
-Group A was merged into local fork `main` at `ca84c7c`, then Group B at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`, preserving the fork's documentation history. Original upstream stable `main` remains at `41190e0` without these fixes. The source links in the original audit above are pinned to that baseline; feature verification is in the [Group B checklist](../issues/GROUP-B-ACCEPTANCE.md), and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) records hosted-build/downloaded-binary evidence separately. A fork integration is not an upstream PR acceptance, public release, or hardware qualification.
+Group A was merged into local fork `main` at `ca84c7c`, then Group B at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`, preserving the fork's documentation history. During that 2026-10-07 integration, upstream stable main remained `41190e0` without these fixes. The source links in the original audit above remain pinned to that baseline; feature verification is in the [Group B checklist](../issues/GROUP-B-ACCEPTANCE.md), and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) records later hosted/downloaded evidence separately. A fork integration is not upstream acceptance, a public release or hardware qualification.
+
+## Merged-main documentation audit — 2026-10-10
+
+The user authorized merging every local branch into local fork `main`, preserving all branches, followed by a full source/documentation audit. The integrated source is **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`**. Every one of the 17 pre-existing local branch tips is an ancestor; all original non-main tips are unchanged, and a new preservation branch retains pre-merge `877a854`. Four ordinary merge commits retain all histories. The scrolling-validation merge's four conflicts were older versions of records already preserved by the newer documentation; no implementation or evidence was discarded. Desktop/native/scripts/tests/installer trees exactly match previously verified `6fe467b`. The historical Group A workflow additionally checks out `de13b6d`; it does not validate current main.
+
+All **44 Markdown files** under `docs/analysis` and `docs/issues` were reviewed against their material implementation paths, callers/consumers, baseline Git objects, test source and retained evidence. Current-source claims identify integrated behavior separately from the original `41190e0` audit. Source review corrects facts and scope; it does not turn an unexecuted fixture into a passing test or prove a physical receiver incident.
+
+**No application, build or test was executed in this merge/audit.** The user deferred execution until after reboot. Checks here are Git ancestry/source-tree comparisons and read-only Markdown/Git-object validation. Previous results remain attached to their original source/binaries. The main merges and new documentation are local, with no push, branch deletion, issue/PR creation, release or upstream merge.
+
+The integrated state is A/B/C/D plus scrolling/installer fixes and upstream Traditional Chinese support. Nine local reports are implemented; the eight E/F/G/H reports remain proposals. Upstream A/scrolling PRs are merged, while B PR #15 is closed without merge at its frozen older snapshot. C/D are locally integrated but unpublished. Current source does not add durable mute recovery, repair terminal IPC/EQ result contracts, normalize PIN submission, classify credential lookup failures, expose the missing diagnostics action or add capture padding accounting.
+
+The complete per-file source-review receipt and original branch/merge records are retained in ignored `artifacts/all-main-integration-2026-10-10/`. Each entry names the material source paths and corrections; the table below records coverage for every requested file. All entries are source-reviewed, with current-main execution deferred.
+
+| Document | Verified scope |
+| --- | --- |
+| [analysis/README](README.md) | Startup order, defaults, process boundary and current A–D integration |
+| [after-discovery](after-discovery.md) | Aggregation, catalog reconciliation, automatic admission and active controls |
+| [audit](audit.md) | Pinned baselines, branch preservation, source coverage and evidence limits |
+| [auth](auth.md) | PIN handoff, SRP, authentication selection and credential identity |
+| [capture-clocks](capture-clocks.md) | Resampling, queue padding, local metrics, pacing and clocks |
+| [control-and-mute](control-and-mute.md) | Endpoint ownership, guarded restoration, RTSP locking and PTP routing |
+| [credentials-and-ipc](credentials-and-ipc.md) | JSONL correlation and limits, DPAPI format and accessory keys |
+| [discovery](discovery.md) | Advertisement/cache expiry, deadlines, request tokens and native ownership |
+| [engine](engine.md) | RTSP setup, transport watches and separate worker/process lifetimes |
+| [equalizer](equalizer.md) | DSP/headroom, mailbox results, preview ownership and scrolling |
+| [failures](failures.md) | Error classification, cancellation, retry, cleanup and diagnostics |
+| [identity](identity.md) | Canonical identifiers, aliases, migrations and routing boundaries |
+| [playback-coupling](playback-coupling.md) | Current passive retention versus historical discovery-driven Stop |
+| [session](session.md) | Lifecycle/intent guards, admission, restart, retry and cleanup |
+| [settings](settings.md) | Load validation, pending preservation, save limits and draft/live settings |
+| [source-check](source-check.md) | Supported/rejected claims, historical gap policy and incident inference limits |
+| [upstream-dev](upstream-dev.md) | Excluded development snapshot and unchanged native/update contracts |
+| [ABCD-INTEGRATION-ACCEPTANCE](../issues/ABCD-INTEGRATION-ACCEPTANCE.md) | All-branch merge provenance and prior composition/artifact evidence |
+| [FORK-INTEGRATION-ACCEPTANCE](../issues/FORK-INTEGRATION-ACCEPTANCE.md) | Historical fork builds, source-bound hashes and current local integration |
+| [GROUP-B-ACCEPTANCE](../issues/GROUP-B-ACCEPTANCE.md) | Implemented ownership/intent behavior and prior regional/catalog verification |
+| [GROUP-C-ACCEPTANCE](../issues/GROUP-C-ACCEPTANCE.md) | Implemented preservation/validation and exact future-schema inspection limits |
+| [GROUP-D-ACCEPTANCE](../issues/GROUP-D-ACCEPTANCE.md) | Implemented DNS ownership/deadlines, cancellation value and bounded prior probe |
+| [IMPLEMENTATION_PLAN](../issues/IMPLEMENTATION_PLAN.md) | Group contracts, implemented/proposed scope and publication boundaries |
+| [INSTALLER-REFRESH-ACCEPTANCE](../issues/INSTALLER-REFRESH-ACCEPTANCE.md) | MSI payload rebuild, prior receipts and deferred main packaging |
+| [ISSUE-01](../issues/ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md) | Implemented owner-guarded discovery reconciliation; original race retained as history |
+| [ISSUE-02](../issues/ISSUE-02-HIGH-delayed-autoconnect-replaces-new-session.md) | Implemented automatic intent/admission guards through persistence and user actions |
+| [ISSUE-03](../issues/ISSUE-03-HIGH-discovery-disconnects-active-playback.md) | Implemented owned-attempt retention and Stop access through unavailable discovery |
+| [ISSUE-04](../issues/ISSUE-04-HIGH-dns-resolve-without-deadline-stalls-discovery.md) | Implemented logical deadlines, bounded retries and safe native settlement |
+| [ISSUE-05](../issues/ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md) | Implemented selected SDK preflight; merged upstream status and historical workflow |
+| [ISSUE-06](../issues/ISSUE-06-MEDIUM-settings-recovery-reread-escapes.md) | Implemented captured-byte recovery and blocked unreadable-source replacement |
+| [ISSUE-07](../issues/ISSUE-07-MEDIUM-invalid-loaded-settings-reach-runtime.md) | Implemented loaded validation with precise manual-host and compatibility limits |
+| [ISSUE-08](../issues/ISSUE-08-MEDIUM-pairing-pin-format-mismatch.md) | Unimplemented PIN normalization proposal; actual dialog/native mismatch remains |
+| [ISSUE-09](../issues/ISSUE-09-MEDIUM-credential-probe-errors-look-like-absence.md) | Unimplemented credential lookup classification; existence errors still resemble absence |
+| [ISSUE-10](../issues/ISSUE-10-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md) | Implemented filtering of attempted candidates before ranking |
+| [ISSUE-11](../issues/ISSUE-11-MEDIUM-manual-play-redirected-to-stereo-by-address.md) | Implemented explicit manual routing and constrained discovered-member ownership |
+| [ISSUE-12](../issues/ISSUE-12-MEDIUM-uncorrelated-ipc-errors-become-timeouts.md) | Unimplemented terminal IPC routing; empty correlation is still filtered |
+| [ISSUE-13](../issues/ISSUE-13-MEDIUM-endpoint-mute-crash-recovery-gap.md) | Unimplemented durable mute recovery; guarded normal recovery is separate |
+| [ISSUE-14](../issues/ISSUE-14-LOW-equalizer-ignored-update-success-metadata.md) | Unimplemented truthful EQ results; mailbox outcome remains unreported |
+| [ISSUE-15](../issues/ISSUE-15-LOW-unbound-copy-diagnostics-command.md) | Unimplemented diagnostics action; command exists without a Monitor binding |
+| [ISSUE-16](../issues/ISSUE-16-LOW-capture-padding-metrics-lack-frame-accounting.md) | Unimplemented frame/whole-packet padding accounting; current units verified |
+| [ISSUE-17](../issues/ISSUE-17-LOW-orphaned-translation-keys-cleanup.md) | Unimplemented cleanup; ten candidate keys checked in both Chinese catalogs |
+| [ISSUE_TEMPLATE](../issues/ISSUE_TEMPLATE.md) | Actual revision, evidence/status fields and correct verification commands |
+| [issues/README](../issues/README.md) | Nine locally implemented reports, eight proposals and publication state |
+| [SETTINGS-SCROLL-ACCEPTANCE](../issues/SETTINGS-SCROLL-ACCEPTANCE.md) | Wheel routing, layout assertions and distinct measured/pointer evidence |
+
+Independent cross-review resolved the remaining identity-save preservation qualifier, historical gap-policy wording and current non-documentation workflow scope. No actionable documentation finding remains. Structural validation checks every UTF-8 document, relative target/heading anchor, pinned Git source/line bound, JSON example, code fence and conflict marker. The final counts are recorded with the sealed document hashes in `document-structure-receipt.json`. These checks do not run application tests.

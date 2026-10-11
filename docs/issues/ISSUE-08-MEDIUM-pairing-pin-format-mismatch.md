@@ -10,6 +10,7 @@
 - **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
 - **Evidence status**: Source verified and synthetic `12-34` predicates evaluated; no WPF/native pairing exchange or real receiver run performed
 - **Implementation status**: Proposal only
+- **Merged-main review (2026-10-10)**: Still unimplemented at local source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. [PinDialog](../../desktop/AirFlash.App/Ui/PinDialog.cs) still returns permitted dashed text unchanged; [SessionController.PairMembersAsync](../../desktop/AirFlash.Core/SessionController.cs) forwards it, and [auth.rs](../../native/airflash-engine/src/auth.rs) retains strict ASCII-digit validation. Group B's ownership guards do not correct this Group E mismatch. This review read source only; no new UI/pairing test was run.
 - **Target files**: [PinDialog.cs:18–36](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/PinDialog.cs#L18), [SessionController.cs:412–422](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L412), [auth.rs:111–117](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/auth.rs#L111)
 - **Analysis context**: [Authentication](../analysis/auth.md), [Session pairing](../analysis/session.md), [Credentials and IPC](../analysis/credentials-and-ipc.md)
 

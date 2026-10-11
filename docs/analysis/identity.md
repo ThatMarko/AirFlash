@@ -1,5 +1,11 @@
 # Identity
 
+## Current local main and historical boundary
+
+The detailed identity/catalog analysis below is pinned to `41190e0`. The `Receiver`, `ReceiverIdentity` and `ReceiverCatalog` production files remain byte-for-byte unchanged in local main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`, as confirmed by the source diff. The later selection stage changed: [ReceiverSelection.ResolvePlayback](../../desktop/AirFlash.Core/ReceiverSelection.cs) preserves explicit manual/group identity and routes discovered members only through canonical identity or confirmed broadcast aliases with unambiguous live ownership. Address-only stereo substitution has been removed; syntactically classifying an id as broadcast still does not authenticate a receiver.
+
+All final B/C/D changes are now integrated into local main. C's [SettingsStore.Load](../../desktop/AirFlash.Core/SettingsStore.cs) normalizes collections/aliases and validates before these catalog callers consume loaded manual rows, preserving malformed originals before replacement. B's current pushed feature is `0a2c1ac`; PR #15 remains closed without merge. C/D remain unpushed/unpublished. Historical feature/composition tests retain their own source boundaries; no application/build/test execution occurs in this merge audit, and new main testing is deferred until after reboot. See [integration acceptance](../issues/ABCD-INTEGRATION-ACCEPTANCE.md).
+
 [`ReceiverCatalog.Reconcile`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverCatalog.cs#L8) runs on every discovery list before the view model updates its known map and panel. It clones the input settings, returns rewritten records and migrations, and performs no file or network I/O. Reconciliation also runs during playback, when receiver sockets already exist. The trigger around it is in [After discovery](after-discovery.md). Credentials are not an input. See [Credentials and IPC](credentials-and-ipc.md).
 
 ## Two kinds of id
@@ -89,7 +95,7 @@ The target key receives that merged record. The other keys are removed from `set
 
 ## Implemented Group B behavior
 
-The preceding audit remains the description of stable `41190e0`. This addendum describes local branch `codex/fix-session-lifecycle`, tested head `342aeb77cb85ff6f3f7f850161b3db79d8637945`, based directly on that stable commit. This feature is included in local fork `main` at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`; original upstream `main` remains at `41190e0` without these fixes. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate implementation and later integration evidence.
+The preceding baseline audit describes `41190e0`. Initial B at `342aeb77cb85ff6f3f7f850161b3db79d8637945` was integrated historically at `72dc7c7`; later production follow-up `11c6046` and verification-only fixes advanced the pushed feature to `0a2c1ac`. All are now ancestors of local main `9e894ab`. B remains unmerged upstream with PR #15 closed. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate dated test evidence.
 
 Manual selection preserves its exact host, port, id and independent options beside complete, incomplete or hidden discovered groups. An explicitly selected group stays selected. A discovered member resolves only through its canonical id or confirmed broadcast alias with one live physical owner and one group owner across online non-manual peers. A conflicting standalone owner also makes the selection ambiguous and rejects it before an engine command.
 

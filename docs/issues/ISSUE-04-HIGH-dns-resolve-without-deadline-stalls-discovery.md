@@ -6,14 +6,22 @@
 - **Severity**: HIGH — a stalled resolve can indefinitely suppress rediscovery and can expire a receiver participating in playback.
 - **Kind**: Defect
 - **Subsystem**: Windows DNS-SD resolve lifecycle
-- **Status**: Open in original stable main; tested local Group D implementation remains unsubmitted
+- **Status**: Implemented in local main `9e894ab`; Group D remains unpushed/unpublished and unmerged upstream. Main execution/testing is deferred until after reboot.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
 - **Evidence status**: Original logical-state probes executed against unchanged source; fixed coordinator/native-owner fault injections and mock WPF checks passed. [Group D acceptance](GROUP-D-ACCEPTANCE.md) distinguishes these from unmeasured Windows/AP/IGMP failures and native leaks.
-- **Implementation status**: Implemented and tested locally in Group D at `4c79f22`; see [feature acceptance](GROUP-D-ACCEPTANCE.md). Not pushed or integrated into stable main. The original behavior and proposed fixture/architecture sections below remain historical.
+- **Implementation status**: Corrected feature `48e7ab62` (after initial `4c79f22`) is now integrated locally. [Feature acceptance](GROUP-D-ACCEPTANCE.md) separates initial/follow-up and bounded Windows DNS evidence; [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) separates earlier compositions from this source-only main audit. The original behavior and proposed fixture/architecture sections below remain historical.
 - **Target file**: [WindowsDiscovery.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L82)
 - **Analysis context**: [Discovery](../analysis/discovery.md)
 
-## 1. Current behavior and impact
+## Current local implementation
+
+[WindowsDiscovery](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs) separates PTR advertisement expiry, cached records, logical pending requests and retained native owners. Five-second monotonic deadlines apply to initial and refresh resolves, checked by a one-second maintenance tick and completion. Failure retires the exact token and retries with 1–30-second exponential backoff while still advertised; old token/epoch results cannot mutate newer requests. Cache expiry no longer removes a still-advertised name. PTR removal/expiry retires that name. [DiscoveryPolicy](../../desktop/AirFlash.App/Services/DnsServiceApi.cs) caps two resolves per name and 64 owners per instance, including retired epochs.
+
+[NativeDnsServiceApi](../../desktop/AirFlash.App/Services/NativeDnsServiceApi.cs) also caps process-wide retained owners at 128. Heap input buffers and opaque tokens survive cancellation return/deadline until terminal callback or non-pending admission plus native-call/managed-callback frame completion. Browse cancellation terminal status is the documented 1223; resolve callbacks independently settle. Publication/callback cancellation is deferred to avoid blocking native calls under those stacks, and cancellation failures remain observable. The selected unavailable interface retains no fallback. B separately prevents passive publication loss from revoking an owned stream.
+
+Source main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`, [coordinator](../../desktop/AirFlash.Tests/DiscoveryLifecycleTests.cs) and [raw native-owner](../../desktop/AirFlash.Tests/NativeDnsOperationTests.cs) assertions were read in this audit. They were not executed. Historical probes/results retain their recorded hashes and limits; callback loss, sustained growth and receiver incident causes are not established.
+
+## 1. Original baseline behavior and impact
 
 Each resolve records its operation token in `_pending`, and another resolve for that name is skipped while that token exists. There is no deadline that retires a resolve when its completion callback never arrives. A first resolve that remains pending never produces a receiver; a later refresh resolve that remains pending can outlive the cached record's expiry and prevent fresh resolution after that record disappears.
 
@@ -32,9 +40,9 @@ Operations retain their registered managed object and unmanaged name/cancel allo
 
 The 90-second expiry is checked on 20-second refresh ticks. After expiry removes the name, the timer no longer enumerates it. A new PTR can restore `_instances`, but `Resolve` still skips while `_pending` contains the old token. A late valid callback can recover the name if `_instances` still contains it or a newer PTR restored it; otherwise that callback only clears pending and another PTR is needed. A removal followed by a new PTR, or Restart, also restores the ability to issue another resolve. The old report's “permanent until app restart,” Wi-Fi/IGMP attribution, and blanket “never freed” claims are removed.
 
-## 3. Minimal fault-injection reproduction — planned, not run
+## 3. Original fault-injection reproduction plan
 
-The current constructor injects the adapter catalog, not DNS-SD calls or time. A reproducible unit fixture needs a small fake DNS-SD API and fake clock seam, or an extracted resolve-lifecycle component; neither exists yet.
+At `41190e0` the constructor injects the adapter catalog, not DNS-SD calls or time. The original reproduction plan needs a fake DNS-SD API and clock seam, or an extracted resolve-lifecycle component; neither existed at that baseline. Group D later added those seams and assertions, with execution recorded separately in its acceptance record.
 
 1. In that fixture, deliver a synthetic PTR for `Fixture._airplay._tcp.local`. Have its resolve start return pending, then deliberately withhold completion.
 2. Advance several refresh ticks. Source-predicted result: one pending token remains and no second resolve is issued, although the name remains advertised.
@@ -44,7 +52,7 @@ The current constructor injects the adapter catalog, not DNS-SD calls or time. A
 
 No mDNS packet dropping or native pointer manipulation is required. Do not claim this fixture establishes that Windows fails to complete a request after ordinary network packet loss.
 
-## 4. Proposed architecture — not applied
+## 4. Original architecture proposal
 
 Track each resolve's token, epoch, start/deadline, cancellation state, and native resource owner. Add a bounded deadline policy for resolves independently of record TTL, with a documented retry/backoff policy for still-advertised names. On deadline/removal, retire the matching token so it cannot publish stale data, request cancellation, and permit a bounded replacement resolve.
 

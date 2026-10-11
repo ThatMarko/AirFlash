@@ -10,6 +10,7 @@
 - **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
 - **Evidence status**: Native error envelope and desktop filtering verified; deterministic native/fake-controller tests specified, not executed
 - **Implementation status**: Proposal only
+- **Merged-main review (2026-10-10)**: Still unimplemented at local source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. The native empty-id `command_error` envelope in [main.rs](../../native/airflash-engine/src/main.rs) (lines 22–34 and 88–100), process reader in [EngineConnection](../../desktop/AirFlash.Core/EngineConnection.cs), and current-session-only [ReadEventAsync](../../desktop/AirFlash.Core/SessionController.cs) (line 588) retain this routing gap. Group B changes lifecycle admission, not this filter. No child-process or timeout test was executed in this review.
 - **Target files**: [main.rs:22–34,54–110](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/main.rs#L22), [SessionController.cs:441–454](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L441)
 - **Analysis context**: [Credentials/IPC limits and correlation](../analysis/credentials-and-ipc.md), [Session read budgets](../analysis/session.md), [Failure classification](../analysis/failures.md)
 

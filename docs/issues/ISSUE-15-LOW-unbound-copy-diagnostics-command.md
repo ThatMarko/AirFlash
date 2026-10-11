@@ -10,6 +10,7 @@
 - **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
 - **Evidence status**: Command/XAML references inspected; no live WPF clipboard reproduction performed
 - **Implementation status**: Proposal only; command binding remains absent
+- **Merged-main review (2026-10-10)**: Still unimplemented at local source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. A fresh desktop C#/XAML reference scan finds the command only in [SettingsViewModel](../../desktop/AirFlash.App/ViewModels/SettingsViewModel.cs) (lines 62/89), without a binding in the current [SettingsWindow](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml). [AppViewModel.Diagnostics](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs) (line 471) still supplies the existing report; both Chinese catalogs retain the label. No clipboard or UI test was executed in this review.
 - **Target files**: [SettingsViewModel.cs:62,89](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L62), [SettingsWindow.xaml:204–299,314–336](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml#L204)
 - **Analysis context**: [Settings](../analysis/settings.md), [Session diagnostics](../analysis/session.md), [Failures](../analysis/failures.md)
 

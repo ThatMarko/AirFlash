@@ -10,7 +10,21 @@ Read the table from top to bottom. The later pages describe mechanisms that cut 
 
 Group B's initial session/receiver implementation was verified on `codex/fix-session-lifecycle` at `342aeb7`, based directly on original stable `41190e0`. Group A and then initial B merged into the local fork at `72dc7c7`; upstream remained `41190e0` during that validation. [Feature acceptance and actual checks](../issues/GROUP-B-ACCEPTANCE.md) distinguish subsequent tested heads from this index's original source audit. As verified on 2026-10-10, A and scrolling are merged upstream at main `d4aa068`, while B PR #15 remains closed without merge; corrected B `0a2c1ac` is pushed and tested. Affected pages retain baseline descriptions and bounded implementation sections. [Combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) and [A/B/C/D acceptance](../issues/ABCD-INTEGRATION-ACCEPTANCE.md) record historical and final local/hosted/downloaded evidence separately.
 
-Groups C and D were subsequently implemented one at a time on separate original-base local branches. [Group C acceptance](../issues/GROUP-C-ACCEPTANCE.md) covers settings preservation/validation; [Group D acceptance](../issues/GROUP-D-ACCEPTANCE.md) covers DNS deadlines and native ownership. Both are tested and locally committed, without push, issue/PR publication or integration into either main branch. Their affected analysis pages add separately bounded implementation sections.
+Groups C and D were implemented one at a time on separate original-base local branches. [Group C acceptance](../issues/GROUP-C-ACCEPTANCE.md) covers settings preservation/validation; [Group D acceptance](../issues/GROUP-D-ACCEPTANCE.md) covers DNS deadlines and native ownership. Both now belong to the local fork's merged `main`, while their feature branches remain unpushed and unpublished. Their earlier branch verification remains separate from the current source audit.
+
+## Current local main — 2026-10-10
+
+Local source **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`** contains every pre-existing local branch, including A/B/C/D, scrolling, installer payload refresh, the cross-group verification fixture and actual upstream `d4aa068`. Every original branch tip was preserved. The desktop/native/scripts/tests/installer trees match previously verified composition `6fe467b`; the additional Group A workflow is historical validation pinned to `de13b6d`, not a current-main test. The merges were local; remote main and the upstream PR states were not changed.
+
+| Current boundary | Source behavior |
+| --- | --- |
+| Startup and settings | [App startup](../../desktop/AirFlash.App/App.xaml.cs) still loads configuration twice through one [SettingsStore](../../desktop/AirFlash.Core/SettingsStore.cs). Recovery retains exact bytes/preservation obligations, validates loaded values and rejects future positive integer schema tokens before runtime use. The store's own lock and the view model's asynchronous settings gate have different responsibilities |
+| Discovery and selection | [WindowsDiscovery](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs) separates advertisements, resolved-cache expiry, logical request deadlines and native ownership. [AppViewModel](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs) reconciles catalog/settings and automatic eligibility; selected-offline adapters still do not fall back to all interfaces |
+| Owned attempts | [SessionController](../../desktop/AirFlash.Core/SessionController.cs) captures lifecycle owner and automatic intent atomically. Delayed work must still own the attempt; passive disappearance/incompleteness retains active transport and Stop controls, while explicit Stop, cancellation and native terminal faults still govern cleanup/retry |
+| Process, audio and credentials | JSONL v1 still connects WPF to the separate Rust command loop/worker. [Native command handling](../../native/airflash-engine/src/main.rs), credential authentication and capture/DSP/transport are unchanged by A–D. Exact prior endpoint mute restoration remains best effort; no durable crash-recovery journal exists |
+| Remaining work | E/F/G/H are still source-confirmed proposals. Local integration does not implement PIN/credential lookup repairs, terminal IPC/EQ-result repairs, durable mute recovery or the remaining diagnostics/accounting/catalog cleanup |
+
+The [full audit](audit.md#merged-main-documentation-audit--2026-10-10) records all 44 Markdown files and the source/structure checks. **No application, build or test was run on this new main during this audit: testing is deferred until after the user's reboot.** Historical pass counts remain tied to their recorded commits and binaries.
 
 | Document | What it covers |
 | --- | --- |
@@ -32,6 +46,8 @@ Groups C and D were subsequently implemented one at a time on separate original-
 | [Audit results](audit.md) | Source baseline, all-page coverage, corrected briefing claims, and validation limits |
 
 ## Two processes
+
+The workflow below is the pinned **`41190e0` baseline**, including its former discovery-stop policy. Current implementation differences are identified above and in each affected page's integration addendum.
 
 The WPF app finds devices and decides whether a session should exist. The Rust engine, `airflash-engine.exe`, speaks AirPlay. The discovery service browses DNS-SD; it does not open RTSP or audio connections. Discovery results can nevertheless cause the desktop session controller to stop or restart playback. The engine never browses DNS-SD. The boundary is JSONL v1 over redirected stdin/stdout, with no C-ABI or shared memory; [Credentials and IPC](credentials-and-ipc.md) explains the limits in each direction.
 

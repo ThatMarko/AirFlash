@@ -2,6 +2,12 @@
 
 Initial verification completed on 2026-10-07 for the authorized Group A + Group B fork integration. Historical acceptance below covers initial Group B head `342aeb7`; the 2026-10-08 follow-up is separate. This is unofficial validation of `ThatMarko/AirFlash`; original upstream main was `41190e0d13a63a714c08dffe73ababca1804875c` during those checks. Current upstream status is in the final addendum. A fork merge does not imply upstream acceptance.
 
+## Subsequent all-branch local integration — 2026-10-10
+
+All 17 pre-existing local branch tips are now contained in local `main` at **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`**, with every original branch preserved. Current B/C/D and upstream `d4aa068` are included, alongside scrolling/installer changes and prior validation histories. Desktop/native/scripts/tests/installer trees match previously verified `6fe467b`; the additional Group A workflow retains its historical exact-source checkout. Remote main and upstream PR states were not changed. See [integration provenance](ABCD-INTEGRATION-ACCEPTANCE.md#subsequent-local-main-integration--2026-10-10) and [all-file source audit](../analysis/audit.md#merged-main-documentation-audit--2026-10-10).
+
+The user deferred all application/build/test execution on this merged main until after reboot. All following test/package/binary results remain historical evidence for their stated source; none is a new `9e894ab` execution result. C/D are now in local main but their clean feature branches remain unpushed/unpublished.
+
 ## Source and branch boundaries
 
 - Group A: `codex/fix-build-preflight`, unchanged head `de13b6d3e22a177537ed9d5977fe693a5b497fc1`; upstream [PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11) was open during this validation and has since merged.
@@ -65,7 +71,7 @@ A deeper audit of existing issues/PRs found additional lifecycle gaps in Group B
 
 The unchanged-feature receipts are retained in each worktree's ignored artifacts: Group A `artifacts/pr-audit-group-a-receipt.json` and scrolling `artifacts/pr-audit-2026-10-08/scroll-audit-receipt.json`. These fresh scrolling checks used simulated routed input; the earlier native pointer observations remain bound to the specific historical binary and desktop session recorded in the separate scrolling acceptance.
 
-The separate validation branch `codex/verify-pr-session-audit` starts from fork `origin/main` at `78a61f5e91e331ef695e74e3cf99320eb875d09a` and merges only the Group B follow-up, producing source **`bfed430b0578f14600004b87c70d3c7b379d0036`**. It contains the existing A+B+scrolling/installer runtime, excludes the local unpublished C/D implementations, and has not merged this follow-up into fork `main` or upstream `main`.
+The separate validation branch `codex/verify-pr-session-audit` started from fork `origin/main` at `78a61f5e91e331ef695e74e3cf99320eb875d09a` and merged only the Group B follow-up, producing source **`bfed430b0578f14600004b87c70d3c7b379d0036`**. At that stage it contained the existing A+B+scrolling/installer runtime, excluded C/D, and had not integrated the follow-up into either main. The later local integration above does not change that artifact's scope or establish upstream acceptance.
 
 [Fork integration validation run 37870969984](https://github.com/ThatMarko/AirFlash/actions/runs/37870969984) completed successfully on that exact temporary-branch source using the existing read-only validation workflow. All 86 Python tests, 47 native tests and 253 Core tests passed, with zero Python/managed skips and one intentionally ignored existing native soak. Lint/icons, Release build/publish, default/explicit-host MSI generation, runtime-only early rejection, repeated installer payload refresh, embedded native hello, and disposable-runner install/repair/upgrade/uninstall checks passed. The hosted Core TRX and count/source receipt are retained under ignored `artifacts/pr-audit-2026-10-08/`.
 

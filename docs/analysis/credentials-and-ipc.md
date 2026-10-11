@@ -1,5 +1,7 @@
 # Credentials and the process boundary
 
+Merged-main source review, 2026-10-10: native sources, [EngineConnection](../../desktop/AirFlash.Core/EngineConnection.cs), and [AppPaths](../../desktop/AirFlash.App/Services/AppPaths.cs) are unchanged from pinned `41190e0` at local integration commit `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. Current [SessionController.ReadEventAsync](../../desktop/AirFlash.Core/SessionController.cs) (line 588) still filters version/session without a special empty-id IPC-error path. Groups E/F remain proposals, including credential existence-error preservation and transport-wide command-error routing. The historical boundary trace below remains applicable. This pass accessed source only; no credentials, child process, app, build, or test was opened/executed.
+
 The WPF app and `airflash-engine.exe` have no shared-memory integration or C-ABI. Their process interface is JSONL over redirected stdin/stdout. The desktop passes pairing commands/PINs and receives status; the Rust engine both writes and reads its own DPAPI files. Those files are not a second desktop IPC channel: WPF does not deserialize private keys. See [Session](session.md) for lifecycle and [Engine](engine.md) for the handshake.
 
 ## Process and pipes

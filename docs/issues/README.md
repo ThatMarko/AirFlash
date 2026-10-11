@@ -1,6 +1,6 @@
 # AirFlash implementation backlog
 
-The **17 active reports** are now numbered continuously from **ISSUE-01 through ISSUE-17**: four HIGH, nine MEDIUM, and four LOW. They describe fourteen source-supported defects, one recovery gap, and two enhancements. File order follows severity, then related subsystem/priority; implementation follows the dependency plan rather than numeric order.
+The **17 retained reports** are numbered continuously from **ISSUE-01 through ISSUE-17**. Their original `41190e0` classifications were four HIGH, nine MEDIUM and four LOW: fourteen source-supported defects, one recovery gap and two enhancements. Nine reports are now implemented in local `main`; eight remain proposals. File order preserves the original severity grouping; implementation follows the dependency plan rather than numeric order.
 
 [Implementation plan](IMPLEMENTATION_PLAN.md) defines a small set of coherent PR groups, the work for every issue, dependencies, parallel work, regression fixtures, and completion gates. **The next new report is ISSUE-18.**
 
@@ -10,9 +10,9 @@ Current upstream status refreshed on **2026-10-10**: [A PR #11](https://github.c
 
 Source links in baseline report sections resolve to the full audited upstream commit. Implementation sections link their feature source and record later checks separately, so current fork code does not silently replace the evidence for an original report.
 
-[Group C acceptance](GROUP-C-ACCEPTANCE.md) records the configuration-preservation/validation package for reports 06 and 07. Additional testing fixed oversized future-schema handling in head `c3a1d5e`: 261 Core tests in each build configuration and 208 WPF checks per language passed. It remains local, without push, issue/PR publication or integration into fork/upstream main. Original audit and reproduction-plan text remains historical.
+[Group C acceptance](GROUP-C-ACCEPTANCE.md) records the configuration-preservation/validation package for reports 06 and 07. Additional testing fixed oversized future-schema handling in head `c3a1d5e`: 261 Core tests in each build configuration and 208 WPF checks per language passed. It is now merged into local fork main, without feature push or issue/PR publication; upstream does not contain C. Original audit and reproduction-plan text remains historical.
 
-[Group D acceptance](GROUP-D-ACCEPTANCE.md) records the DNS operation lifecycle package for report 04. Additional testing corrected the browse terminal cancellation status in head `48e7ab62`: 232 Core tests in each build configuration, 149 WPF checks per language and a bounded DNS-only Windows probe passed. It also remains local and unpublished. Lifetime decisions, the initial incorrect status value, its regression and the limited live observation are explicit in that record.
+[Group D acceptance](GROUP-D-ACCEPTANCE.md) records the DNS operation lifecycle package for report 04. Additional testing corrected the browse terminal cancellation status in head `48e7ab62`: 232 Core tests in each build configuration, 149 WPF checks per language and a bounded DNS-only Windows probe passed. It is now merged into local fork main and remains unpushed/unpublished. Lifetime decisions, the initial incorrect status value, its regression and the limited live observation are explicit in that record.
 
 [A/B/C/D acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) records final private `6fe467b`: 422 Core per configuration, zero-warning/error builds, six exact 579/571-check portable runs and MSI payload/refresh checks with catalog restoration. Public A/B-only `d70f30d` passed hosted 86 Python/47 native/255 Core plus installer checks and six exact downloaded 501/493-check runs; its source excludes C/D. Distinct receipts bind each source/binary, including different native hashes. Historical pre-assertion counts remain historical. C/D are unchanged, unpublished and await Task 3.
 
@@ -20,27 +20,33 @@ The Settings scrollbar issues have an [acceptance record](SETTINGS-SCROLL-ACCEPT
 
 On 2026-10-07, the user authorized Task 3 publication in this order: scrolling [issue #12](https://github.com/Ding-Kyoma/AirFlash/issues/12) / [PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13), then Group B [issue #14](https://github.com/Ding-Kyoma/AirFlash/issues/14) / [PR #15](https://github.com/Ding-Kyoma/AirFlash/pull/15). Both originally targeted the verified `41190e0` stable base and excluded fork-only documents. Their original upstream runs awaited maintainer approval with no jobs started. Current status is stated above; acceptance records retain the exact historical heads/run links. These GitHub numbers are separate from the local report identifiers below.
 
-## Active reports
+## Current local integration
 
-| Current ID | Severity | Kind | Concrete scope |
-| --- | --- | --- | --- |
-| [ISSUE-01](ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md) | HIGH | Defect | Stale discovery reconciliation can stop or retarget a newer session |
-| [ISSUE-02](ISSUE-02-HIGH-delayed-autoconnect-replaces-new-session.md) | HIGH | Defect | A delayed automatic start can replace Pair or undo a newer Stop |
-| [ISSUE-03](ISSUE-03-HIGH-discovery-disconnects-active-playback.md) | HIGH | Defect | Passive discovery absence/incompleteness stops established playback |
-| [ISSUE-04](ISSUE-04-HIGH-dns-resolve-without-deadline-stalls-discovery.md) | HIGH | Defect | A resolve without completion has no deadline and suppresses future queries |
-| [ISSUE-05](ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md) | MEDIUM | Defect — tooling | Selected SDK compatibility is checked after avoidable build/release side effects |
-| [ISSUE-06](ISSUE-06-MEDIUM-settings-recovery-reread-escapes.md) | MEDIUM | Defect | Settings recovery rereads a failing file and can throw from its catch |
-| [ISSUE-07](ISSUE-07-MEDIUM-invalid-loaded-settings-reach-runtime.md) | MEDIUM | Defect — persisted configuration validation | Semantically invalid loaded JSON reaches unchecked runtime assumptions |
-| [ISSUE-08](ISSUE-08-MEDIUM-pairing-pin-format-mismatch.md) | MEDIUM | Defect | The PIN dialog accepts formatted values rejected by native validation |
-| [ISSUE-09](ISSUE-09-MEDIUM-credential-probe-errors-look-like-absence.md) | MEDIUM | Defect — credential error classification | Credential existence errors can select transient authentication |
-| [ISSUE-10](ISSUE-10-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md) | MEDIUM | Defect | An attempted preferred receiver blocks an unattempted candidate |
-| [ISSUE-11](ISSUE-11-MEDIUM-manual-play-redirected-to-stereo-by-address.md) | MEDIUM | Defect | Manual Play can redirect to a stereo group by address alone |
-| [ISSUE-12](ISSUE-12-MEDIUM-uncorrelated-ipc-errors-become-timeouts.md) | MEDIUM | Defect — IPC contract | Uncorrelated terminal IPC rejections become unrelated host timeouts |
-| [ISSUE-13](ISSUE-13-MEDIUM-endpoint-mute-crash-recovery-gap.md) | MEDIUM | Recovery gap | Prior endpoint mute bits have no durable crash-recovery record |
-| [ISSUE-14](ISSUE-14-LOW-equalizer-ignored-update-success-metadata.md) | LOW | Defect — IPC result contract | Ignored EQ updates return success metadata for the submitted curve |
-| [ISSUE-15](ISSUE-15-LOW-unbound-copy-diagnostics-command.md) | LOW | Defect — UI binding | Settings has no action bound to its diagnostics-copy command |
-| [ISSUE-16](ISSUE-16-LOW-capture-padding-metrics-lack-frame-accounting.md) | LOW | Enhancement | Capture padding lacks missing-frame/whole-packet accounting |
-| [ISSUE-17](ISSUE-17-LOW-orphaned-translation-keys-cleanup.md) | LOW | Enhancement | Review ten statically unused localization entries before removal |
+On 2026-10-10, all 17 pre-existing local branch tips were merged into fork `main` at **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`**, with every branch preserved and a separate pre-merge preservation branch. This includes current B/C/D plus upstream Traditional Chinese support. C/D are now locally integrated but remain unpushed/unpublished. Remote main and upstream PRs were not changed. The source audit covers every report and analysis page; see [audit coverage](../analysis/audit.md#merged-main-documentation-audit--2026-10-10).
+
+Application/build/test execution on this merged main is **deferred until after the user's reboot**. Earlier branch/artifact results are preserved as prior evidence. E/F/G/H are unimplemented; their proposed fixes and fixtures have not been executed by this merge/audit.
+
+## Retained reports and current local status
+
+| Report | Original severity | Kind | Baseline scope (`41190e0`) | Local main status |
+| --- | --- | --- | --- | --- |
+| [ISSUE-01](ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md) | HIGH | Defect | Stale discovery reconciliation can stop or retarget a newer session | Implemented; new-main execution deferred |
+| [ISSUE-02](ISSUE-02-HIGH-delayed-autoconnect-replaces-new-session.md) | HIGH | Defect | A delayed automatic start can replace Pair or undo a newer Stop | Implemented; new-main execution deferred |
+| [ISSUE-03](ISSUE-03-HIGH-discovery-disconnects-active-playback.md) | HIGH | Defect | Passive discovery absence/incompleteness stops established playback | Implemented; new-main execution deferred |
+| [ISSUE-04](ISSUE-04-HIGH-dns-resolve-without-deadline-stalls-discovery.md) | HIGH | Defect | A resolve without completion has no deadline and suppresses future queries | Implemented; new-main execution deferred |
+| [ISSUE-05](ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md) | MEDIUM | Defect — tooling | Selected SDK compatibility is checked after avoidable build/release side effects | Implemented; new-main execution deferred |
+| [ISSUE-06](ISSUE-06-MEDIUM-settings-recovery-reread-escapes.md) | MEDIUM | Defect | Settings recovery rereads a failing file and can throw from its catch | Implemented; new-main execution deferred |
+| [ISSUE-07](ISSUE-07-MEDIUM-invalid-loaded-settings-reach-runtime.md) | MEDIUM | Defect — persisted configuration validation | Semantically invalid loaded JSON reaches unchecked runtime assumptions | Implemented; new-main execution deferred |
+| [ISSUE-08](ISSUE-08-MEDIUM-pairing-pin-format-mismatch.md) | MEDIUM | Defect | The PIN dialog accepts formatted values rejected by native validation | Unimplemented proposal |
+| [ISSUE-09](ISSUE-09-MEDIUM-credential-probe-errors-look-like-absence.md) | MEDIUM | Defect — credential error classification | Credential existence errors can select transient authentication | Unimplemented proposal |
+| [ISSUE-10](ISSUE-10-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md) | MEDIUM | Defect | An attempted preferred receiver blocks an unattempted candidate | Implemented; new-main execution deferred |
+| [ISSUE-11](ISSUE-11-MEDIUM-manual-play-redirected-to-stereo-by-address.md) | MEDIUM | Defect | Manual Play can redirect to a stereo group by address alone | Implemented; new-main execution deferred |
+| [ISSUE-12](ISSUE-12-MEDIUM-uncorrelated-ipc-errors-become-timeouts.md) | MEDIUM | Defect — IPC contract | Uncorrelated terminal IPC rejections become unrelated host timeouts | Unimplemented proposal |
+| [ISSUE-13](ISSUE-13-MEDIUM-endpoint-mute-crash-recovery-gap.md) | MEDIUM | Recovery gap | Prior endpoint mute bits have no durable crash-recovery record | Unimplemented proposal |
+| [ISSUE-14](ISSUE-14-LOW-equalizer-ignored-update-success-metadata.md) | LOW | Defect — IPC result contract | Ignored EQ updates return success metadata for the submitted curve | Unimplemented proposal |
+| [ISSUE-15](ISSUE-15-LOW-unbound-copy-diagnostics-command.md) | LOW | Defect — UI binding | Settings has no action bound to its diagnostics-copy command | Unimplemented proposal |
+| [ISSUE-16](ISSUE-16-LOW-capture-padding-metrics-lack-frame-accounting.md) | LOW | Enhancement | Capture padding lacks missing-frame/whole-packet accounting | Unimplemented proposal |
+| [ISSUE-17](ISSUE-17-LOW-orphaned-translation-keys-cleanup.md) | LOW | Enhancement | Review ten candidate keys; current scope includes both Chinese catalogs | Unimplemented proposal |
 
 ## Execution order
 

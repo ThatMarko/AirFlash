@@ -1,5 +1,11 @@
 # Group B feature acceptance
 
+## Local main integration on 2026-10-10
+
+Final pushed B `0a2c1ac2f95fa51d040b4ef0beb84f1e6aae6c26`, including production follow-up `11c6046` and regional/catalog fixture corrections, is now an ancestor of local main **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`** alongside final C/D, scrolling, installer/workflow fixes and updated upstream. Existing branches are retained. This local merge has not been pushed. A/scrolling are merged upstream; B PR #15 remains closed without merge and frozen at its older source snapshot. C/D remain unpushed/unpublished.
+
+The source-only audit traced current `AppViewModel` reconciliation, explicit actions, automatic preflush/eligibility/admission and endpoint callbacks into `SessionController` owner/intent checks, cleanup/restart and deferred restoration. `ReceiverSelection` and its consumers preserve manual identity and prefilter attempted candidates. Current Core and WPF regression assertions were inspected as source, including `UiSettingsRecovery` cross-group cases and exact culture/catalog restoration. The detailed feature/composition results below retain their original hashes and execution dates. **No app, build, test, DNS, receiver, endpoint or installer execution occurs in this merge/audit; new local main testing is deferred until after reboot.** [A/B/C/D integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) records the merge boundary separately.
+
 Initially verified on 2026-10-07, with a further source and regression audit on 2026-10-08. This records a tested implementation branch, **not behavior integrated into original stable main**. Original `upstream/main` was `41190e0d13a63a714c08dffe73ababca1804875c` during those audits; it has since advanced, as recorded in the current-status addendum below. Initial acceptance/integration evidence applies to `342aeb7`; the 2026-10-08 follow-up applies to tested feature head `11c6046`.
 
 - Branch: `codex/fix-session-lifecycle`, based directly on audited original stable `41190e0`.
@@ -7,7 +13,7 @@ Initially verified on 2026-10-07, with a further source and regression audit on 
 - Initial application integration head: `342aeb77cb85ff6f3f7f850161b3db79d8637945`.
 - Feature head tested on 2026-10-08: `11c60466465bc07c0d6ce519dcfc4d3a54b973f6`; at that point the branch contained three implementation commits and ten desktop implementation/test files.
 - Current pushed feature head: **`0a2c1ac2f95fa51d040b4ef0beb84f1e6aae6c26`**, after regional fixture `bceb440` and the exact tray-catalog restoration below. The branch has five commits/eleven desktop files; AppViewModel and SessionController production blobs remain unchanged from `11c6046`. Closed PR #15 still presents its older `11c6046` snapshot.
-- Historical integration: the initial feature is included in fork `main` at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`, after Group A's merge `ca84c7c`. The new follow-up was validated on a separate fork integration branch; it has not been merged into fork `main`. Original upstream `main` has not merged Group B.
+- Historical integration: the initial feature was included in fork `main` at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`, after Group A's merge `ca84c7c`. The follow-up was validated separately before the newly authorized local integration into `9e894ab` above. Original upstream has not merged Group B; the remote fork main has not received this new local merge.
 - Publication: [issue #14](https://github.com/Ding-Kyoma/AirFlash/issues/14) and [PR #15](https://github.com/Ding-Kyoma/AirFlash/pull/15) were submitted upstream on 2026-10-07 after explicit user authorization. PR #15 is now closed without merge; the current-status addendum distinguishes the new maintainer diagnostic from earlier acceptance. Branch push and hosted validation are tracked separately in [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md).
 - Initial review: independent source and regression-assertion review completed with no actionable findings at that time. Its required automatic-save-failure fixture was added and reviewed. The deeper audit below subsequently found additional lifecycle gaps and fixed them.
 

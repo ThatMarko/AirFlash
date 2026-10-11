@@ -1,5 +1,7 @@
 # Audio engine and the HomePod connection
 
+Merged-main source review, 2026-10-10: all [native engine sources](../../native/airflash-engine/src/) remain byte-identical to pinned `41190e0` at local integration commit `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. A/B/C/D, scrolling, installer, and Traditional Chinese changes do not alter the native handshake, DSP, clocks, RTP, feedback, volume, or credential protocol described below. Group B changes desktop lifecycle admission and discovery-loss handling; see [Session](session.md) and [Failures](failures.md). This source-only merge audit ran no app, build, test, or receiver/capture probe; prior validation records are separate from pending post-reboot qualification.
+
 `airflash-engine` is a Windows console process. Stdout carries JSONL version 1 events. One worker at a time owns playback/qualification started by `start`/`probe`, or persistent pairing started by `pair`. Worker completion/failure leaves the command loop alive; the desktop subsequently disposes the process. [Session](session.md) owns those rules. This document follows production `start` to teardown and labels differing probe/pair behavior ([main.rs:36–52,117–172,238–340](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/main.rs#L36)).
 
 Source map:

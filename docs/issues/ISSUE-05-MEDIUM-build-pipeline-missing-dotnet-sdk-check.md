@@ -6,7 +6,7 @@
 - **Severity**: MEDIUM; build prerequisites fail after avoidable build/release side effects
 - **Kind**: Defect — tooling
 - **Subsystem**: Build & Tests
-- **Status**: Published upstream as issue #10 / open PR #11; integrated into local fork `main`, unmerged upstream; upstream CI awaits maintainer approval
+- **Status**: Implemented; [PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11) merged upstream on 2026-10-09 and [issue #10](https://github.com/Ding-Kyoma/AirFlash/issues/10) closed; integrated into local fork `main`
 - **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
 - **Evidence status**: Original audit was source-only; subsequent isolated implementation checks are recorded below
 - **Implementation status**: `origin/codex/fix-build-preflight`, commit `de13b6d3e22a177537ed9d5977fe693a5b497fc1`
@@ -15,7 +15,7 @@
 
 ## Local implementation verification — 2026-10-07
 
-Original stable `main` was freshly confirmed at `41190e0d13a63a714c08dffe73ababca1804875c`. The implementation branch starts there and contains only public tooling, regression tests and build documentation. Its final diff and sole outgoing commit exclude the fork's analysis/issues/planning files. Stable main still has the behavior described in the source audit below.
+Original stable `main` was freshly confirmed at `41190e0d13a63a714c08dffe73ababca1804875c` on that date. The implementation branch starts there and contains only public tooling, regression tests and build documentation. Its final diff and sole outgoing commit exclude the fork's analysis/issues/planning files. The source audit below describes that original baseline, before upstream accepted the fix.
 
 The shared helper resolves the selected host once and checks `--version` from `desktop`, leaving the actual `global.json` resolver in charge. Build preflight now precedes the release lock, reservation, cleanup and native work; publish and installer reuse the selected host. Explicit installer hosts adopt the desktop policy. The release workflow sets up and checks the SDK before reservation; the wrapper preserves native argument/output/exit forwarding and runtime-only informational commands. Independent final source/test review reported no concrete findings.
 
@@ -37,13 +37,21 @@ Remaining platform boundaries: the desktop lacks Rust/MSVC/Windows SDK prerequis
 
 Published [issue #10](https://github.com/Ding-Kyoma/AirFlash/issues/10) and [PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11), targeting original `main` at verified `41190e0` from `ThatMarko:codex/fix-build-preflight` at `de13b6d`. No existing issue/PR covered the verified scope. Public bodies were independently reviewed and re-read after publication; GitHub recognizes the PR's `Fixes #10` relationship. The published nine-file diff and sole outgoing commit exclude all fork-only analysis/issues/planning files and the validation-only workflow. The PR is registered with this chat.
 
-The exact-source fork validation remains green. Original-repository [CI run 37660774239](https://github.com/Ding-Kyoma/AirFlash/actions/runs/37660774239) is `action_required`, with no jobs, and its page explicitly awaits maintainer approval for the fork PR. Copilot's automatic review reported a quota limit; it performed no code review. Independent source/regression review found no concrete issues. Remaining external action: an upstream maintainer approves CI and reviews the PR. No merge, release workflow, reservation or release was performed during that publication step. Original upstream stable main has not integrated the fix.
+At publication, the exact-source fork validation was green. Original-repository [CI run 37660774239](https://github.com/Ding-Kyoma/AirFlash/actions/runs/37660774239) reported `action_required`, with no jobs, and awaited maintainer approval for the fork PR. Copilot's automatic review reported a quota limit; it performed no code review. Independent source/regression review found no concrete issues. Maintainer approval and review were outstanding at that time. No merge, release workflow, reservation or release was performed during that publication step. The later accepted state is recorded below.
 
-Review-setting correction — **2026-10-07**: Marko subsequently identified that automatic review had been disabled. The quota message above records the observed automation output; it did not establish that the account lacked credits. The publication snapshot remains an open upstream PR with `action_required` CI and no executed CI jobs, independently of that review setting. Fork integration and subsequent build evidence are recorded separately below.
+Review-setting correction — **2026-10-07**: Marko subsequently identified that automatic review had been disabled. The quota message above records the observed automation output; it did not establish that the account lacked credits. The dated publication snapshot was an open upstream PR with `action_required` CI and no executed CI jobs, independently of that review setting. Fork integration and subsequent build evidence are recorded separately below.
 
 ### Fork integration — 2026-10-07
 
 Group A's tested feature commit was merged into local fork `main` at `ca84c7c`, followed by Group B at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`. This does not merge upstream PR #11 or alter its feature branch. [Combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) records hosted packaging and tests of the downloaded binaries separately from the original standalone checks above. No public release or version reservation is implied.
+
+## Accepted fix and current local integration — 2026-10-10
+
+PR #11 merged on 2026-10-09 at upstream merge `347cb24`; its earlier approval gate is historical, and upstream run `37660774239` subsequently succeeded. Stable upstream `d4aa0686fc411de6655aac313243f0f6bf71e439` includes this fix. The feature branch remains at `de13b6d`.
+
+All retained local branches are now merged into local `main`, source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. A source-only review confirms selected-host preflight precedes release output creation, locking/reservation, cleanup and Rust work; the same context supplies publish and installer invocation, and the release workflow checks before reservation. The installer also includes the separately audited payload-refresh `Rebuild` fix. No build, test, application launch, push or release dispatch was performed for this all-branch merge; post-reboot execution is deferred. Earlier [A/B/C/D acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) belongs to its pinned source, not to a newly tested `main` binary.
+
+The merged `.github/workflows/group-a-validation.yml` is a retained historical workflow: only a push to `codex/verify-build-preflight` triggers it, and it deliberately checks out `de13b6d`. Its presence on `main` does not validate current integrated source. The fork integration workflow instead checks out the triggering `${{ github.sha }}`; it has not run for this local-only merge.
 
 ## Original baseline behavior and scope
 
@@ -61,19 +69,19 @@ This is a conditional call-order defect, not an actual reservation/deletion perf
 
 Both workflows install `10.0.x` before .NET checks ([CI:16–18](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/.github/workflows/ci.yml#L16), [Release:43–45](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/.github/workflows/release.yml#L43)). That limits the usual CI case but does not validate arbitrary local candidate hosts. The release workflow itself reserves before SDK setup at [Release:33–45](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/.github/workflows/release.yml#L33).
 
-## Minimal deterministic reproduction plan
+## Original deterministic reproduction plan
 
 Use disposable fixtures/fake commands, with no real build or network:
 
 1. Supply a selected repository-local host whose SDK query fails or returns no SDK, alongside a compatible PATH host.
 2. Exercise a factored selection/preflight function and record which executable/cwd it checks.
 3. Stub reservation, cleanup, Rust build, and publish; record orchestration calls.
-4. Current source predicts no SDK check before reservation/cleanup/native build. Desired behavior rejects the unsuitable selected SDK before those calls.
+4. Original `41190e0` predicts no SDK check before reservation/cleanup/native build. Desired behavior rejects the unsuitable selected SDK before those calls.
 5. Cover no host, runtime-only host, unsupported SDK, compatible 10.0 host, and installer `-DotnetPath` separately.
 
-This harness is proposed, not implemented/executed. Do not invoke real `scripts/build.ps1` as a prerequisite test.
+These steps were the original proposal. The implemented [preflight regression fixture](../../tests/test_dotnet_preflight.py) now copies entry points into temporary paths, substitutes hosts and release/native operations, and spies on cleanup; earlier execution evidence appears above. Do not invoke real `scripts/build.ps1` as a prerequisite test or run any checks before the deferred reboot.
 
-## Proposed implementation and acceptance
+## Original proposed implementation and acceptance
 
 Factor resolution/preflight so callers share the selected host and explicit cwd. Run an SDK-resolving command such as `--version` under the intended `global.json` policy, check exit/result, and report selected path, required policy, and an actionable [SDK installation link](https://dotnet.microsoft.com/download/dotnet/10.0). Do not replace resolution with a blanket `^10\.` filter or block diagnostic commands such as `--info`/`--list-sdks` on runtime-only installations.
 
@@ -84,6 +92,6 @@ Factor resolution/preflight so callers share the selected host and explicit cwd.
 - Fixture tests assert zero real pushes, output deletions, or compiler invocations.
 - Runtime frameworks, JSONL v1, and configuration schema 2 remain compatible; this is tooling only.
 
-## Existing and missing tests
+## Original test gap and implemented coverage
 
-[test_release_version.py](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/tests/test_release_version.py) covers reservation with fake git, not selected-host resolution/build order. [Lines 133–153](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/tests/test_release_version.py#L133) cover reservation conflict/pre-reserved handling, which must remain intact. No dedicated current test was found for local runtime-only precedence, preflight, or preventing reservation on SDK failure. The analysis audit's unavailable SDK is a toolchain observation, not an executed release-build reproduction. No audio/receiver failure or upstream issue-number relationship is asserted.
+[test_release_version.py](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/tests/test_release_version.py) covers reservation with fake git, not selected-host resolution/build order. [Lines 133–153](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/tests/test_release_version.py#L133) cover reservation conflict/pre-reserved handling, which must remain intact. No dedicated test existed at `41190e0` for local runtime-only precedence, preflight, or preventing reservation on SDK failure. Current [test_dotnet_preflight.py](../../tests/test_dotnet_preflight.py) covers those gaps, host precedence, working-directory restoration, forwarding, explicit installer selection and workflow ordering. The original analysis audit's unavailable SDK was a toolchain observation, not an executed release-build reproduction. No audio/receiver failure or hardware root cause is asserted.

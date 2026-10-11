@@ -6,14 +6,20 @@
 - **Severity**: MEDIUM; a recoverable read failure can abort normal startup
 - **Kind**: Defect
 - **Subsystem**: Core settings persistence / Desktop startup
-- **Status**: Open — source-confirmed recovery-path exception
+- **Status**: Implemented in local main `9e894ab`; Group C remains unpushed/unpublished and unmerged upstream. Main execution/testing is deferred until after reboot.
 - **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
 - **Evidence status**: Original locked-read failure reproduced against unchanged Core; fixed Core/WPF checks recorded in [Group C acceptance](GROUP-C-ACCEPTANCE.md).
-- **Implementation status**: Implemented and tested locally in Group C at `e129466`; see [feature acceptance](GROUP-C-ACCEPTANCE.md). Not pushed or integrated into stable main.
+- **Implementation status**: Corrected Group C head `c3a1d5e` (after initial `e129466`) is integrated locally. [Feature acceptance](GROUP-C-ACCEPTANCE.md) records executed feature evidence; [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) keeps earlier composition results separate from this source-only main audit.
 - **Target files**: [SettingsStore.cs:16–56](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SettingsStore.cs#L16), [App.xaml.cs:48–49,69–75](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/App.xaml.cs#L48)
 - **Analysis context**: [Settings load/backups](../analysis/settings.md)
 
-## Current behavior and effect
+## Current local implementation
+
+Current [SettingsStore.Load](../../desktop/AirFlash.Core/SettingsStore.cs) reads bytes within one guarded operation and never rereads a failing path in its recovery catch. Readable invalid/migrated bytes remain pending for exact-byte backup; an unreadable source retains an obligation to read and preserve before replacement. Only actual missing-file/directory exceptions mean absence, and later disappearance does not discharge a previous uncaptured obligation. Save and identity Save share the store lock; failures retain captured revisions for retry. Existing different `.pre-wpf.bak` content survives while unique sibling backups preserve new revisions, each verified before replacement. Future-schema rejection remains fatal and latches persistence blocking until a valid reread; a pending save checks the now-readable source before backup/replacement.
+
+Source main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`, [SettingsRecoveryTests](../../desktop/AirFlash.Tests/SettingsRecoveryTests.cs) and [concrete-store WPF fixtures](../../desktop/AirFlash.App/Verification/UiSettingsRecovery.cs) were read, without app/build/test execution. Prior feature/composition counts remain historical. The following behavior/proposal/missing-test statements describe pinned `41190e0`. Store locking does not promise coordination with arbitrary external writers or power-loss durability.
+
+## Original baseline behavior and effect
 
 [SettingsStore.Load:18–21](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SettingsStore.cs#L18) checks for an existing file and reads it. Its [catch:51–55](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SettingsStore.cs#L51) explicitly handles JSON, I/O, access, and invalid-operation failures, sets a recovery warning, then tries to read the same path again before returning defaults.
 
@@ -37,7 +43,7 @@ Use a fresh disposable fixture path, never `%APPDATA%` or an actual user configu
 4. Current source predicts an I/O exception from the catch's second read instead of defaults plus a usable warning.
 5. Release the fixture handle and verify the original bytes remain intact; separately exercise any proposed recover-and-save policy.
 
-This is a source-derived fixture specification, not an executed locked-file or GUI run. No real settings, ACLs, or credential files were inspected or changed.
+This was a source-derived fixture specification during the original report. The later isolated Core reproduction and concrete-store WPF checks are recorded in Group C acceptance; they are not new main or real-user-configuration execution. No real settings, ACLs, or credential files were inspected or changed by this audit.
 
 ## Proposed implementation and acceptance
 

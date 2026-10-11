@@ -19,9 +19,9 @@ The regression check uses PowerShell 7 on Windows and copies the installer proje
 | Published input and synthetic copies remain unchanged | Passed | Passed |
 | MSI files unchanged by inspection/extraction | Passed | Passed |
 
-Both fixed builds completed with zero warnings/errors using SDK 10.0.401 and WiX 6.0.2. Ignored reports retain the original failing and corrected runs. The new fork workflow repeats this payload regression and preserves its JSON/build/extraction logs alongside the existing disposable-runner installation checks.
+Both fixed builds completed with zero warnings/errors using SDK 10.0.401 and WiX 6.0.2. Ignored reports retain the original failing and corrected runs. The fork integration workflow repeats this payload regression and preserves its JSON/build/extraction logs alongside the disposable-runner installation checks when it is triggered in `ThatMarko/AirFlash`.
 
-## Final combined build
+## Final A+B+scrolling build — 2026-10-07
 
 Feature `c15a37dad4655700100b202e908e531c2fa41aec` merged separately into the user's fork main at `c552529546b51fb0a242492d4c114c85444df077`. The only conflict joined Group A's SDK instructions with the new installer verification instructions, retaining both. The integrated SDK preflight suite passed all 37 tests, and the real repeated-payload regression passed again after integration.
 
@@ -29,4 +29,12 @@ The final source `1303a09127760912c1cdf6a47bdb14e45904fd62` passed [CI](https://
 
 The [final build acceptance](SETTINGS-SCROLL-ACCEPTANCE.md#final-abscrolling-build) records artifact provenance, binary hashes and exact downloaded desktop results. The local managed EXE matches that downloaded EXE byte for byte. Read-only extraction confirms both local default/explicit-host MSIs and the downloaded MSI contain that exact EXE, SHA-256 `89982600d059a39875acfd5351b77796cc0023959d6c84f1112d6b18899e4bd7`, version `0.3.1.0`, size 77,187,230 bytes. Each package, the first local MSI and source EXE remain unchanged. The earlier stale local packages are rejected and retained only as diagnostic evidence.
 
-The subsequent [native pointer follow-up](SETTINGS-SCROLL-ACCEPTANCE.md#final-downloaded-build-native-pointer-follow-up) passed on the current desktop; it does not change the installer payload results. Other monitor scales/touchpads and accessory/audio reliability remain outside these mock UI checks. No local MSI installation or official release publication occurred. Group A/B branch heads and the scrolling implementation are unchanged by this fix. Fork-only acceptance documents and workflow changes are excluded from the three-file installer feature diff.
+The subsequent [native pointer follow-up](SETTINGS-SCROLL-ACCEPTANCE.md#final-downloaded-build-native-pointer-follow-up) passed in that desktop session; it does not change the installer payload results. Other monitor scales/touchpads and accessory/audio reliability remain outside these mock UI checks. No local MSI installation or official release publication occurred. Group A/B branch heads and the scrolling implementation are unchanged by this fix. Fork-only acceptance documents and workflow changes are excluded from the three-file installer feature diff.
+
+## All-local-branch integration — 2026-10-10
+
+The current local `main` source is `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`; every retained local branch was merged without deleting a branch. Source inspection confirms [build-installer.ps1](../../scripts/build-installer.ps1) still validates the selected host under `desktop/global.json` before creating installer output and invokes `build -t:Rebuild` with the intended absolute `AppExe`. [test-installer-refresh.ps1](../../scripts/test-installer-refresh.ps1) still creates distinct backdated same-version PE copies in an isolated checkout with spaces, inspects MSIs read-only, and verifies embedded SHA-256, File-table size and unchanged inputs/prior package. It never executes or installs those synthetic payloads.
+
+The latest prior local A/B/C/D build, source `6fe467b`, verified both real-payload SDK paths and the two-stage synthetic refresh with executable SHA-256 `d14cb80ad5a8ab13dbeeb3be7e4af814bf015c9ca2554b5d1f1fcd8f0d32d117`, File-table version `0.3.1.0` and 77,230,639 bytes. Its sealed packaging receipt is summarized in [A/B/C/D acceptance](ABCD-INTEGRATION-ACCEPTANCE.md). Separately, hosted A/B-only source `d70f30d` passed packaging and disposable-runner lifecycle checks. Those source/binary identities differ from the historical `1303a09` build above and current merged `main`; none is relabeled as a tested `9e894ab` build.
+
+No new build, MSI extraction/installation, workflow dispatch, test or application execution was performed for this all-branch source review. The user deferred execution until after reboot; no release version was reserved or published.

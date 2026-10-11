@@ -4,6 +4,8 @@ The runtime baseline for these notes is `41190e0d13a63a714c08dffe73ababca1804875
 
 This page checks the previously documented differences using the pinned development commit and `git diff 41190e0 67435a4`. It does not import them into the main workflow or qualify that development build for hardware use. The earlier claim that a particular version was already published as a draft prerelease is not established by source: publication state is external, and a draft is not a published release. The pinned [release workflow](https://github.com/Ding-Kyoma/AirFlash/blob/67435a4e0df6a40e5e709e2b75dc9b24a457dda6/.github/workflows/release.yml) preserves preview artifacts for maintainer publication. Baseline [`UpdateService.cs:10–27`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/UpdateService.cs#L10-L27) queries the stable latest endpoint and explicitly ignores draft/prerelease responses; it does not subscribe to `dev`.
 
+The all-local-branch integration on **2026-10-10**, source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`, does not include `67435a4` in its ancestry. The complete native tree and `UpdateService.cs` remain identical to `41190e0`. A/B/C/D, installer and scrolling fixes and stable Traditional Chinese localization have separate accepted or local implementation histories; their integration does not import the transport/timing negotiation described here. This page was rechecked against both pinned commits without compiling or running either application. The user deferred current-main execution until after reboot.
+
 ## What the pinned comparison establishes
 
 | Area | Difference in `67435a4`, excluded from the baseline |

@@ -1,8 +1,22 @@
 # AirFlash implementation plan
 
-This plan covers all **17 current reports in eight coherent PR groups**. Its original work packages described future implementation. [Group B acceptance](GROUP-B-ACCEPTANCE.md) and [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) retain subsequent standalone, fork-main and downloaded build evidence separately from the original runtime baseline `41190e0`. Issue numbers organize the backlog by severity; they are not the execution order.
+This plan retains **17 reports in eight coherent PR groups**. Its work-package sections describe the original implementation requirements on `41190e0`; they are not a claim that implemented A–D still have those defects or missing test seams. [Group B acceptance](GROUP-B-ACCEPTANCE.md) and [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) retain standalone, fork-main and downloaded build evidence separately. Issue numbers organize the original backlog by severity; they are not the execution order.
 
-The 2026-10-08 existing-PR audit advanced Group B to `11c6046`, fixing additional endpoint and awaited-cleanup intent races. This follow-up is validated separately on `codex/verify-pr-session-audit` before further main integration; the acceptance records distinguish current standalone checks from earlier downloaded artifacts. Group A and scrolling required no source amendments. Groups C and D remain implemented only on their local unpublished branches; this audit does not publish them or activate the remaining work packages.
+## Current local integration — 2026-10-10
+
+All 17 pre-existing local branches are contained in local fork `main` at **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`**; every branch remains, with its original non-main tip preserved. This combines A/B/C/D, scrolling, installer refresh, the 19 cross-group verification assertions and actual upstream `d4aa068`. The desktop/native/scripts/tests/installer trees match previously verified `6fe467b`; historical Group A validation workflow history is also retained. No push, new publication or upstream merge was performed.
+
+| Group | Current local state | Upstream/publication state |
+| --- | --- | --- |
+| A | Implemented and integrated | PR #11 merged upstream |
+| B | Current `0a2c1ac` integrated | Branch pushed; PR #15 closed without merge at frozen `11c6046` |
+| C | Current `c3a1d5e` integrated | Feature branch unpushed; Task 3 not activated |
+| D | Current `48e7ab62` integrated | Feature branch unpushed; Task 3 not activated |
+| E/F/G/H | Unimplemented proposals | No implementation/publication activated by this audit |
+
+The user's current instruction limits this task to merges and a full source/documentation audit. **Application/build/test execution on new main is deferred until after reboot.** Existing pass counts remain bound to their original source/artifacts; see [all-file audit coverage](../analysis/audit.md#merged-main-documentation-audit--2026-10-10). This integration does not authorize later groups or new issues/PRs.
+
+The 2026-10-08 existing-PR audit advanced Group B to `11c6046`, fixing additional endpoint and awaited-cleanup intent races. At that stage the follow-up was validated separately on `codex/verify-pr-session-audit` before main integration; acceptance records distinguish those standalone checks from earlier artifacts. Group A and scrolling required no source amendments. C/D were then implemented only on local unpublished branches; their current integration is recorded above.
 
 Additional testing advanced C to `c3a1d5e` (oversized future schemas) and D to `48e7ab62` (browse cancellation status); their [C](GROUP-C-ACCEPTANCE.md)/[D](GROUP-D-ACCEPTANCE.md) records preserve decisive failures/checks. A later marker assertion proved a tray-harness catalog restoration gap. Current B `0a2c1ac` passed four 300-check UI runs and 253 Core per configuration. Private [A/B/C/D source](ABCD-INTEGRATION-ACCEPTANCE.md) `6fe467b` passed 422 Core per configuration, six 579/571-check portable runs and MSI payload/refresh checks. Public A/B-only `d70f30d` passed hosted checks and six exact downloaded 501/493-check runs with the assertion. Earlier counts retain their original scope; C/D are unchanged and unpublished.
 
@@ -10,7 +24,7 @@ Upstream status refreshed on **2026-10-10**: A [PR #11](https://github.com/Ding-
 
 Task 3 publication on 2026-10-07 followed the user's explicit order: separate scrolling [issue #12](https://github.com/Ding-Kyoma/AirFlash/issues/12) / [PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13), then Group B [issue #14](https://github.com/Ding-Kyoma/AirFlash/issues/14) / [PR #15](https://github.com/Ding-Kyoma/AirFlash/pull/15). Both awaited maintainer workflow approval at publication; their current states are recorded above. Exact source boundaries and historical validation are in the [scrolling](SETTINGS-SCROLL-ACCEPTANCE.md) and [Group B](GROUP-B-ACCEPTANCE.md) records. This submission does not activate Groups C–H or the separate installer fix for upstream publication.
 
-Read the linked report and dedicated analysis page before changing an area. Evidence currently describes runtime `41190e0`. Recheck each trigger against the actual original-repository base used for implementation: a newer stable base may already fix or change a case. Do not import excluded development-preview behavior.
+Read the linked report and dedicated analysis page before changing an area. Original evidence describes runtime `41190e0`; current addenda identify the integrated source separately. Recheck each trigger against the actual original-repository base used for implementation: a newer stable base may already fix or change a case. Do not import excluded development-preview behavior.
 
 ## PR groups and order
 
@@ -63,7 +77,7 @@ Use Windows and PowerShell 7, a .NET SDK that resolves the repository's `desktop
 
 The core xUnit project references `AirFlash.Core`, not the WPF application. Controller and settings-store cases belong there. Actual `AppViewModel`, PIN-dialog, panel and clipboard binding cases belong to the separate WPF `--ui-smoke` harness, unless a small pure helper is deliberately extracted. The mock entry precedes production service/engine initialization; managed UI fixtures can use fake connections without building or contacting the Rust engine. See [test references](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/AirFlash.Tests.csproj) and [mock startup](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/App.xaml.cs#L42).
 
-Add missing seams with the owning group: controllable timer/admission entry, awaitable reconciliation completion, cancellation-aware scripted pairing events, fake DNS-SD operations/monotonic time, and narrowly injectable filesystem/endpoint operations. Existing `MemoryStore.SaveEntered`/`SaveGate` can control saves; they do not already implement these other seams. Use explicit signals, asynchronous continuations and `finally` gate release rather than sleeps deciding which task wins.
+At the original planning baseline, missing seams included controllable timer/admission entry, awaitable reconciliation completion, cancellation-aware scripted pairing events, fake DNS-SD operations/monotonic time, and narrowly injectable filesystem/endpoint operations. A–D added the seams needed by their fixtures; inspect current source before adding another. The original `MemoryStore.SaveEntered`/`SaveGate` alone did not provide all of them. Use explicit signals, asynchronous continuations and `finally` gate release rather than sleeps deciding which task wins.
 
 These are future check entry points, selected according to the affected code:
 
@@ -142,7 +156,7 @@ Suggested internal commits: ownership/guarded retargeting; automatic admission p
 
 ## Group C — settings preservation and loaded validation
 
-Subsequent local execution is recorded in [Group C acceptance](GROUP-C-ACCEPTANCE.md), current head `c3a1d5e`, after initial `e129466`. Reports 06/07 are implemented together; additional tests corrected future integer overflow. This branch remains unpushed and outside fork/upstream main. Its current standalone checks are 126 focused/261 full Core tests and 208 WPF checks per language. Recheck against the updated upstream base before publication. The work-package text below retains the original requirements.
+Subsequent local execution is recorded in [Group C acceptance](GROUP-C-ACCEPTANCE.md), feature head `c3a1d5e`, after initial `e129466`. Reports 06/07 are implemented together; additional tests corrected future integer overflow. C is now in local fork main; its feature branch remains unpushed and upstream does not contain it. Earlier standalone checks were 126 focused/261 full Core and 208 WPF per language. They are not a new-main execution result. Recheck the clean implementation branch against updated upstream before publication. The work-package text below retains the original requirements.
 
 Agree a single recovery result/preservation policy used across both startup Load calls and later automatic saves. Capture readable original bytes once, then decode them compatibly for parsing, including existing BOM/encoding behavior. Keep the raw bytes for a byte-preserving backup; the current ReadAllText/WriteAllText string path alone cannot guarantee that. If contents were not captured, allow controlled defaults/diagnostics without silently authorizing replacement of an unreadable original. A subsequent save must preserve it successfully or report a controlled failure. Distinguish genuine absence, pending preservation and verified backup; retain future-schema rejection.
 
@@ -164,7 +178,7 @@ Agree a single recovery result/preservation policy used across both startup Load
 
 ## Group D — DNS operation lifecycle
 
-Subsequent local execution is recorded in [Group D acceptance](GROUP-D-ACCEPTANCE.md), current head `48e7ab62`, after initial `4c79f22`. Report 04 is implemented separately after C; additional testing corrected browse cancellation status 995 to the documented 1223. Current standalone checks are 69 focused/232 full Core tests, 149 WPF checks per language and a bounded DNS-only Windows probe. C/D remain unpushed and outside fork/upstream main. Recheck against updated upstream before publication; the work-package text below retains the original requirements.
+Subsequent local execution is recorded in [Group D acceptance](GROUP-D-ACCEPTANCE.md), feature head `48e7ab62`, after initial `4c79f22`. Report 04 was implemented after C; additional testing corrected browse cancellation status 995 to documented 1223. Earlier standalone checks were 69 focused/232 full Core, 149 WPF per language and a bounded DNS-only Windows probe. D is now in local fork main, while C/D feature branches remain unpushed and upstream does not contain them. New-main execution is deferred. Recheck against updated upstream before publication; the work-package text below retains the original requirements.
 
 ### ISSUE-04
 
@@ -248,9 +262,9 @@ Conservative recovery: an already matching saved bit needs no endpoint write; ot
 
 [Report](ISSUE-17-LOW-orphaned-translation-keys-cleanup.md). Read [settings/localization](../analysis/settings.md).
 
-**Implementation.** After the final UI/diagnostic labels are known, re-evaluate the ten named candidates against actual literals and dynamic lookup sources. Remove only those still unused. Preserve diagnostics labels, Monitor caveats, EQ presets, generated version text and legacy serialized settings properties. Do not add a universal CI rule requiring every key to appear as a literal.
+**Implementation.** After the final UI/diagnostic labels are known, re-evaluate the ten named candidates against actual literals and dynamic lookup sources in both Simplified and Traditional Chinese catalogs. Remove only those still unused. Preserve diagnostics labels, Monitor caveats, EQ presets, generated version text and legacy serialized settings properties. Do not add a universal CI rule requiring every key to appear as a literal.
 
-**Acceptance/verification.** Use existing localization/format checks and English/Chinese mock Settings/Monitor/EQ pages. Review variable `L.Get`, choice arrays and markup inputs as well as exact-string scans. No new test that merely mirrors a deleted-key list is needed. Finish this as H's last commit and record the final reference review.
+**Acceptance/verification.** Use existing localization/format checks and English, Simplified Chinese and Traditional Chinese mock Settings/Monitor/EQ pages. Review variable `L.Get`, choice arrays and markup inputs as well as exact-string scans. No new test that merely mirrors a deleted-key list is needed. Finish this as H's last commit and record the final reference review.
 
 ## Completion gate for every group
 
