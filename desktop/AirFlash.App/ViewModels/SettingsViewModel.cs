@@ -65,7 +65,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     public event Action<Receiver>? PairRequested;
     public RelayCommand AddReceiverCommand { get; }
     public RelayCommand LicensesCommand { get; }
-    public SettingsViewModel(AppViewModel app)
+    public SettingsViewModel(AppViewModel app, Action<string>? diagnosticsWriter = null)
     {
         CheckUpdatesCommand = new(Updates.CheckAsync, _ => { });
         OpenDownloadCommand = new(() =>
@@ -86,7 +86,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         RefreshEndpointsCommand = new(() => LoadEndpointsAsync(true), ShowError, () => CanEdit && !_endpointLoading);
         RefreshAdaptersCommand = new(RefreshAdapters);
         OpenLogsCommand = new(() => { try { AppPaths.OpenLogs(); } catch (Exception error) { ShowError(error); } });
-        CopyDiagnosticsCommand = new(() => { try { Clipboard.SetText(App.Diagnostics()); } catch (Exception error) { ShowError(error); } });
+        CopyDiagnosticsCommand = new(() => { try { (diagnosticsWriter ?? Clipboard.SetText)(App.Diagnostics()); } catch (Exception error) { ShowError(error); } });
         AddReceiverCommand = new(() => { if (CanEdit) AddReceiverRequested?.Invoke(); }, () => CanEdit);
         LicensesCommand = new(() => new Ui.LicensesWindow().Show());
         Draft.PropertyChanged += DraftChanged;
