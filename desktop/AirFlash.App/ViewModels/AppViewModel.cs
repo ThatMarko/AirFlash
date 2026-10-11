@@ -23,6 +23,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private bool _volumeDirty, _autoSuppressed, _closing;
     private bool _controlledScheduling;
     internal Func<Task>? BeforeAutomaticAdmission { get; set; }
+    internal Func<Task>? AfterExplicitAdmission { get; set; }
     internal void UseControlledScheduling() { _controlledScheduling = true; _volumeTimer.Stop(); _autoTimer.Stop(); }
     private string? _defaultEndpoint;
     private long _editRevision;
@@ -302,7 +303,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     }
     public async Task ToggleAsync(Receiver receiver)
     {
-        Session.InvalidateAutomaticIntent();
+        var explicitIntent = Session.BeginExplicitIntent();
         if (_closing) return;
         var current = Session.Capture().Snapshot;
         if (current.IsActive && current.Receiver?.Id == receiver.Id) { await StopAsync(); return; }
@@ -313,13 +314,14 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         await _settingsGate.WaitAsync();
         try
         {
-            if (_closing) return;
+            if (_closing || !Session.IsIntentCurrent(explicitIntent)) return;
             if (!receiver.IsManual)
                 receiver = AllReceivers.FirstOrDefault(r => r.Id == receiver.Id && r.Online && r.Complete)
                     ?? throw new InvalidOperationException(L.Get("The receiver is unavailable."));
             if (_settings.ReadOptions(receiver.Id).Hidden) throw new InvalidOperationException(L.Get("The receiver is unavailable."));
-            Notice = "";
-            await Session.StartAsync(receiver, _settings.Clone());
+            if (!await Session.TryStartExplicitAsync(receiver, _settings.Clone(), explicitIntent)) return;
+            if (AfterExplicitAdmission is { } afterAdmission) await afterAdmission();
+            if (Session.IsIntentCurrent(explicitIntent)) Notice = "";
             _autoAttempted.Add(receiver.Id);
             _settings.LastReceiverId = receiver.Id;
             VolumeChanged();
@@ -335,9 +337,9 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     }
     public Task PairAsync(Receiver receiver, Func<Receiver, CancellationToken, Task<string?>> requestPin)
     {
-        Session.InvalidateAutomaticIntent();
+        var explicitIntent = Session.BeginExplicitIntent();
         if (_closing) return Task.CompletedTask;
-        return Session.PairAsync(ResolvePlayback(receiver), _settings.Clone(), requestPin);
+        return Session.TryPairExplicitAsync(ResolvePlayback(receiver), _settings.Clone(), requestPin, explicitIntent);
     }
     private Receiver ResolvePlayback(Receiver receiver) => ReceiverSelection.ResolvePlayback(receiver, AllReceivers)
         ?? throw new InvalidOperationException(L.Get("The receiver selection is ambiguous."));

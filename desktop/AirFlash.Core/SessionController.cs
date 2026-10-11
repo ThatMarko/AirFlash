@@ -179,26 +179,40 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private SessionSnapshot _snapshot = new(PlaybackState.Idle);
     public SessionSnapshot Snapshot { get { lock (_sync) return _snapshot; } }
     public SessionCapture Capture() { lock (_sync) return new(_snapshot, _generation, _automaticIntent); }
-    public void InvalidateAutomaticIntent() { lock (_sync) ++_automaticIntent; }
+    public void InvalidateAutomaticIntent() { BeginExplicitIntent(); }
+    // Carry one explicit action's token through its caller's persistence and controller cleanup.
+    public long BeginExplicitIntent() { lock (_sync) return ++_automaticIntent; }
+    public bool IsIntentCurrent(long expectedIntent) { lock (_sync) return _automaticIntent == expectedIntent; }
     public event Action<SessionSnapshot>? Changed;
     public bool Muted => _muted;
     private string Signature(Receiver receiver, AppSettings settings) => $"{receiver.TransportKey}|{settings.EffectiveEndpoint}|{settings.Latency(receiver.Id)}|{settings.StreamSampleRate}";
     public async Task StartAsync(Receiver receiver, AppSettings settings)
     {
-        InvalidateAutomaticIntent();
-        if (!receiver.Online) throw new InvalidOperationException(L.Get("The receiver is unavailable."));
-        if (!receiver.Complete) throw new InvalidOperationException(L.Get("Both stereo pair members must be online."));
-        await _serial.WaitAsync().ConfigureAwait(false);
-        try { await StartLockedAsync(receiver, settings, null).ConfigureAwait(false); }
-        finally { _serial.Release(); }
+        var intent = BeginExplicitIntent();
+        await TryStartExplicitAsync(receiver, settings, intent).ConfigureAwait(false);
     }
     public async Task PairAsync(Receiver receiver, AppSettings settings, Func<Receiver, CancellationToken, Task<string?>> requestPin)
     {
-        InvalidateAutomaticIntent();
+        var intent = BeginExplicitIntent();
+        await TryPairExplicitAsync(receiver, settings, requestPin, intent).ConfigureAwait(false);
+    }
+    public Task<bool> TryStartExplicitAsync(Receiver receiver, AppSettings settings, long expectedIntent)
+        => StartExplicitAsync(receiver, settings, null, expectedIntent);
+    public Task<bool> TryPairExplicitAsync(Receiver receiver, AppSettings settings, Func<Receiver, CancellationToken, Task<string?>> requestPin, long expectedIntent)
+        => StartExplicitAsync(receiver, settings, requestPin, expectedIntent);
+    private async Task<bool> StartExplicitAsync(Receiver receiver, AppSettings settings, Func<Receiver, CancellationToken, Task<string?>>? requestPin, long expectedIntent)
+    {
+        if (!IsIntentCurrent(expectedIntent)) return false;
         if (!receiver.Online) throw new InvalidOperationException(L.Get("The receiver is unavailable."));
-        if (!receiver.Complete) throw new InvalidOperationException(L.Get("Wait until both stereo pair members are online before pairing."));
+        if (!receiver.Complete) throw new InvalidOperationException(L.Get(requestPin is null
+            ? "Both stereo pair members must be online." : "Wait until both stereo pair members are online before pairing."));
         await _serial.WaitAsync().ConfigureAwait(false);
-        try { await StartLockedAsync(receiver, settings, requestPin).ConfigureAwait(false); }
+        try
+        {
+            // A later explicit action can arrive before serialization or while cleanup awaits.
+            if (!IsIntentCurrent(expectedIntent)) return false;
+            return await StartLockedAsync(receiver, settings, requestPin, expectedIntent).ConfigureAwait(false);
+        }
         finally { _serial.Release(); }
     }
     public async Task<bool> TryStartAutomaticAsync(Receiver receiver, AppSettings settings, long expectedOwner, long expectedIntent)

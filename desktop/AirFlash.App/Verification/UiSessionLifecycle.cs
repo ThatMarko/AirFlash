@@ -17,6 +17,8 @@ internal static class UiSessionLifecycle
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(6);
     public static async Task RunAsync(List<string> checks, string directory)
     {
+        await ExplicitAdmissionNoticeAsync(checks);
+        await ExplicitSaveOwnershipAsync(checks);
         await EndpointOwnershipAsync(checks, directory);
         await EndpointRestoreAsync(checks);
         await DeferredEndpointRestoreAsync(checks);
@@ -72,6 +74,139 @@ internal static class UiSessionLifecycle
     private static Task StateAsync(Fixture fixture, PlaybackState state) => StateAsync(fixture, snapshot => snapshot.State == state);
     private static Task EndpointChangedAsync(AppViewModel app)
         => (Task)typeof(AppViewModel).GetMethod("OnEndpointsChangedAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(app, null)!;
+
+    private static async Task ExplicitAdmissionNoticeAsync(List<string> checks)
+    {
+        foreach (var scenario in new[] { "pair", "stop" })
+        {
+            var a = Pod("admitted-a"); var b = Pod("selected-b", "192.0.2.20", 7001) with { IsManual = true };
+            var settings = Settings(true); SeedAliases(settings, a);
+            settings.ManualReceivers.Add(new(b.Id, b.Name, b.Address, b.Port)); settings.Options(b.Id).AutoConnect = false;
+            await using var fixture = await Fixture.CreateAsync(settings, [a]);
+            var gate = new Gate(); fixture.App.AfterExplicitAdmission = gate.WaitAsync;
+            var pending = fixture.App.ToggleAsync(a); ControlPanel? panel = null;
+            try
+            {
+                await gate.Entered.Task.WaitAsync(Limit); await StateAsync(fixture, PlaybackState.Streaming);
+                Check(!pending.IsCompleted && fixture.Engine.OpenCount == 1 && fixture.App.Settings.LastReceiverId == "previous",
+                    "explicit Play is admitted while its dispatcher bookkeeping continuation remains held: " + scenario, checks);
+                if (scenario == "pair")
+                {
+                    var pairing = new ScriptedConnection(false); fixture.Engine.Enqueue(pairing);
+                    await fixture.App.PairAsync(b, (_, _) => throw new InvalidOperationException("No PIN prompt belongs to this fixture."));
+                    await pairing.PairSent.Task.WaitAsync(Limit); await StateAsync(fixture, PlaybackState.Pairing);
+                }
+                else
+                {
+                    panel = new(fixture.App); panel.ShowPanel(); await DrainAsync(); panel.UpdateLayout();
+                    var row = fixture.App.Receivers.Single(receiver => receiver.Receiver.Id == a.Id);
+                    var stop = UiSmoke.Descendants(panel).OfType<Button>().Single(button => button.Command == row.ToggleCommand);
+                    Check(stop.IsVisible && stop.IsEnabled, "admitted Play exposes a reachable bound Stop before its continuation resumes", checks);
+                    var peer = new ButtonAutomationPeer(stop); ((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)!).Invoke();
+                    await StateAsync(fixture, PlaybackState.Idle);
+                }
+                var owned = fixture.App.Session.Capture(); var opens = fixture.Engine.OpenCount;
+                fixture.App.ShowError(new IOException("notice from newer " + scenario));
+                gate.Release.TrySetResult(); await pending; await DrainAsync();
+                Check(fixture.App.Notice == "notice from newer " + scenario,
+                    "an admitted old Play continuation preserves the notice from newer explicit " + scenario, checks);
+                Check(fixture.App.Session.Capture().Owner == owned.Owner && fixture.App.Session.Snapshot.Receiver == owned.Snapshot.Receiver
+                    && fixture.App.Session.Snapshot.State == owned.Snapshot.State && fixture.Engine.OpenCount == opens
+                    && fixture.App.Settings.LastReceiverId == a.Id && fixture.Store.Saved.LastReceiverId == a.Id,
+                    "admitted Play remains recorded without replacing newer ownership: " + scenario, checks);
+                fixture.App.AfterExplicitAdmission = null;
+                if (scenario == "pair") await fixture.App.StopAsync(false);
+                await StateAsync(fixture, PlaybackState.Idle);
+                await fixture.App.TryAutoConnectAsync();
+                Check(fixture.Engine.OpenCount == opens && fixture.App.Snapshot.State == PlaybackState.Idle,
+                    scenario == "pair" ? "admitted old Play remains attempted after the newer Pair ends"
+                        : "admitted old Play continuation preserves newer user Stop suppression", checks);
+            }
+            finally
+            {
+                gate.Release.TrySetResult(); fixture.App.AfterExplicitAdmission = null; panel?.ShutdownPanel();
+                await pending.WaitAsync(Limit);
+            }
+        }
+    }
+
+    private static async Task ExplicitSaveOwnershipAsync(List<string> checks)
+    {
+        foreach (var scenario in new[] { "pair", "same id", "stop", "save failure", "valid" })
+        {
+            var a = Pod("explicit-a"); var b = Pod("explicit-b", "192.0.2.20");
+            var settings = Settings(true); SeedAliases(settings, a, b);
+            await using var fixture = await Fixture.CreateAsync(settings, [a, b]);
+            await fixture.App.ToggleAsync(b); await StateAsync(fixture, PlaybackState.Streaming);
+            var gate = fixture.Store.Hold(); fixture.App.MasterVolume = 37;
+            var pending = fixture.App.ToggleAsync(a); ControlPanel? panel = null;
+            try
+            {
+                await gate.Entered.Task.WaitAsync(Limit);
+                Check(!pending.IsCompleted && fixture.Engine.OpenCount == 1,
+                    "explicit Play waits for its own dirty save before admission: " + scenario, checks);
+                SessionCapture owned;
+                if (scenario is "pair" or "same id")
+                {
+                    var pairing = new ScriptedConnection(false); fixture.Engine.Enqueue(pairing);
+                    await fixture.App.PairAsync(scenario == "same id" ? a : b, (_, _) => throw new InvalidOperationException("No PIN prompt belongs to this fixture."));
+                    await pairing.PairSent.Task.WaitAsync(Limit); await StateAsync(fixture, PlaybackState.Pairing);
+                    owned = fixture.App.Session.Capture();
+                }
+                else if (scenario == "stop")
+                {
+                    panel = new(fixture.App); panel.ShowPanel(); await DrainAsync(); panel.UpdateLayout();
+                    var row = fixture.App.Receivers.Single(receiver => receiver.Receiver.Id == b.Id);
+                    var stop = UiSmoke.Descendants(panel).OfType<Button>().Single(button => button.Command == row.ToggleCommand);
+                    Check(stop.IsVisible && stop.IsEnabled, "the owned receiver has a reachable bound Stop while another Play save waits", checks);
+                    var peer = new ButtonAutomationPeer(stop); ((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)!).Invoke();
+                    await StateAsync(fixture, PlaybackState.Idle); owned = fixture.App.Session.Capture();
+                }
+                else owned = fixture.App.Session.Capture();
+                var opens = fixture.Engine.OpenCount;
+                if (scenario == "save failure") fixture.Store.Fail = true;
+                if (scenario is "pair" or "same id" or "stop") fixture.App.ShowError(new IOException("newer explicit notice"));
+                gate.Release.TrySetResult();
+                if (scenario == "save failure")
+                {
+                    var failed = false;
+                    try { await pending; } catch (IOException) { failed = true; }
+                    Check(failed && fixture.Engine.OpenCount == opens && fixture.App.Settings.LastReceiverId == b.Id
+                        && fixture.Store.Saved.MasterVolume != 37 && fixture.App.Session.Capture().Owner == owned.Owner,
+                        "failed explicit preflush preserves the owned stream and does not record the requested receiver", checks);
+                    fixture.Store.Fail = false; await fixture.App.ToggleAsync(a); await StateAsync(fixture, PlaybackState.Streaming);
+                }
+                else await pending;
+                await DrainAsync();
+                if (scenario is "valid" or "save failure")
+                {
+                    Check(fixture.Engine.OpenCount == opens + 1 && fixture.App.Snapshot.Receiver?.Id == a.Id
+                        && fixture.Store.Saved.MasterVolume == 37 && fixture.Store.Saved.LastReceiverId == a.Id,
+                        "current explicit Play admits exactly once and records successfully persisted selection: " + scenario, checks);
+                    continue;
+                }
+                var current = fixture.App.Session.Capture();
+                Check(current.Owner == owned.Owner && current.Snapshot.Receiver == owned.Snapshot.Receiver
+                    && current.Snapshot.State == owned.Snapshot.State && current.Snapshot.Diagnostics == owned.Snapshot.Diagnostics && fixture.Engine.OpenCount == opens
+                    && fixture.Store.Saved.MasterVolume == 37 && fixture.App.Settings.LastReceiverId == b.Id
+                    && fixture.App.Notice == "newer explicit notice",
+                    "superseded explicit Play preserves newer ownership, diagnostics, notice and valid persistence: " + scenario, checks);
+                if (scenario == "stop")
+                {
+                    await fixture.App.TryAutoConnectAsync();
+                    Check(fixture.App.Snapshot.State == PlaybackState.Idle && fixture.Engine.OpenCount == opens,
+                        "superseded explicit Play preserves newer user Stop suppression", checks);
+                }
+                else
+                {
+                    await fixture.App.StopAsync(false); await fixture.App.TryAutoConnectAsync(); await StateAsync(fixture, PlaybackState.Streaming);
+                    Check(fixture.App.Snapshot.Receiver?.Id == a.Id && fixture.Engine.OpenCount == opens + 1,
+                        "rejected explicit Play leaves its candidate unattempted for later valid automatic admission: " + scenario, checks);
+                }
+            }
+            finally { gate.Release.TrySetResult(); panel?.ShutdownPanel(); }
+        }
+    }
 
     private static async Task EndpointOwnershipAsync(List<string> checks, string directory)
     {
