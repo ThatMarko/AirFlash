@@ -1,6 +1,6 @@
 # Settings scrolling acceptance
 
-Verified locally on 2026-10-07 after the user reported crowded Settings scrollbars. This is a separate UI fix, outside the existing Groups A–H. The user subsequently authorized merging it into the A+B fork main and building it with GitHub Actions. The feature merged at `96c7b5593a5a7d10b72980b814bf0ae7ddc7908d`; original upstream main remains unchanged at `41190e0`.
+Verified locally on 2026-10-07 after the user reported crowded Settings scrollbars. This is a separate UI fix, outside Groups A–H. The user subsequently authorized merging it into A+B fork main and building it with GitHub Actions. The fork feature merged at `96c7b5593a5a7d10b72980b814bf0ae7ddc7908d`; upstream main was `41190e0` during that validation. Upstream PR #13 has since merged, as recorded in the current-status addendum below.
 
 ## Source and behavior
 
@@ -87,4 +87,10 @@ The initial mouse trial intentionally disabled EQ but expired before the operato
 
 On 2026-10-07, after explicit user authorization, published [issue #12](https://github.com/Ding-Kyoma/AirFlash/issues/12) and ready-for-review [PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13). The PR targets original stable `41190e0d13a63a714c08dffe73ababca1804875c` from `ThatMarko:codex/fix-settings-scroll` at `54cd18e028af9abc4d0b85af8197209a978c4603`. Its five-file diff and all three outgoing commits exclude fork analysis/issues/planning documents. `Fixes #12`, the published bodies and branch identities were read back and verified; the PR is attached to the Codex task.
 
-At publication, [upstream CI run 37717295723](https://github.com/Ding-Kyoma/AirFlash/actions/runs/37717295723) reported `action_required` and explicitly awaited maintainer approval, with no jobs started. No review had been submitted. The next upstream action is maintainer approval of the fork workflow and review; this status is separate from the completed local/fork validation above. No upstream merge occurred.
+At publication, [upstream CI run 37717295723](https://github.com/Ding-Kyoma/AirFlash/actions/runs/37717295723) reported `action_required` and awaited maintainer approval, with no jobs started. No review had been submitted; approval/review were the next external actions at that time. That historical gate is separate from completed local/fork validation and later upstream acceptance.
+
+## Current upstream status on 2026-10-10
+
+[PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13) is **merged**, and [issue #12](https://github.com/Ding-Kyoma/AirFlash/issues/12) is closed. Its feature branch head remains `54cd18e028af9abc4d0b85af8197209a978c4603`; no additional scrolling source change was required in the fresh audit. Group A PR #11 also merged. Actual upstream stable main is now `d4aa0686fc411de6655aac313243f0f6bf71e439`, including later Traditional Chinese localization. Earlier approval-gate statements describe the dated runs, not the current PR state.
+
+Current local [A/B/C/D source](ABCD-INTEGRATION-ACCEPTANCE.md) `6fe467b` passed 422 Core per configuration, six exact portable runs and MSI payload/refresh checks with catalog restoration. Current public A/B-only `d70f30d` passed hosted checks and six exact downloaded 501/493-check runs. Both matrices covered 32 page/theme/size plus two frequency labels at 880×640/640×440, with 12 DIP gutters and 201 English/193 Chinese scrolling checks. The distinct final receipts pin each binary/source. Historical `122500d`/`098c0a1` predate the restoration assertion. Closed B PR #15 still presents `11c6046`, without reopen. Scrolling source/native pointer history is unchanged; C/D are unpublished.

@@ -1,6 +1,6 @@
 # Group C feature acceptance
 
-Verified on 2026-10-08. Reports 06 and 07 are implemented together on local branch `codex/fix-settings-recovery`, head `e1294668161fb1967448a186e2e0263444d0d3bd`, directly based on refreshed original stable `41190e0d13a63a714c08dffe73ababca1804875c`. This branch has not been pushed, published, or merged into either fork or upstream main.
+Initial verification completed on 2026-10-08; the additional testing below advanced local branch `codex/fix-settings-recovery` to **`c3a1d5e4bf2879054e729b77440f97aa259155e9`**. Reports 06 and 07 are implemented together in two commits based on original stable `41190e0d13a63a714c08dffe73ababca1804875c`. The initial implementation head was `e1294668161fb1967448a186e2e0263444d0d3bd`. Neither commit has been pushed or published, and neither is integrated into fork/upstream main. Upstream has since advanced; publication requires checking the branch against that actual updated base.
 
 Worktree: `C:\Users\marko\.codex\worktrees\fix-settings-recovery\AirFlash`.
 
@@ -13,7 +13,7 @@ Worktree: `C:\Users\marko\.codex\worktrees\fix-settings-recovery\AirFlash`.
 - Existing null-collection, null receiver-option and alias normalization precedes total semantic validation. Null manual entries, empty/duplicate ordinal IDs, invalid addresses/ports, sample rates, enums, ranges and EQ values recover before runtime consumes them. Null/blank manual names, nullable overrides, extension fields and offline selected adapter IDs retain compatibility.
 - Application persistence refreshes an owned recovery notice after successful preservation, without replacing an unrelated notice. Normal production startup's read-only native `hello` is unchanged.
 
-## Executed verification
+## Initial verification on 2026-10-08
 
 | Check | Result |
 | --- | --- |
@@ -37,4 +37,23 @@ Ignored implementation-worktree evidence is in `artifacts/group-c-tests/`, `arti
 
 Tests use synthetic temporary files and simulated services; the WPF suite uses isolated real window/tray identities. No real settings, credential store, discovery, receivers, capture or endpoint mutation is involved. Store serialization and atomic replacement do not establish power-loss durability or coordination with arbitrary external writers. No native engine source, schema-2 format or JSONL v1 contract changed.
 
-Group D was subsequently implemented and verified separately; see [Group D acceptance](GROUP-D-ACCEPTANCE.md). Both remain local original-base implementations, ready for later explicitly authorized Task 3 publication.
+## Additional testing and fix on 2026-10-09
+
+The initial future-schema guard depended on bounded numeric conversion. Positive integer schema tokens above that conversion's range could be treated as recoverable invalid input, allowing defaults persistence to replace a future configuration. Eight decisive cases ran against unchanged `e129466`; six failed and the two ordinary future-version controls passed. This is a defect in the initial Group C implementation, separate from the eight original-`41190e0` probes above.
+
+Commit `c3a1d5e` classifies positive integer JSON tokens lexically before bounded parsing: every integer above the supported schema remains fatal, including oversized values, case variants and supported duplicates. Load, pending-preservation Save and identity Save refuse backup/replacement of a current future-schema file. Existing fractional, exponent, string and invalid negative spellings retain controlled recovery with exact-byte backup. No schema format changed.
+
+| Additional check | Result |
+| --- | --- |
+| Decisive pre-fix cases on unchanged initial implementation | Six failed, two controls passed; successful build |
+| Added Core cases | 22 covering oversized future integers, save/identity-save blocking and spelling compatibility |
+| Focused settings suite | 126 passed; zero failures/skips |
+| Complete Core suite, Debug and Release | 261 passed in each configuration; zero failures/skips |
+| Debug/Release solution builds | SDK 10.0.401; zero warnings/errors |
+| Fresh full isolated WPF checks | 208 English and 208 Chinese passed on the corrected source |
+| Independent lexical-classification/assertion review | No actionable finding |
+| Complete feature scope | Two commits, eight desktop runtime/test/localization files; fork-only planning remains excluded |
+
+Evidence is retained in the implementation worktree's `artifacts/more-testing-2026-10-09/future-schema-after-receipt.json` and associated TRX files. The receipt was captured before committing, so its `committed: false` and `base_head: e129466` describe that test invocation. Its source hashes match the committed `c3a1d5e` files: SettingsStore SHA-256 `a9513055d64de09b8edab56a690de4d5fe0ce10e7421849524cd07c249be68a3`, SettingsRecoveryTests `80615499213bb953d089e05dc3cbc4d45737f7b90c812be490a0935ef01378b2`. Fresh UI reports are in the fork checkout's ignored `artifacts/abcd-extra-2026-10-09/c-ui-en-US/` and `c-ui-zh-CN/`.
+
+Group D was verified separately; see [D acceptance](GROUP-D-ACCEPTANCE.md). Final local [A/B/C/D source](ABCD-INTEGRATION-ACCEPTANCE.md) `6fe467b` passed 422 Core per configuration, six 579/571-check portable runs including all 19 cross-group assertions and exact catalog restoration, and MSI payload/refresh checks. C production/standalone results are unchanged. Public hosted sources exclude C/D; no C publication/main integration occurred. Task 3 for C has not been activated.
