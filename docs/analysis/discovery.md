@@ -1,5 +1,9 @@
 # Discovery
 
+## Continuation on 2026-10-11
+
+The [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
+
 ## Current local main and historical boundary
 
 Local main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7` includes corrected D `48e7ab62`, final B `0a2c1ac` and C `c3a1d5e`. The detailed browse/resolve/cache sections through the original verification table below describe **historical `41190e0`**, including its missing deadline and native lifetime limits. In current [WindowsDiscovery](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs), `_advertised`, `_records`, `_pending` and `_owners` have separate lifetimes; [DiscoveryPolicy](../../desktop/AirFlash.App/Services/DnsServiceApi.cs) defines a five-second monotonic resolve deadline, 20-second successful refresh/adapter checks, 90-second record expiry, bounded 1–30-second exponential retry, and ownership caps. The coordinator's infrastructure runs maintenance each second. Cache expiry retains still-advertised names. TTL-zero or advertisement expiry retires that name and its logical request; exact owner/epoch checks reject late results.

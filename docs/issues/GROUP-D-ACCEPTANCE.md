@@ -1,5 +1,9 @@
 # Group D feature acceptance
 
+## Continuation on 2026-10-11
+
+The [continuation acceptance](CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
+
 ## Local main integration on 2026-10-10
 
 Corrected D `48e7ab62dd034085a53825d17e52b6bbf3714315` is now an ancestor of local main **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`**, with final B/C, scrolling and updated upstream. Original D commits and its branch are retained; D remains unpushed/unpublished and unmerged upstream. The source-only audit traced monotonic advertisement/cache/deadline/backoff and retained-owner state, exact token/epoch checks, caps, publication deferral, native Start/Cancel/callback frame lifetime, malformed native outputs and failure observers through the current application publication consumer. Current raw-buffer/coordinator assertions were read without executing them. Microsoft BrowseCancel/ResolveCancel documentation and the 1223 constant were rechecked against the source contract.

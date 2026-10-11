@@ -1,5 +1,9 @@
 # Session control
 
+## Continuation on 2026-10-11
+
+The [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
+
 ## Current local main and historical boundary
 
 The state diagram, call table and source-linked detailed body below describe the audited **`41190e0`** baseline. In local main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`, passive discovery loss no longer calls Stop, and automatic starts use `TryStartAutomaticAsync`; explicit Play/Pair/Stop still retain their ordinary serialized lifecycle paths. Manual/group selection no longer redirects by shared address. Those baseline edges must not be read as current main behavior.

@@ -1,5 +1,9 @@
 # AirFlash receiver workflow
 
+## Continuation on 2026-10-11
+
+The [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
+
 The [2026-10-11 fork synchronization](../issues/README.md#fork-synchronization--2026-10-11) pushed and verified all 18 retained branches, including C/D, to the user's own repository. The source audits below retain their pinned revisions; this push does not add new runtime test results or submit C/D upstream.
 
 This set describes the path from a HomePod advertisement to a live AirPlay 2 stream in the runtime source at `41190e0d13a63a714c08dffe73ababca1804875c`. The documentation baseline is `c077a0577de26ad7e44b8fd50f62456e12965fb0`, which adds `docs/analysis/` and `docs/issues/` without changing runtime source. These are pinned snapshots, not a promise about a moving remote branch.

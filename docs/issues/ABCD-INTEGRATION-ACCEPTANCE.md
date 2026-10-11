@@ -1,5 +1,9 @@
 # Additional A/B/C/D integration acceptance
 
+## Continuation on 2026-10-11
+
+The [continuation acceptance](CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
+
 Additional testing corrected two C/D implementation defects and B's regional mock-fixture expectation, then proved/fixed a tray-harness catalog restoration gap. B feature head is `0a2c1ac`; previously verified private composition **`6fe467b585e80fde0b8bfa47598195f51b8e9a5a`** passed build/Core, six exact portable regional/catalog runs and MSI payload/refresh checks. Hosted A/B-only `d70f30d` also passed build/package/runner checks and six exact downloaded desktop runs. These results retain their executed scope. C/D remain unpublished.
 
 ## Subsequent local main integration — 2026-10-10

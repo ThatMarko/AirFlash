@@ -1,5 +1,9 @@
 # Analysis source audits
 
+## Continuation on 2026-10-11
+
+The [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
+
 ## Original audit — 2026-10-06
 
 All sixteen original files in `docs/analysis/` were read and checked against their implementation, callers, state transitions, and relevant test sources. The resulting pages correct the claims that were false or too broad and identify what source inspection cannot establish. This report adds provenance and a cross-cutting verification record; the dedicated subsystem pages remain the detailed map.

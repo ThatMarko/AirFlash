@@ -1,5 +1,9 @@
 # [HIGH] A resolve without completion has no deadline and stalls discovery
 
+## Continuation on 2026-10-11
+
+The [continuation acceptance](CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
+
 - **Issue ID**: ISSUE-04
 - **Implementation plan**: [Work package ISSUE-04](IMPLEMENTATION_PLAN.md#issue-04)
 - **PR group**: D — DNS operation lifecycle

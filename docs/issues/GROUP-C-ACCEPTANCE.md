@@ -1,5 +1,9 @@
 # Group C feature acceptance
 
+## Continuation on 2026-10-11
+
+The [continuation acceptance](CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
+
 ## Local main integration on 2026-10-10
 
 Final C `c3a1d5e4bf2879054e729b77440f97aa259155e9` is now an ancestor of local main **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`**, with final B/D, scrolling and updated upstream. Both original C commits and its branch are retained; C remains unpushed/unpublished and unmerged upstream. This source-only audit traced both normal startup loads, byte capture/BOM decoding, migration, collection normalization, semantic validation, future-schema classification, pending revision/backup retry and identity persistence into application notice/save/admission callers. Current Core/WPF assertions were inspected without executing them.

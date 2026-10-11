@@ -1,5 +1,9 @@
 # AirFlash implementation backlog
 
+## Continuation on 2026-10-11
+
+The [continuation acceptance](CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
+
 ## Fork synchronization — 2026-10-11
 
 At the user's instruction, all 18 retained local branches were pushed to `ThatMarko/AirFlash` and every remote head was verified against its local commit. This includes C/D and all preserved backup/validation branches. Fresh upstream stable `d4aa068` was already contained in main, so no new upstream merge was needed. Earlier statements that C/D feature branches were unpushed describe the dated 2026-10-10 audit and are superseded by this synchronization. C/D still have no upstream issue/PR submission. Runtime source is unchanged; local application/build/testing remains deferred until after reboot.

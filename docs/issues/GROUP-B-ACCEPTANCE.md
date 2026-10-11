@@ -1,5 +1,9 @@
 # Group B feature acceptance
 
+## Continuation on 2026-10-11
+
+The [continuation acceptance](CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
+
 ## Local main integration on 2026-10-10
 
 Final pushed B `0a2c1ac2f95fa51d040b4ef0beb84f1e6aae6c26`, including production follow-up `11c6046` and regional/catalog fixture corrections, is now an ancestor of local main **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`** alongside final C/D, scrolling, installer/workflow fixes and updated upstream. Existing branches are retained. This local merge has not been pushed. A/scrolling are merged upstream; B PR #15 remains closed without merge and frozen at its older source snapshot. C/D remain unpushed/unpublished.

@@ -1,5 +1,9 @@
 # After discovery: catalog, session updates, and auto-connect
 
+## Continuation on 2026-10-11
+
+The [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
+
 ## Current local main and historical boundary
 
 Source audit on 2026-10-10: local `main` at `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7` includes final B `0a2c1ac`, C `c3a1d5e`, D `48e7ab62`, scrolling and updated upstream. The sections from the pipeline through the original source/verification table describe pinned **`41190e0`**, including its discovery-driven Stop, address-only routing and delayed automatic-admission defects. They are historical behavior, not the behavior of this merged main.
