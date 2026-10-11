@@ -1,5 +1,7 @@
 # [MEDIUM] Credential existence errors can select transient authentication
 
+Continuation update, 2026-10-11: implemented and independently reviewed on `codex/fix-auth-input` at `fc8b91942bf93e320b04ec74d5ad0e433e092f69`, based on original stable `91698d8`. One opened handle establishes absence only on initial `NotFound`; storage/decryption/parsing/identity/verification failures remain errors and select no alternate authentication. Exact-source hosted Windows native tests passed, and a separately preserved error-hiding mutation failed the decisive classification assertion. [Group E acceptance](GROUP-E-ACCEPTANCE.md) records synthetic temporary-root DPAPI tests and executed checks. This is feature-branch implementation, not a fix integrated into original stable; the historical trace below remains dated evidence.
+
 - **Issue ID**: ISSUE-09
 - **Implementation plan**: [Work package ISSUE-09](IMPLEMENTATION_PLAN.md#issue-09)
 - **PR group**: E — Authentication inputs

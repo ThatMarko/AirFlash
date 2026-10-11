@@ -1,5 +1,15 @@
 # Continuation acceptance — 2026-10-11
 
+## Stable-base refresh after resuming usage
+
+Original stable advanced to `91698d8cd3bdf5666b417a12eaaf8d6a1ea36363` while usage was paused. The earlier `d4aa068` qualification below remains a dated receipt. New discovery scoping/native query lifetime and startup/readiness changes are being independently reconciled with B/D; neither a conflict-free merge nor earlier green checks qualify that refreshed composition. Open upstream PR #19 is background scope, not an authorization to publish or a merged prerequisite. The closed B PR remains untouched.
+
+The prior integrated fork source at `95de4ca` passed own-fork CI `38140030009` and integration `38140030070`, including native checks, packaging and disposable-runner installer lifecycle. Downloaded results are preserved. E's public implementation is separate: see [Group E acceptance](GROUP-E-ACCEPTANCE.md). Final feature head `fc8b919` passed exact-source Windows run `38164451047`: 57 native tests, 218 Core tests, warning-free build, compatibility audit and 225 real modal input assertions. The earlier missing-`uv` infrastructure failure is preserved. The final feature includes diagnostic startup isolation because refreshed upstream logged before the harness selected its temporary data.
+
+B's refreshed feature head `2ab2d30a2e81719df438d449b41d67ab7223ce7d` normally merges `91698d8`, preserves ownership/admission guards, revalidates engine readiness during save/admission and guards post-admission automatic notice clearing. Controlled mutations fail the readiness and newer-notice assertions. Its final Core suite has 301 passing cases and a warning-free Release build; crossed English/Chinese UI receipts before the three final pure diagnostic-mode assertions have 762/754 checks. It is pushed to the fork, without reopening B's closed upstream PR.
+
+F feature head `0ce71396f344a74dff3f54182b597852c2404c6a` is pushed; 15 new IPC cases failed on unchanged stable source and all 36 pass with the implementation. Owning Core suite: 235 passed; Release build: zero warnings/errors; independent source/assertion review: clear. Exact-source native Windows run `38165067327` is pending. D's refreshed persistent-query prototype is explicitly rejected: conservative unreclaimed native owners exhaust a receiver's query budget after two browse cycles. A bounded helper-process design is being implemented and must pass lifetime/repeated-cycle review before integration. G/H remain unimplemented. None of these refreshed features is yet integrated into fork main by this entry.
+
 This dated record supersedes the earlier pending-reboot and unpushed-branch statements. Historical source audits and receipts remain unchanged. Windows boot was verified at 06:59 on October 11; the deferred execution gate is satisfied. Both remotes were fetched: original stable remains `d4aa0686fc411de6655aac313243f0f6bf71e439`. A PR #11 and scrolling PR #13 are merged; B PR #15 remains closed without merge at frozen `11c6046`, with issue #14 open. No upstream publication, reopening, merge or release is authorized by this continuation.
 
 ## Discovery cancellation fixture

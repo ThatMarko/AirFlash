@@ -1,5 +1,7 @@
 # [MEDIUM] Pairing dialog accepts dashed PINs that the engine rejects
 
+Continuation update, 2026-10-11: implemented and independently reviewed on `codex/fix-auth-input` at `fc8b91942bf93e320b04ec74d5ad0e433e092f69`, based on original stable `91698d8`. The shared ASCII normalizer governs both enablement and submission; real fake `pair_pin` payloads and disposable-runner paste are asserted. Exact-source hosted run `38164451047` passed 218 Core cases, 57 native cases and 225 modal checks. [Group E acceptance](GROUP-E-ACCEPTANCE.md) distinguishes baseline failure, synthetic fixtures, startup-isolation correction and remaining hardware limitations. This is feature-branch implementation, not a fix integrated into original stable; the historical trace below remains dated evidence.
+
 - **Issue ID**: ISSUE-08
 - **Implementation plan**: [Work package ISSUE-08](IMPLEMENTATION_PLAN.md#issue-08)
 - **PR group**: E — Authentication inputs
