@@ -156,6 +156,9 @@ internal static class UiSettingsRecovery
             var discovery = new FixtureDiscovery(); var autostart = new FixtureAutostart(); var audio = new FixtureAudio(); var engine = new UiSmoke.MockFactory();
             await using var app = new AppViewModel(store, discovery, autostart, audio, engine, Application.Current.Dispatcher);
             app.UseControlledScheduling(); app.Start(); await app.Startup.WaitAsync(TimeSpan.FromSeconds(5));
+            Check(discovery.StartCount == 0 && engine.CreatedCount == 0 && audio.MuteCount == 0,
+                "cross-group recovery: safe defaults keep hidden startup browsing and playback paused: " + action, checks);
+            app.SetPanelVisible(true);
             await Until(() => app.AllReceivers.Count == 1);
             var receiver = app.AllReceivers.Single(); var before = app.Session.Capture();
             // An explicit per-receiver edit makes this candidate eligible; rejected source flags never do.
@@ -216,9 +219,12 @@ internal static class UiSettingsRecovery
     {
         var path = Path.Combine(directory, "deferred-failure-recovery.json"); var original = Encoding.UTF8.GetBytes("{ malformed before deferred endpoint failure }");
         File.WriteAllBytes(path, original); var store = new SettingsStore(path); _ = store.Load();
-        var audio = new FixtureAudio(); var engine = new FaultEngine();
-        await using var app = new AppViewModel(store, new FixtureDiscovery(), new FixtureAutostart(), audio, engine, Application.Current.Dispatcher);
-        app.UseControlledScheduling(); app.Start(); await app.Startup.WaitAsync(TimeSpan.FromSeconds(5)); await Until(() => app.AllReceivers.Count == 1);
+        var discovery = new FixtureDiscovery(); var audio = new FixtureAudio(); var engine = new FaultEngine();
+        await using var app = new AppViewModel(store, discovery, new FixtureAutostart(), audio, engine, Application.Current.Dispatcher);
+        app.UseControlledScheduling(); app.Start(); await app.Startup.WaitAsync(TimeSpan.FromSeconds(5));
+        Check(discovery.StartCount == 0 && engine.CreatedCount == 0 && audio.MuteCount == 0,
+            "cross-group recovery: deferred-failure fixture starts paused until explicit panel browse demand", checks);
+        app.SetPanelVisible(true); await Until(() => app.AllReceivers.Count == 1);
         var recoveryWarning = app.Notice;
         // Start the owned synthetic transport directly so no explicit panel action clears the recovery notice.
         await app.Session.StartAsync(app.AllReceivers.Single(), app.Settings.Clone());
