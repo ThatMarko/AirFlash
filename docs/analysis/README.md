@@ -1,5 +1,7 @@
 # AirFlash receiver workflow
 
+The [2026-10-11 fork synchronization](../issues/README.md#fork-synchronization--2026-10-11) pushed and verified all 18 retained branches, including C/D, to the user's own repository. The source audits below retain their pinned revisions; this push does not add new runtime test results or submit C/D upstream.
+
 This set describes the path from a HomePod advertisement to a live AirPlay 2 stream in the runtime source at `41190e0d13a63a714c08dffe73ababca1804875c`. The documentation baseline is `c077a0577de26ad7e44b8fd50f62456e12965fb0`, which adds `docs/analysis/` and `docs/issues/` without changing runtime source. These are pinned snapshots, not a promise about a moving remote branch.
 
 Source links in the original audit are pinned to that runtime commit, including its line anchors. Later implementation sections identify their own feature commit and verification separately; merging changes into the fork does not change the historical source evidence.

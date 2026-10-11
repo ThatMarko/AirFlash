@@ -1,5 +1,7 @@
 # AirFlash implementation plan
 
+The user subsequently authorized [fork synchronization on 2026-10-11](README.md#fork-synchronization--2026-10-11). All 18 local branches, including C/D, were pushed and their exact remote heads verified. This supersedes the dated unpushed-feature state below; it does not activate upstream issue/PR submission or another implementation group. Current runtime source is unchanged and local execution awaits reboot.
+
 This plan retains **17 reports in eight coherent PR groups**. Its work-package sections describe the original implementation requirements on `41190e0`; they are not a claim that implemented A–D still have those defects or missing test seams. [Group B acceptance](GROUP-B-ACCEPTANCE.md) and [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) retain standalone, fork-main and downloaded build evidence separately. Issue numbers organize the original backlog by severity; they are not the execution order.
 
 ## Current local integration — 2026-10-10

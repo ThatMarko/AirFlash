@@ -1,5 +1,9 @@
 # AirFlash implementation backlog
 
+## Fork synchronization — 2026-10-11
+
+At the user's instruction, all 18 retained local branches were pushed to `ThatMarko/AirFlash` and every remote head was verified against its local commit. This includes C/D and all preserved backup/validation branches. Fresh upstream stable `d4aa068` was already contained in main, so no new upstream merge was needed. Earlier statements that C/D feature branches were unpushed describe the dated 2026-10-10 audit and are superseded by this synchronization. C/D still have no upstream issue/PR submission. Runtime source is unchanged; local application/build/testing remains deferred until after reboot.
+
 The **17 retained reports** are numbered continuously from **ISSUE-01 through ISSUE-17**. Their original `41190e0` classifications were four HIGH, nine MEDIUM and four LOW: fourteen source-supported defects, one recovery gap and two enhancements. Nine reports are now implemented in local `main`; eight remain proposals. File order preserves the original severity grouping; implementation follows the dependency plan rather than numeric order.
 
 [Implementation plan](IMPLEMENTATION_PLAN.md) defines a small set of coherent PR groups, the work for every issue, dependencies, parallel work, regression fixtures, and completion gates. **The next new report is ISSUE-18.**
