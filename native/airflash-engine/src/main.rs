@@ -75,23 +75,14 @@ fn equalizer_event(running: Option<&Running>, session: &str, params: Value) -> V
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("equalizer updates require a live streaming session"))?;
         let prepared = airflash_engine::equalizer::Prepared::new(update.equalizer, *rate)?;
-        let retained = control.set(update.sequence, prepared);
-        match retained.outcome {
-            airflash_engine::equalizer::SetOutcome::Accepted
-            | airflash_engine::equalizer::SetOutcome::Idempotent => Ok(retained),
-            airflash_engine::equalizer::SetOutcome::Stale => {
-                anyhow::bail!(
-                    "equalizer sequence is older than the retained sequence {}",
-                    retained.sequence
-                )
-            }
-            airflash_engine::equalizer::SetOutcome::Conflict => {
-                anyhow::bail!(
-                    "equalizer sequence {} conflicts with the retained preparation",
-                    retained.sequence
-                )
-            }
-        }
+        // Isolated regression branch: emulate the old response, which ignored
+        // whether the mailbox accepted the preparation. Never integrate this.
+        control.set(update.sequence, prepared);
+        Ok(airflash_engine::equalizer::SetResult {
+            outcome: airflash_engine::equalizer::SetOutcome::Accepted,
+            sequence: update.sequence,
+            prepared,
+        })
     })();
     match result {
         Ok(retained) => json!({
