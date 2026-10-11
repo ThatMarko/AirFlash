@@ -207,7 +207,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
             var row = Receivers.FirstOrDefault(r => r.Receiver.Id == receiver.Id);
             if (row is null)
             {
-                row = new(receiver, options, current => PairRequested?.Invoke(current), () => RemoveManual(receiver.Id), () => CanEdit, () => App.EngineReady && !App.IsClosing);
+                row = new(receiver, options, current => PairRequested?.Invoke(current), () => RemoveManual(receiver.Id), () => CanEdit, () => App.EngineReady && App.MuteReady && !App.IsClosing);
                 Receivers.Insert(index, row);
             }
             else

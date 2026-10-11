@@ -189,7 +189,15 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     }
     private async Task StartLockedAsync(Receiver receiver, AppSettings settings, Func<Receiver, CancellationToken, Task<string?>>? requestPin)
     {
+        EnsureMuteReady(settings);
         await StopLockedAsync().ConfigureAwait(false);
+        if (!MuteRecoveryAvailable(settings))
+        {
+            // Cleanup already ended the old attempt. Keep controls truthful when
+            // its recovery failure prevents the replacement from being admitted.
+            _receiver = null; Publish(_generation, PlaybackState.Idle);
+            EnsureMuteReady(settings);
+        }
         _settings = settings.Clone(); _receiver = receiver;
         var epoch = ++_generation;
         lock (_sync) { _diagnostics = new(); _warnings.Clear(); _snapshot = new(PlaybackState.Idle); }
@@ -279,6 +287,9 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         var attempts = 0;
         while (!cancellation.IsCancellationRequested)
         {
+            // A retry is a new capture attempt; unresolved recovery must not open
+            // another engine even if it was discovered during prior cleanup.
+            EnsureMuteReady(_settings);
             lock (_sync) { if (epoch == _generation && _receiver is not null) receiver = _receiver; }
             var startedAt = 0L;
             try
@@ -428,6 +439,13 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         }
     }
     private sealed class EngineFailure(EngineNotice notice) : IOException(notice.Detail) { public EngineNotice Notice { get; } = notice; }
+    private void EnsureMuteReady(AppSettings settings)
+    {
+        if (!MuteRecoveryAvailable(settings))
+            throw new InvalidOperationException(L.Get("Review local audio recovery before starting playback that mutes this PC."));
+    }
+    private bool MuteRecoveryAvailable(AppSettings settings) => !settings.MuteWhileStreaming
+        || audio is not IMuteRecoveryService recovery || recovery.Recovery.CanMute;
     private sealed class PairCancelledException : OperationCanceledException;
     private static bool IsAuthenticationFailure(string message) => new[] { "pairing", "srp", "verification", "credentials", "signature", "identity", "authentication" }.Any(word => message.Contains(word, StringComparison.OrdinalIgnoreCase));
     private void SetConnection(IEngineConnection connection, string session) { lock (_sync) { _connection = connection; _sessionId = session; _equalizerReady = false; } }

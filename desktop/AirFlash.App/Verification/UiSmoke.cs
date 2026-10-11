@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Text.Json;
 using System.Threading.Channels;
 using System.Windows;
@@ -24,6 +25,32 @@ internal static class UiSmoke
         var directory = Path.GetDirectoryName(report)!; Directory.CreateDirectory(directory);
         AppPaths.DataDirectory = Path.Combine(directory, "isolated-data");
         var checks = new List<string>();
+        Check(!Program.NeedsDiagnosticIsolation([]) && !Program.NeedsDiagnosticIsolation(["--startup"]),
+            "ordinary startup arguments preserve the application's normal data directory", checks);
+        Check(!Program.NeedsDiagnosticIsolation(["--other-check"])
+            && !Program.NeedsDiagnosticIsolation(["--output", "synthetic-output-check"]),
+            "unknown check switches and check-suffixed option values do not redirect normal startup", checks);
+        Check(new[] { "--discovery-perf", "--update-check", "--self-check", "--compat-check", "--discovery-check", "--audio-check",
+            "--ui-smoke", "--tray-smoke", "--ui-perf" }.All(mode => Program.NeedsDiagnosticIsolation([mode])),
+            "every dispatched diagnostic mode selects isolated startup data without invoking its real service", checks);
+        Check(string.Equals(Program.DiagnosticStartupDataDirectory, AppPaths.DataDirectory, StringComparison.OrdinalIgnoreCase),
+            "startup diagnostic data uses the smoke output directory before the harness starts", checks);
+        var startupLogs = Directory.GetFiles(Path.Combine(AppPaths.DataDirectory, "logs"), "wpf-*.log");
+        var startupText = string.Join("\n", startupLogs.Select(File.ReadAllText));
+        Check(startupText.Contains("Startup stage=platform", StringComparison.Ordinal)
+            && startupText.Contains("Startup stage=wpf-resources ready", StringComparison.Ordinal),
+            "both startup stages are recorded in isolated smoke logs", checks);
+        if (args.Contains("--ui-mute-smoke"))
+        {
+            try
+            {
+                await UiMuteRecovery.RunAsync(checks, directory);
+                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
+                    ui_culture = CultureInfo.CurrentUICulture.Name, note = "Synthetic journal, endpoints and engine; real audio MTA/dispatcher integration." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
         if (args.Contains("--ui-scroll-smoke"))
         {
             try
@@ -212,6 +239,7 @@ internal static class UiSmoke
             Render(panel, Path.Combine(directory, "panel-icons-stopped.png"), 1);
             Check(engine.DisposedCount == engine.CreatedCount, "stop releases mock engine", checks);
             await UiRegression.RunAsync(checks, directory);
+            await UiMuteRecovery.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyStartupFailureAsync(checks, directory);
             await UiScrolling.RunAsync(checks, directory);

@@ -20,7 +20,7 @@ public partial class SettingsWindow : Window
         ViewModel.AddReceiverRequested += () => { var dialog = new ManualReceiverDialog { Owner = this }; if (dialog.ShowDialog() == true) ViewModel.AddManual(dialog.DeviceName, dialog.Host, dialog.Port); };
         ViewModel.PairRequested += async receiver =>
         {
-            try { if (app.EngineReady && !app.IsClosing) await app.Session.PairAsync(receiver, app.Settings.Clone(), (member, token) => PinDialog.RequestAsync(this, member, token)); }
+            try { await app.PairAsync(receiver, (member, token) => PinDialog.RequestAsync(this, member, token)); }
             catch (Exception error) { app.ShowError(error); }
         };
         ViewModel.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(SettingsViewModel.SelectedPage)) ShowPage(); };
