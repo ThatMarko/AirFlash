@@ -112,6 +112,53 @@ jobs:
       - name: Verify package and embedded native hello
         shell: pwsh
         run: ./scripts/verify-release.ps1 -Version $env:VALIDATION_VERSION
+      - name: Qualify the exact portable UI with fake services
+        shell: pwsh
+        timeout-minutes: 15
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path dist/AirFlash.exe).Path
+          $audit = Get-Content artifacts/compatibility/bundle-audit.json -Raw | ConvertFrom-Json
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($audit.published_exe_sha256 -cne $hash) { throw 'UI executable differs from audited package.' }
+          New-Item -ItemType Directory -Path artifacts/fork-integration/ui -Force | Out-Null
+          @{source_sha=$env:GITHUB_SHA;repository=$env:GITHUB_REPOSITORY;run_id=$env:GITHUB_RUN_ID;run_attempt=$env:GITHUB_RUN_ATTEMPT;portable_sha256=$hash;synthetic=$true} | ConvertTo-Json | Set-Content artifacts/fork-integration/ui/source.json
+          foreach ($language in @('en-US', 'zh-CN', 'zh-TW')) {
+            foreach ($culture in @('en-US', 'zh-CN')) {
+              $report = [IO.Path]::GetFullPath("artifacts/fork-integration/ui/$language-$culture/report.json")
+              New-Item -ItemType Directory -Path (Split-Path $report) -Force | Out-Null
+              if (Test-Path -LiteralPath $report) { Remove-Item -LiteralPath $report -Force }
+              $process = Start-Process -FilePath $exe -ArgumentList @('--ui-smoke', '--ui-language', $language, '--ui-culture', $culture, '--output', ('"' + $report + '"')) -PassThru -WindowStyle Hidden
+              try {
+                if (-not $process.WaitForExit(120000)) { throw "Portable UI timed out: $language/$culture" }
+                $exitCode = $process.ExitCode
+              } finally {
+                try { if (-not $process.HasExited) { $process.Kill($true); $null = $process.WaitForExit(5000) } }
+                finally { $process.Dispose() }
+              }
+              $result = Get-Content $report -Raw | ConvertFrom-Json
+              if ($exitCode -ne 0 -or $result.ok -ne $true -or $result.culture -cne $culture -or $result.ui_culture -cne $language) { throw "Portable UI failed: $language/$culture" }
+            }
+            $dpiReport = [IO.Path]::GetFullPath("artifacts/fork-integration/ui/dpi-$language/report.json")
+            New-Item -ItemType Directory -Path (Split-Path $dpiReport) -Force | Out-Null
+            $layoutPath = Join-Path (Split-Path $dpiReport) 'diagnostics-padding-layout.json'
+            foreach ($old in @($dpiReport, $layoutPath)) { if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Force } }
+            $process = Start-Process -FilePath $exe -ArgumentList @('--ui-smoke', '--ui-diagnostics-smoke', '--ui-diagnostics-dpi', '--ui-language', $language, '--ui-culture', 'zh-CN', '--output', ('"' + $dpiReport + '"')) -PassThru -WindowStyle Hidden
+            try {
+              if (-not $process.WaitForExit(45000)) { throw "Portable DPI check timed out: $language" }
+              $exitCode = $process.ExitCode
+            } finally {
+              try { if (-not $process.HasExited) { $process.Kill($true); $null = $process.WaitForExit(5000) } }
+              finally { $process.Dispose() }
+            }
+            $result = Get-Content $dpiReport -Raw | ConvertFrom-Json
+            if ($exitCode -ne 0 -or $result.ok -ne $true -or $result.culture -cne 'zh-CN' -or $result.ui_culture -cne $language) { throw "Portable DPI check failed: $language" }
+            $layout = Get-Content $layoutPath -Raw | ConvertFrom-Json
+            if (@($layout.normal).Count -ne 2 -or @($layout.minimum).Count -ne 2) { throw 'Both portable widths must contain both measured counters.' }
+            foreach ($card in @($layout.normal) + @($layout.minimum)) {
+              if ($card.DpiX -ne 1.25 -or $card.DpiY -ne 1.25 -or $card.Fits -ne $true -or $card.Visible -ne $true -or $card.AllGlyphsInsideValue -ne $true -or $card.RenderedCharacters -ne 20) { throw 'Actual portable fractional-DPI card qualification is missing.' }
+            }
+          }
       - name: Installer lifecycle on disposable runner
         shell: pwsh
         env:
@@ -130,7 +177,7 @@ jobs:
           $files = @(Get-ChildItem -LiteralPath dist -File | Where-Object Extension -In @('.exe','.msi') | Sort-Object Name | ForEach-Object { @{ name = $_.Name; bytes = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } })
           $info = [Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path dist/AirFlash.exe)).ProductVersion
           if (-not $info.StartsWith("$env:VALIDATION_VERSION-fork-validation.$sha", [StringComparison]::Ordinal)) { throw 'Package informational version differs from validation source.' }
-          $manifest = [ordered]@{ unofficial = $true; source_sha = $sha; repository = $env:GITHUB_REPOSITORY; ref = $env:GITHUB_REF; run_id = $env:GITHUB_RUN_ID; run_attempt = $env:GITHUB_RUN_ATTEMPT; validation_version = $env:VALIDATION_VERSION; informational_version = $info; dotnet_sdk = $sdk; rust = (rustc --version); files = $files; limits = 'UI mock harness runs separately on the desktop; no release tag/reservation or real receiver test.' }
+          $manifest = [ordered]@{ unofficial = $true; source_sha = $sha; repository = $env:GITHUB_REPOSITORY; ref = $env:GITHUB_REF; run_id = $env:GITHUB_RUN_ID; run_attempt = $env:GITHUB_RUN_ATTEMPT; validation_version = $env:VALIDATION_VERSION; informational_version = $info; dotnet_sdk = $sdk; rust = (rustc --version); files = $files; limits = 'Portable UI uses fake services in six catalog/region pairs and three observed fractional-DPI fixtures; no release tag/reservation or real receiver test.' }
           $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath dist/validation-manifest.json -Encoding utf8
       - name: Preserve verified unofficial build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -151,6 +198,7 @@ jobs:
           name: fork-integration-reports-${{ github.sha }}-${{ github.run_id }}
           path: |
             artifacts/fork-integration/tests/*.trx
+            artifacts/fork-integration/ui/
             artifacts/installer-test/*.log
             artifacts/installer-refresh/*/report.json
             artifacts/installer-refresh/*/*-build.log
