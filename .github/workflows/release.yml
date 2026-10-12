@@ -43,6 +43,10 @@ jobs:
           NEW_RELEASE_VERSION: ${{ inputs.version }}
         run: |
           git checkout -B $env:GITHUB_REF_NAME
+          if ($env:NEW_RELEASE_VERSION -match '^([0-9]+\.[0-9]+\.[0-9]+)\.[0-9]+$') {
+            Write-Host "Normalizing four-part version '$env:NEW_RELEASE_VERSION' to '$($Matches[1])'."
+            $env:NEW_RELEASE_VERSION = $Matches[1]
+          }
           . ./scripts/release-version.ps1
           $version = Reserve-ReleaseVersion (Get-Location).Path '' $env:RELEASE_CHANNEL -NewVersion $env:NEW_RELEASE_VERSION
           "version=$version" >> $env:GITHUB_OUTPUT
