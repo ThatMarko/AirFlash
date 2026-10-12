@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -10,6 +11,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -25,7 +27,7 @@ namespace AirFlash.App.Verification;
 // are injected; no production endpoint, receiver, engine or settings store is used.
 internal static class UiDiagnostics
 {
-    public static async Task RunAsync(List<string> checks, string directory)
+    public static async Task RunAsync(List<string> checks, string directory, bool fractionalDpi = false)
     {
         var store = new Store(); var audio = new Audio(); var factory = new Factory();
         await using var app = new AppViewModel(store, new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, factory,
@@ -60,13 +62,18 @@ internal static class UiDiagnostics
             Check(Values(window) == (maximum, maximum), "actual Monitor preserves both full UInt64 counter values without floating-point loss", checks);
             await CopyAsync(window, app, writer, store, factory, audio, checks, "Streaming with new producer");
             Check(writer.Last.Contains(maximum, StringComparison.Ordinal), "existing diagnostics serializer preserves UInt64 padding values", checks);
+            if (fractionalDpi) await UseFractionalDpiAsync(window);
             await ShowPaddingAsync(window);
             var normal = PaddingLayout(window);
             Render(window, Path.Combine(directory, "diagnostics-padding-max.png"));
-            var width = window.Width; window.Width = window.MinWidth; await Pump(); await ShowPaddingAsync(window);
+            var width = window.Width; window.Width = window.MinWidth; await Pump();
+            if (fractionalDpi) await UseFractionalDpiAsync(window);
+            await ShowPaddingAsync(window);
             var minimum = PaddingLayout(window);
             Render(window, Path.Combine(directory, "diagnostics-padding-minimum.png"));
             File.WriteAllText(Path.Combine(directory, "diagnostics-padding-layout.json"), JsonSerializer.Serialize(new { normal, minimum }, new JsonSerializerOptions { WriteIndented = true }));
+            if (fractionalDpi) Check(normal.Concat(minimum).All(item => item.DpiX == 1.25 && item.DpiY == 1.25),
+                "normal and minimum metric cards actually use the synthetic 125 percent DPI", checks);
             Check(normal.Length == 2 && normal.All(item => item.Fits && item.Visible), "full UInt64 Monitor counters fit or wrap inside their actual visible metric cards", checks);
             Check(minimum.Length == 2 && minimum.All(item => item.Fits && item.Visible), "full UInt64 Monitor counters fit or wrap in fully visible cards at minimum Settings width", checks);
             window.Width = width; await Pump();
@@ -154,16 +161,22 @@ internal static class UiDiagnostics
     }
     private sealed record PaddingGeometry(string Name, double CardWidth, double InnerWidth, double GlyphWidth,
         double ValueWidth, double ValueHeight, double RequiredHeight, int RenderedCharacters, bool AllGlyphsInsideValue, double CardViewportTop, double CardHeight,
-        double ViewportHeight, bool Fits, bool Visible);
+        double ViewportHeight, bool Fits, bool Visible, Rect CardInner, Rect CardContent, Rect ValueBounds, double DpiX, double DpiY,
+        double WindowWidth, double WindowHeight);
     private static PaddingGeometry[] PaddingLayout(SettingsWindow window) => Descendants(window).OfType<TextBlock>()
         .Where(block => block.Name is "MonitorPaddedFramesValue" or "MonitorFullyPaddedPacketsValue").Select(block =>
         {
             var card = Ancestor<Border>(block);
             var viewport = Ancestor<ScrollContentPresenter>(card);
-            var inner = new Rect(card.BorderThickness.Left + card.Padding.Left, card.BorderThickness.Top + card.Padding.Top,
-                Math.Max(0, card.ActualWidth - card.BorderThickness.Left - card.BorderThickness.Right - card.Padding.Left - card.Padding.Right),
-                Math.Max(0, card.ActualHeight - card.BorderThickness.Top - card.BorderThickness.Bottom - card.Padding.Top - card.Padding.Bottom));
+            var content = (FrameworkElement)card.Child;
+            // Border rounds its thickness at the current DPI before arranging
+            // its child. The finite parent-assigned slot is authoritative; the
+            // child's RenderSize may grow beyond that slot for unwrapped text.
+            var inner = LayoutInformation.GetLayoutSlot(content);
             var origin = block.TranslatePoint(new(), card);
+            var contentBounds = content.TransformToAncestor(card).TransformBounds(new Rect(content.RenderSize));
+            var valueBounds = new Rect(origin, block.RenderSize);
+            var dpi = VisualTreeHelper.GetDpi(block);
             var text = new FormattedText(block.Text, CultureInfo.CurrentCulture, block.FlowDirection,
                 new Typeface(block.FontFamily, block.FontStyle, block.FontWeight, block.FontStretch), block.FontSize,
                 Brushes.Black, VisualTreeHelper.GetDpi(block).PixelsPerDip);
@@ -179,12 +192,16 @@ internal static class UiDiagnostics
                     && rect.Right <= block.ActualWidth + .5 && rect.Bottom <= block.ActualHeight + .5);
             var requiredHeight = characters.Max(rect => rect.Bottom);
             var top = card.TranslatePoint(new(), viewport).Y;
-            var fits = origin.X >= inner.Left - .5 && origin.Y >= inner.Top - .5
+            var fits = inner.Width > 0 && inner.Height > 0 && double.IsFinite(inner.Left) && double.IsFinite(inner.Top)
+                && double.IsFinite(inner.Right) && double.IsFinite(inner.Bottom)
+                && inner.Left >= -.5 && inner.Top >= -.5 && inner.Right <= card.ActualWidth + .5 && inner.Bottom <= card.ActualHeight + .5
+                && origin.X >= inner.Left - .5 && origin.Y >= inner.Top - .5
                 && origin.X + block.ActualWidth <= inner.Right + .5 && origin.Y + block.ActualHeight <= inner.Bottom + .5
                 && allGlyphsInside && (block.TextWrapping != TextWrapping.NoWrap || glyphWidth <= inner.Width + .5);
             return new PaddingGeometry(block.Name, card.ActualWidth, inner.Width, glyphWidth, block.ActualWidth,
                 block.ActualHeight, requiredHeight, characters.Length, allGlyphsInside, top, card.ActualHeight, viewport.ActualHeight, fits,
-                top >= -.5 && top + card.ActualHeight <= viewport.ActualHeight + .5);
+                top >= -.5 && top + card.ActualHeight <= viewport.ActualHeight + .5, inner, contentBounds, valueBounds, dpi.DpiScaleX, dpi.DpiScaleY,
+                window.ActualWidth, window.ActualHeight);
         }).ToArray();
     private static async Task ShowPaddingAsync(SettingsWindow window)
     {
@@ -195,6 +212,38 @@ internal static class UiDiagnostics
         scroll.ScrollToVerticalOffset(Math.Max(0, card.TranslatePoint(new(), content).Y - 8));
         await Pump(); window.UpdateLayout(); await Pump();
     }
+    // This opt-in fixture sends a DPI notification only to its own fake-services
+    // window. It never changes Windows display preferences or another window.
+    private static async Task UseFractionalDpiAsync(SettingsWindow window)
+    {
+        var handle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero || !GetWindowRect(handle, out var bounds))
+            throw new InvalidOperationException("The synthetic DPI window is unavailable.");
+        // Preserve the requested logical size as Windows normally would when
+        // recommending a physical rectangle for a new monitor scale.
+        var previous = VisualTreeHelper.GetDpi(window);
+        bounds.Right = bounds.Left + (int)Math.Round((bounds.Right - bounds.Left) * 1.25 / previous.DpiScaleX);
+        bounds.Bottom = bounds.Top + (int)Math.Round((bounds.Bottom - bounds.Top) * 1.25 / previous.DpiScaleY);
+        var memory = Marshal.AllocHGlobal(Marshal.SizeOf<NativeRect>());
+        try
+        {
+            Marshal.StructureToPtr(bounds, memory, false);
+            SendMessage(handle, 0x02E0 /* WM_DPICHANGED */, new IntPtr((120 << 16) | 120), memory);
+        }
+        finally { Marshal.FreeHGlobal(memory); }
+        await window.Dispatcher.InvokeAsync(window.UpdateLayout, DispatcherPriority.Render);
+        await Pump();
+        var observed = VisualTreeHelper.GetDpi(window);
+        if (observed.DpiScaleX != 1.25 || observed.DpiScaleY != 1.25)
+            throw new InvalidOperationException($"Synthetic 125 percent DPI was not adopted: {observed.DpiScaleX}, {observed.DpiScaleY}.");
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll", EntryPoint = "SendMessageW", ExactSpelling = true)]
+    private static extern IntPtr SendMessage(IntPtr handle, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr handle, out NativeRect rectangle);
     private static T Ancestor<T>(DependencyObject element) where T : DependencyObject
     {
         for (var parent = VisualTreeHelper.GetParent(element); parent is not null; parent = VisualTreeHelper.GetParent(parent))
