@@ -168,6 +168,12 @@ public sealed class AudioService : IAudioService, IMuteRecoveryService, IAsyncDi
     private sealed class WindowsEndpoint(MMDeviceEnumerator enumerator, MMDevice device) : IMuteEndpoint
     {
         public string Id => device.ID;
+        public AudioEndpointKind Kind => device.DataFlow switch
+        {
+            DataFlow.Render => AudioEndpointKind.Playback,
+            DataFlow.Capture => AudioEndpointKind.Recording,
+            _ => throw new InvalidOperationException("The opened audio endpoint has an unsupported direction.")
+        };
         public bool Muted { get => device.AudioEndpointVolume.Mute; set => device.AudioEndpointVolume.Mute = value; }
         public void Dispose() { try { device.Dispose(); } finally { enumerator.Dispose(); } }
     }

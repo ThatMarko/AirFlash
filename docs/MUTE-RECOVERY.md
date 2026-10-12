@@ -20,6 +20,12 @@ instances in separate Windows logon sessions. A process GUID and positive
 acquisition generation identify each record; a PID is not ownership evidence.
 The actual endpoint identity is resolved before acquisition, even when capture
 uses the current default output. Returning a different endpoint is rejected.
+The opened endpoint's direction is authoritative, independent of catalog labels
+or friendly names. Recording inputs are never read or changed through the mute
+interface and never acquire a new recovery record. Recovery also refuses mute
+access if a saved output identity now opens a recording input or its direction
+cannot be determined; the original obligation remains pending until a playback
+output is available. Default capture continues to resolve the render endpoint.
 
 The version-1 journal uses `Intent`, `Owned`, `Restoring`, `Resolved`, and
 `Abandoned` states. A durable Intent retains the exact original boolean before
@@ -61,6 +67,9 @@ Restoring/Intent record again requires conservative inspection. Ordinary Restore
 and disposal never apply a stale record's endpoint choice.
 
 Playback with local muting disabled can continue while recovery is unresolved.
+While the local-muting option is enabled, admission conservatively requires a
+resolved recovery journal even for a selected recording source. Turning local
+muting off permits that source without discarding saved recovery information.
 Muting admission is checked before/after old-attempt cleanup and before a retry
 opens another engine; the audio service also checks before any endpoint mutation.
 

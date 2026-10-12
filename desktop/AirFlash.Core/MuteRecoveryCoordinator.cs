@@ -90,9 +90,14 @@ public sealed class MuteRecoveryCoordinator(IMuteEndpointBackend backend, IMuteR
         ThrowIfDisposed();
         try
         {
-            if (!_records.Any(record => record.Live && record.State == MuteJournalState.Owned)) RequireReady();
             using var endpoint = backend.Open(endpointId);
             ValidateId(endpoint.Id);
+            if (endpointId is not null && endpoint.Id != endpointId)
+                throw new InvalidOperationException("The endpoint backend returned a different endpoint identity.");
+            // A recording endpoint is the source signal, not local speaker
+            // output. Its actual direction must be known before mute or journal
+            // access, including calls made before recovery initialization.
+            if (EndpointKind(endpoint) == AudioEndpointKind.Recording) return;
             if (_records.Any(record => record.EndpointId == endpoint.Id && record.Live && record.State == MuteJournalState.Owned)) return;
             RequireReady();
             if (_records.Count >= MaximumEntries) throw new InvalidOperationException("Mute recovery already owns the maximum number of endpoints.");
@@ -182,11 +187,13 @@ public sealed class MuteRecoveryCoordinator(IMuteEndpointBackend backend, IMuteR
                 ?? throw new InvalidOperationException("The selected mute recovery owner no longer exists.");
             if (record.Settled) { Persist(); return; }
             if (_blocked is not null || !record.CurrentMute.HasValue) throw new InvalidOperationException("The endpoint or journal is unavailable. Refresh before deciding.");
+            var shownMute = record.CurrentMute;
+            record.CurrentMute = null;
             using var endpoint = OpenExact(endpointId);
             var current = endpoint.Muted;
-            if (current != record.CurrentMute)
+            record.CurrentMute = current;
+            if (current != shownMute)
             {
-                record.CurrentMute = current;
                 throw new InvalidOperationException("The endpoint mute bit changed after it was shown. Review the new state before deciding.");
             }
             VerifyUnchanged();
@@ -294,9 +301,21 @@ public sealed class MuteRecoveryCoordinator(IMuteEndpointBackend backend, IMuteR
     private IMuteEndpoint OpenExact(string id)
     {
         var endpoint = backend.Open(id);
-        if (endpoint.Id == id) return endpoint;
-        endpoint.Dispose();
-        throw new InvalidOperationException("The endpoint backend returned a different endpoint identity.");
+        try
+        {
+            if (endpoint.Id != id) throw new InvalidOperationException("The endpoint backend returned a different endpoint identity.");
+            ValidateId(endpoint.Id);
+            if (EndpointKind(endpoint) != AudioEndpointKind.Playback)
+                throw new InvalidOperationException("Mute recovery requires the saved playback endpoint; recording devices are never muted.");
+            return endpoint;
+        }
+        catch { endpoint.Dispose(); throw; }
+    }
+    private static AudioEndpointKind EndpointKind(IMuteEndpoint endpoint)
+    {
+        var kind = endpoint.Kind;
+        if (!Enum.IsDefined(kind)) throw new InvalidOperationException("The endpoint direction is unsupported.");
+        return kind;
     }
     private void Publish()
     {
