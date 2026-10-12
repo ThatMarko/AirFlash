@@ -1,5 +1,13 @@
 # Group B feature acceptance
 
+## Current stable-base qualification — 2026-10-11
+
+Current public head `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b` is pushed, independently reviewed and based on stable `cf420d9`. Its 139 focused/304 owning Core tests and warning-free Release build pass. The full English mock UI run with Chinese regional formatting passes 764 checks; the new upstream receiver-free stability harness passes 28. PR #19 is merged and already supplies partial passive retention/fresh-snapshot safeguards. Our serialized atomic owner/intent, automatic admission and candidate/manual selection contracts remain necessary; valid same-owner Pairing promotion and hidden/offline active controls are preserved. Closed PR #15 remains untouched.
+
+These current sections supersede earlier pending-reboot, unpushed-feature and proposal wording. Combined fork results and publication limits are recorded in [continuation acceptance](CONTINUATION-ACCEPTANCE.md). The dated evidence below retains its original source boundary.
+
+## Earlier implementation evidence
+
 ## Continuation on 2026-10-11
 
 The [continuation acceptance](CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.

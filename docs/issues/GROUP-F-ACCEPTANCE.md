@@ -1,5 +1,23 @@
 # Group F acceptance
 
+## Additional inherited EQ fixture correction — 2026-10-12
+
+Public head `421e1ea8159803fbc339dff3782b1858e8a797d4` adds a test-only correction and clarifies the native replay comment; controller/native behavior is unchanged from `9634007`. Main `107174a` normal CI [38292659589](https://github.com/ThatMarko/AirFlash/actions/runs/38292659589) failed the inherited rollback assertion (expected 9, actual 4), while the same source's Release integration passed 666 tests. That green was not accepted as a repair.
+
+The old fixture and EQ controller methods are identical in original stable, B, F and Main. Its quiet fake has a one-second read deadline. Controlled branch `codex/verify-eq-read-deadline`, source `4a444f0f9ed4423e8d846c9b3e79f3669acf7c56`, derives from F `9634007` and retains unchanged runtime code. It awaits actual timeout/Error publication and disposed transport after rollback 4, then deterministically fails the original gain-9 assertion with actual 4. This proves the scheduling mechanism; the original CI log did not capture state, so its exact cause remains inferred.
+
+The corrected healthy fixture uses the ordinary finite production read budget and explicitly gates the pending gain-7 send. Clear cancels that send before delivery; finally releases the gate. Streaming, old-owner command-count invariance and exact 9-to-4 rollback remain asserted. A separate finite-deadline fixture checks the original timeout diagnostic and disposed transport, proves no new command reaches the old process, and verifies preview 9 in the next attempt's start payload. No production timeout, debounce or authentication policy changed.
+
+Final narrow Debug checks pass 13 cases; the owning Release Core suite passes 239 cases; the Release desktop build has zero warnings/errors. Independent source/fixture/receipt review is clear. Main `4ae1db4` integrates this correction and passes 667 Core tests in both Debug and Release with a zero-warning/error build. Exact-source [normal CI](https://github.com/ThatMarko/AirFlash/actions/runs/38294493339) and [unofficial packaged integration](https://github.com/ThatMarko/AirFlash/actions/runs/38294493405) both succeed; the latter includes 667 Core tests, 69 native passes with recording-device/localhost-soak qualifications ignored, six complete portable UI pairs, three observed 125% DPI runs and disposable MSI lifecycle. The initial new-fixture failure compared decorated snapshot text rather than the original diagnostic message; its corrected field assertion and failed receipt remain separate.
+
+## Current stable-base qualification — 2026-10-11
+
+The refreshed runtime at predecessor `963400782fcfaa966a6b9e4f9a8fef73388dee66` is based on stable `cf420d9`: independent refresh review, 76 focused/238 owning Core tests and a zero-warning/error Release build pass. The newer `421e1ea` changes only fixture scheduling/coverage and the replay comment. The narrow terminal IPC routing and serialized EQ-outcome implementation remains unchanged from the exact-source native receipts below. Current combined qualification is recorded separately in continuation acceptance; no ordinary stale event bypass or DSP-completion claim was introduced. The new stability diagnostic selects isolated data before any startup logging.
+
+These current sections supersede earlier pending-reboot, unpushed-feature and proposal wording. Combined fork results and publication limits are recorded in [continuation acceptance](CONTINUATION-ACCEPTANCE.md). The dated evidence below retains its original source boundary.
+
+## Earlier implementation evidence
+
 Feature branch `codex/fix-jsonl-control`, managed worktree `fix-jsonl-control/AirFlash`, is based on verified original stable `91698d8cd3bdf5666b417a12eaaf8d6a1ea36363`. Reviewed head `0ce71396f344a74dff3f54182b597852c2404c6a` is committed and pushed to the user's fork. Its seven-file complete diff and every outgoing commit exclude fork-only analysis/issues/planning. It is not integrated into original stable or fork main by this entry; no upstream issue/PR was created.
 
 ## Process-owned IPC failure

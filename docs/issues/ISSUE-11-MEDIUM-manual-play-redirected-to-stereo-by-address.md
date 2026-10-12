@@ -1,19 +1,27 @@
 # [MEDIUM] Playing a manual receiver redirects to a stereo group by address alone
 
+## Verified update — 2026-10-12
+
+- **Status**: Implemented in pushed B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`, based on stable `cf420d97700463c56adc31408510e8336e99e51c` and integrated into tested runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`; this manual-routing scope is not fixed by PR #19.
+
+[ResolvePlayback](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.Core/ReceiverSelection.cs) preserves exact manual and explicitly selected group rows. Discovered members need a unique online canonical/broadcast-alias owner; this implementation has no address-only or address-plus-port ownership fallback. Shared-address/different-port manual selections retain their endpoint, identity and preferences. Ambiguous ownership fails before a command, and new playback on incomplete/hidden groups remains ineligible. Catalog identity does not replace accessory `/info deviceID` as the credential key.
+
+B passed 304 Core/build, 764 English UI checks with Chinese region and 28 stability checks; [acceptance](GROUP-B-ACCEPTANCE.md) includes fake command target assertions for routing, incompleteness and ambiguity. No receiver or credential store was accessed. Original routing/severity/missing-test statements below describe `41190e0`, not current stable or fork behavior.
+
 - **Issue ID**: ISSUE-11
 - **Implementation plan**: [Work package ISSUE-11](IMPLEMENTATION_PLAN.md#issue-11)
 - **PR group**: B — Session lifecycle
 - **Severity**: MEDIUM — an explicit manual-row selection can target a different receiver/group and port.
 - **Kind**: Defect
 - **Subsystem**: Desktop receiver selection
-- **Status**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
+- **Historical status (2026-10-10)**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
 - **Evidence status**: The original audit inspected source without executing the proposed command-capture scenario. Subsequent isolated baseline observation reproduced manual endpoint redirection; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No real receiver was contacted.
-- **Implementation status**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
+- **Historical implementation status (2026-10-10)**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
 - **Target file**: [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292)
 - **Analysis context**: [After discovery](../analysis/after-discovery.md), [Identity](../analysis/identity.md)
 
-## Current local implementation
+## Historical local implementation — 2026-10-10 (9e894ab)
 
 `ReceiverSelection.ResolvePlayback` immediately preserves manual and explicitly selected group rows. An automatic member can resolve only by canonical id or confirmed broadcast alias among online non-manual peers, with unique physical identity and group ownership. Shared address/port alone is not an ownership fallback. Ambiguity fails before an engine command. `ToggleAsync` rechecks discovered availability and hidden options before start, while manual endpoints and credential identity remain independent.
 

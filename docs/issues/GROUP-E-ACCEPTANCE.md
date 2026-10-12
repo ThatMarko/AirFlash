@@ -1,5 +1,13 @@
 # Group E acceptance
 
+## Current stable-base qualification — 2026-10-11
+
+Current public head `0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a` is pushed against stable `cf420d9`: independent refresh review, 52 focused/221 owning Core tests and a zero-warning/error Release build pass. PIN and native authentication runtime code remains the reviewed implementation qualified by the exact-source Windows receipts below. Current combined source additionally requalifies the latest upstream native capture implementation; it is recorded separately in continuation acceptance. Modal clipboard mutation runs only on an explicitly enabled disposable hosted fixture, with finally restoration; local tests never use the real clipboard/store/accessories.
+
+These current sections supersede earlier pending-reboot, unpushed-feature and proposal wording. Combined fork results and publication limits are recorded in [continuation acceptance](CONTINUATION-ACCEPTANCE.md). The dated evidence below retains its original source boundary.
+
+## Earlier implementation evidence
+
 Feature branch `codex/fix-auth-input`, managed worktree `fix-auth-input/AirFlash`, retains original implementation `47d0823060be4c817b3ee8bf27d360cc16a3dc5d` and normally merges freshly verified original stable `91698d8cd3bdf5666b417a12eaaf8d6a1ea36363`. Final reviewed head `fc8b91942bf93e320b04ec74d5ad0e433e092f69` is pushed to the user's fork and qualified below. No upstream issue/PR was created. Its complete diff has eight intended public source/test files; every outgoing commit excludes fork-only analysis/issues/planning. It is not integrated into original stable or fork main by this record.
 
 ## Input behavior

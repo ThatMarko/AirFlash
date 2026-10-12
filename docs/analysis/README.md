@@ -1,5 +1,13 @@
 # AirFlash receiver workflow
 
+## Current implementation map — 2026-10-11 stable refresh
+
+All eight groups are implemented in the fork, integrated on current code source `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1` against verified original stable `cf420d97700463c56adc31408510e8336e99e51c`. The preceding `107174a` portable composition passed its complete UI/DPI/MSI qualification; the newer change corrects only an inherited EQ fixture and a source comment. Current Core tests pass 667 cases in both configurations; exact-source normal CI and unofficial portable/UI/MSI qualification both pass. [Current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) binds actual checks to source and distinguishes local fakes, hosted native/package checks and unqualified hardware behavior. New dated implementation sections on the subsystem pages supersede earlier proposal/current-state wording; the pinned `41190e0` and subsequent audit sections remain historical evidence.
+
+The map now includes error-preserving accessory credential reads/ASCII PIN normalization, exact process-owned IPC terminal rejection routing/truthful EQ preparation outcomes, a separate owned mute-recovery journal, optional local output-padding metrics and Monitor diagnostics access. Recording capture from current stable is preserved: the actual opened recording endpoint is excluded from all mute access, and native capture direction/identity selection remains authoritative. DNS resolve ownership is reclaimed only after helper-process exit, not merely timeout, reply or Cancel success. WPF and Rust continue to communicate only through JSONL v1.
+
+A and scrolling are upstream; PR #19 partially overlaps B, whose atomic ownership/admission/manual selection remains separate fork scope. C–H are not upstream integrations. Historical statements that E–H are unimplemented, that no durable mute journal exists, or that execution awaits reboot do not describe this current source.
+
 ## Continuation on 2026-10-11
 
 The [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.

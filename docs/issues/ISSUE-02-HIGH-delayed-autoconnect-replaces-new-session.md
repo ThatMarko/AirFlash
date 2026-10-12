@@ -1,20 +1,28 @@
 # [HIGH] A delayed automatic start replaces a newer session and can undo user Stop
 
+## Verified update — 2026-10-12
+
+- **Status**: Implemented in pushed fork B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`, integrated into tested runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`; this automatic-admission scope remains absent from stable `cf420d97700463c56adc31408510e8336e99e51c`.
+
+[Automatic admission](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.App/ViewModels/AppViewModel.cs) is separate from Toggle. It captures authority before persistence, rechecks canonical candidate/online/completeness/visibility/options under the settings gate, then uses [serialized owner/inactive/intent checks](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.Core/SessionController.cs), including inactive Error. Play, Pair, Stop and shutdown invalidate older intent synchronously. Pair does not wait behind a held settings save. Rejected work preserves saves and newer suppression; only admitted attempts update attempted/last-used state, and admitted failures count.
+
+PR #19's bounded discovery guards do not implement this contract. Controlled Core/WPF gates cover delayed saves, queued serialization, Stop/Pair replacement and eligibility changes; B refresh passed 304 Core/build and 764 UI checks, plus 28 stability checks. See [acceptance](GROUP-B-ACCEPTANCE.md). All earlier proposal and missing-test statements remain historical, not current test availability.
+
 - **Issue ID**: ISSUE-02
 - **Implementation plan**: [Work package ISSUE-02](IMPLEMENTATION_PLAN.md#issue-02)
 - **PR group**: B — Session lifecycle
 - **Severity**: HIGH — a stale automatic action can cancel a newly selected manual pairing session and start another receiver after an explicit Stop.
 - **Kind**: Defect
 - **Subsystem**: Desktop automatic-start admission and session ownership
-- **Status**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
+- **Historical status (2026-10-10)**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
 - **Evidence status**: The original audit inspected relevant view-model, Settings Pair, controller and fake-harness/test sources on 2026-10-07 without executing the proposed reproductions. Subsequent isolated baseline observation reproduced stale automatic replacement; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No receiver incident, audio output or frequency was measured.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation baseline `c077a05` and the audited [analysis index](../analysis/README.md)
-- **Implementation status**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
+- **Historical implementation status (2026-10-10)**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
 - **Analysis context**: [After discovery](../analysis/after-discovery.md), [Session](../analysis/session.md), [Settings](../analysis/settings.md), [Control and mute](../analysis/control-and-mute.md)
 - **Target files**: [AppViewModel.cs:292–355](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292-L355), [SettingsWindow.xaml.cs:20–24](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs#L20-L24), [SessionController.cs:176–224](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L176-L224)
 - **Related items**: [ISSUE-01](ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md) covers stale discovery stop/update ownership; [ISSUE-10](ISSUE-10-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md) covers candidate filtering, a separate defect.
 
-## Current local implementation
+## Historical local implementation — 2026-10-10 (9e894ab)
 
 `TryAutoConnectAsync` captures owner/intent before its first await, rechecks canonical identity, current options and suppression after persistence, then holds `_settingsGate` through `TryStartAutomaticAsync`. Controller admission requires the expected owner/intent and an inactive snapshot under `_serial`, and cleanup rechecks intent. Play, Pair, Stop and shutdown invalidate older intent before waiting. Rejected requests do not mark the candidate attempted/last-used or clear newer Stop suppression.
 

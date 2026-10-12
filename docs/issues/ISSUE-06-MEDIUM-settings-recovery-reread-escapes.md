@@ -1,19 +1,27 @@
 # [MEDIUM] An unreadable settings file escapes the loader's recovery handler
 
+## Verified update — 2026-10-12
+
+- **Status**: Implemented in pushed C `5d72da3b77b4ac72f858966baef04b8a4ad8b1ad`, based on stable `cf420d97700463c56adc31408510e8336e99e51c` and integrated into tested runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`; upstream does not contain this preservation fix.
+
+[Load/save recovery](https://github.com/ThatMarko/AirFlash/blob/5d72da3b77b4ac72f858966baef04b8a4ad8b1ad/desktop/AirFlash.Core/SettingsStore.cs) captures readable bytes once inside the guard and preserves their exact BOM/encoding. Recovery never rereads the failed path unguarded. Genuine absence differs from unreadable/uncertain presence, and repeated Load does not discharge preservation. Defaults cannot silently replace an uncaptured original; Save and identity Save require verified raw backups before replacement and retain failed obligations for retry. Warnings distinguish captured-original backup from blocked unreadable-source preservation. Future-schema rejection remains fatal.
+
+C refresh passed 129 focused/300 Core and build. Integrated temporary-store UI fixtures passed within six 1059-check runs, with 666 Core/build and completed CI. [Acceptance](GROUP-C-ACCEPTANCE.md) records locked/BOM/repeated-load/injected-failure cases. This does not coordinate arbitrary external writers or prove physical power-loss durability; no real user settings were read. Earlier source audits and deferred-reboot statements below are historical.
+
 - **Issue ID**: ISSUE-06
 - **Implementation plan**: [Work package ISSUE-06](IMPLEMENTATION_PLAN.md#issue-06)
 - **PR group**: C — Settings preservation/validation
 - **Severity**: MEDIUM; a recoverable read failure can abort normal startup
 - **Kind**: Defect
 - **Subsystem**: Core settings persistence / Desktop startup
-- **Status**: Implemented in local main `9e894ab`; Group C remains unpushed/unpublished and unmerged upstream. Main execution/testing is deferred until after reboot.
+- **Historical status (2026-10-10)**: Implemented in local main `9e894ab`; Group C remains unpushed/unpublished and unmerged upstream. Main execution/testing is deferred until after reboot.
 - **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
 - **Evidence status**: Original locked-read failure reproduced against unchanged Core; fixed Core/WPF checks recorded in [Group C acceptance](GROUP-C-ACCEPTANCE.md).
-- **Implementation status**: Corrected Group C head `c3a1d5e` (after initial `e129466`) is integrated locally. [Feature acceptance](GROUP-C-ACCEPTANCE.md) records executed feature evidence; [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) keeps earlier composition results separate from this source-only main audit.
+- **Historical implementation status (2026-10-10)**: Corrected Group C head `c3a1d5e` (after initial `e129466`) is integrated locally. [Feature acceptance](GROUP-C-ACCEPTANCE.md) records executed feature evidence; [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) keeps earlier composition results separate from this source-only main audit.
 - **Target files**: [SettingsStore.cs:16–56](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SettingsStore.cs#L16), [App.xaml.cs:48–49,69–75](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/App.xaml.cs#L48)
 - **Analysis context**: [Settings load/backups](../analysis/settings.md)
 
-## Current local implementation
+## Historical local implementation — 2026-10-10 (9e894ab)
 
 Current [SettingsStore.Load](../../desktop/AirFlash.Core/SettingsStore.cs) reads bytes within one guarded operation and never rereads a failing path in its recovery catch. Readable invalid/migrated bytes remain pending for exact-byte backup; an unreadable source retains an obligation to read and preserve before replacement. Only actual missing-file/directory exceptions mean absence, and later disappearance does not discharge a previous uncaptured obligation. Save and identity Save share the store lock; failures retain captured revisions for retry. Existing different `.pre-wpf.bak` content survives while unique sibling backups preserve new revisions, each verified before replacement. Future-schema rejection remains fatal and latches persistence blocking until a valid reread; a pending save checks the now-readable source before backup/replacement.
 

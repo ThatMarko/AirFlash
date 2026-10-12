@@ -1,5 +1,28 @@
 # Group C feature acceptance
 
+## Current stable-base qualification — 2026-10-11
+
+Current public head `5d72da3b77b4ac72f858966baef04b8a4ad8b1ad` is pushed against stable `cf420d9`, with independent refresh review, 129 focused/300 owning Core tests and a zero-warning/error Release build. Source preservation/loaded validation is unchanged by the newer recording feature. Both startup loads share preservation state; raw bytes/BOM and unknown fields remain protected. Final integrated WPF checks include the corrected explicit browse demand after safe rejected-settings startup; earlier failed fixtures and receipts remain preserved. These results do not establish coordination with every external replacement after a valid Load.
+
+These current sections supersede earlier pending-reboot, unpushed-feature and proposal wording. Combined fork results and publication limits are recorded in [continuation acceptance](CONTINUATION-ACCEPTANCE.md). The dated evidence below retains its original source boundary.
+
+## Earlier implementation evidence
+
+## Stable refresh — 2026-10-11
+
+Feature `3055988f68e2b1387b125c9dde238bc8ec37609a` normally integrates verified
+original stable `91698d8`, is pushed to the fork and integrated into fork main.
+Its configuration production source remains unchanged by that refresh. Discovery
+fixtures now implement scoped Start/Stop and request panel browsing after proving
+safe recovered defaults leave hidden startup paused. The standalone feature
+passes 172 focused and 297 owning Core tests, a warning-free Release build, and
+70 isolated recovery UI checks in both English and Simplified Chinese. Independent
+review is clear. Traditional Chinese recovery messages still have existing English
+fallbacks. Integrated-only ownership/failure-notice fixtures separately pass 92
+checks after the same explicit browse-demand correction; their earlier failed
+report and source are retained. These are fork receipts, not original-main
+integration or new upstream publication.
+
 ## Continuation on 2026-10-11
 
 The [continuation acceptance](CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.

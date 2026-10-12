@@ -1,19 +1,27 @@
 # [MEDIUM] An attempted preferred receiver blocks another auto-connect candidate
 
+## Verified update — 2026-10-12
+
+- **Status**: Implemented in pushed B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`, based on stable `cf420d97700463c56adc31408510e8336e99e51c` and integrated into tested runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`; PR #19 does not fix this selection rule.
+
+[Candidate selection](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.Core/ReceiverSelection.cs) filters attempted IDs together with current eligibility before last-used/name/ID ranking. An attempted preferred A therefore cannot hide eligible unattempted B. Override precedence, alias migration and permitted offline/incomplete transition resets remain; identical snapshots do not reset an attempt. Admission after persistence rechecks canonical identity/options and only admitted attempts update attempted/last-used state, including failed connections.
+
+B passed 139 focused/304 Core, build, 764 isolated UI checks and 28 stability checks. [Acceptance](GROUP-B-ACCEPTANCE.md) separates fallback assertions from atomic admission and from old baseline failures. Earlier current-head/reboot and missing-test statements below are historical; no hardware connection failure was inferred.
+
 - **Issue ID**: ISSUE-10
 - **Implementation plan**: [Work package ISSUE-10](IMPLEMENTATION_PLAN.md#issue-10)
 - **PR group**: B — Session lifecycle
 - **Severity**: MEDIUM — automatic connection to a new eligible receiver can be suppressed after another receiver failed.
 - **Kind**: Defect
 - **Subsystem**: Desktop auto-connect selection
-- **Status**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
+- **Historical status (2026-10-10)**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
 - **Evidence status**: The original audit inspected source without executing the proposed dispatcher/mock scenario. Subsequent isolated baseline observation reproduced candidate blocking; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No receiver failure was observed on hardware.
-- **Implementation status**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
+- **Historical implementation status (2026-10-10)**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
 - **Target file**: [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L318)
 - **Analysis context**: [After discovery](../analysis/after-discovery.md)
 
-## Current local implementation
+## Historical local implementation — 2026-10-10 (9e894ab)
 
 `ReceiverSelection.SelectAutoConnect` filters online/completeness/hidden/options and `_autoAttempted` before ranking by last-used, current-culture name and ordinal id. `TryAutoConnectAsync` repeats eligibility after persistence and marks only admitted attempts. Alias migration and permitted offline/incomplete transition resets remain; identical snapshots do not clear the guard. Atomic admission is the separate ISSUE-02 contract.
 

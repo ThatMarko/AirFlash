@@ -1,19 +1,27 @@
 # [HIGH] A transient discovery snapshot stops active discovered playback
 
+## Verified update — 2026-10-12
+
+- **Status**: Original passive-discovery Stop scope is already fixed in stable `cf420d97700463c56adc31408510e8336e99e51c`, including merged [PR #19](https://github.com/Ding-Kyoma/AirFlash/pull/19). It must not be proposed again as an unimplemented upstream fix.
+
+Fork B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`, integrated into tested runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`, retains stronger [ownership/control assertions](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.App/Verification/UiSessionLifecycle.cs): Connecting/Pairing/Streaming/Standby survive empty/partial/repeated publication; active complete transport remains separate from truthful availability, hidden/offline rows retain Stop, and reappearance retargets only the original atomic owner/intent. Explicit Stop, PIN cancellation, terminal faults and cleanup remain effective. Selected-interface no-fallback is unchanged.
+
+B's 764-check UI and 28-check stability runs passed, with 304 Core/build. Integrated runtime passed 666 Core and six 1059-check synthetic UI pairs. See [acceptance](GROUP-B-ACCEPTANCE.md). The historical severity, discovery-driven cancellation and original missing-fixture discussion below describe `41190e0`; they do not establish a current hardware-disconnection cause.
+
 - **Issue ID**: ISSUE-03
 - **Implementation plan**: [Work package ISSUE-03](IMPLEMENTATION_PLAN.md#issue-03)
 - **PR group**: B — Session lifecycle
 - **Severity**: HIGH — a passive discovery refresh can interrupt an otherwise running stream; no data loss or security failure is established.
 - **Kind**: Defect
 - **Subsystem**: Desktop discovery/catalog/session orchestration
-- **Status**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
+- **Historical status (2026-10-10)**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
 - **Evidence status**: The original audit inspected source and existing mock-harness assertions without executing the proposed reproduction. Subsequent isolated baseline observations reproduced empty/partial-discovery interruption; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No real-device dropout or network trigger was reproduced.
-- **Implementation status**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
+- **Historical implementation status (2026-10-10)**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
 - **Target files**: [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166), [WindowsDiscovery.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47)
 - **Analysis context**: [Playback coupling](../analysis/playback-coupling.md), [Discovery](../analysis/discovery.md), [After discovery](../analysis/after-discovery.md)
 
-## Current local implementation
+## Historical local implementation — 2026-10-10 (9e894ab)
 
 `ReconcileDiscoveryAsync` retains owned Connecting, Pairing, Streaming and Standby through missing/offline/incomplete snapshots. A complete online reappearance can still retarget through guarded ownership and restart when the effective signature changes. `RefreshReceivers` overlays an active row excluded by the ordinary online/hidden filter; the row's bound toggle remains Stop. Catalog availability is separate from transport health; explicit stop, PIN cancellation, engine faults and shutdown retain cleanup.
 

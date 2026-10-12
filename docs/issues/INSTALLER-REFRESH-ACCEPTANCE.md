@@ -1,5 +1,13 @@
 # Repeated installer packaging acceptance
 
+## Current stable refresh and installer fixture repair — 2026-10-11
+
+Current feature `a20f9dbcecea8926f8c582fa89a935332442defa` is pushed against original stable `cf420d9`. The earlier same-version payload cache fix is preserved. Own-fork integration run `38186854508` passed compilation/native/Core and package/embedded-hello checks after the bundle-audit hash binding repair, but failed installer upgrade with exit 1603: its actual MSI log rejects installing unofficial 0.3.1 over newly released 0.4.0. This was a predecessor-fixture error, not proof that the downgrade protection failed.
+
+The fixture now derives the actual MSI version from its published EXE, selects the numerically nearest strictly lower canonical stable release, and retains the existing lower-version synthetic WiX fixture if none exists. Disposable-runner restrictions, hashes, data/registration preservation, repair and uninstall checks remain intact. Pure selection covers newer/equal/missing/malformed releases, numeric sorting, caller capture state and StrictMode; all 120 Python tests and lint pass. Independent review findings around malformed arrays, inherited regex captures, empty selection and final newlines are fixed. Current disposable installer qualification is recorded in continuation acceptance; no local MSI was installed or production release workflow dispatched.
+
+## Earlier payload-refresh qualification
+
 During the user-authorized A+B+Settings scrolling validation on 2026-10-07, local MSI builds returned success while containing the earlier A+B executable. The clean GitHub build contained the correct scrolling executable. This additional fix addresses a pre-existing packaging defect and does not activate another A–H backlog group.
 
 ## Reproduction and correction

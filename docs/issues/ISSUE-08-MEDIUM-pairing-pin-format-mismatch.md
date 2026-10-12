@@ -1,5 +1,9 @@
 # [MEDIUM] Pairing dialog accepts dashed PINs that the engine rejects
 
+## Implementation update — 2026-10-11
+
+Implemented on refreshed Group E `codex/fix-auth-input`, source-confirmed at `0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a` against original stable `cf420d97700463c56adc31408510e8336e99e51c`. [PairingPin.Normalize](https://github.com/ThatMarko/AirFlash/blob/0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a/desktop/AirFlash.Core/PairingPin.cs) removes permitted ASCII dashes, then requires 4–8 ASCII digits. The dialog uses it for enablement and submission, so the actual `pair_pin` payload is normalized; native validation/cancellation remain unchanged. [Group E acceptance](GROUP-E-ACCEPTANCE.md) records controlled payload, typing and disposable-runner paste checks. No real pairing is claimed, and original stable has not integrated this fix. This update supersedes the unimplemented labels below; earlier audit, proposal and validation text remains historical.
+
 Continuation update, 2026-10-11: implemented and independently reviewed on `codex/fix-auth-input` at `fc8b91942bf93e320b04ec74d5ad0e433e092f69`, based on original stable `91698d8`. The shared ASCII normalizer governs both enablement and submission; real fake `pair_pin` payloads and disposable-runner paste are asserted. Exact-source hosted run `38164451047` passed 218 Core cases, 57 native cases and 225 modal checks. [Group E acceptance](GROUP-E-ACCEPTANCE.md) distinguishes baseline failure, synthetic fixtures, startup-isolation correction and remaining hardware limitations. This is feature-branch implementation, not a fix integrated into original stable; the historical trace below remains dated evidence.
 
 - **Issue ID**: ISSUE-08

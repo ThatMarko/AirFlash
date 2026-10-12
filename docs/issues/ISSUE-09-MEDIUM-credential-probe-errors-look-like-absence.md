@@ -1,5 +1,9 @@
 # [MEDIUM] Credential existence errors can select transient authentication
 
+## Implementation update — 2026-10-11
+
+Implemented on refreshed Group E at `0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a`, based on original stable `cf420d97700463c56adc31408510e8336e99e51c`. [The loader](https://github.com/ThatMarko/AirFlash/blob/0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a/native/airflash-engine/src/credentials.rs) reads one opened handle, with only initial open `NotFound` treated as absence. Read-stage errors, permissions, DPAPI, format and identity failures propagate; `authenticate_with` does not switch methods after storage or verification failure. Accessory `/info` keys, current-user encryption and file format remain intact. [Group E acceptance](GROUP-E-ACCEPTANCE.md) records isolated synthetic Windows fixtures and the failing error-hiding mutation. No user store or real receiver was inspected. This supersedes earlier unimplemented labels; upstream integration is still absent and the original audit/proposal below is historical.
+
 Continuation update, 2026-10-11: implemented and independently reviewed on `codex/fix-auth-input` at `fc8b91942bf93e320b04ec74d5ad0e433e092f69`, based on original stable `91698d8`. One opened handle establishes absence only on initial `NotFound`; storage/decryption/parsing/identity/verification failures remain errors and select no alternate authentication. Exact-source hosted Windows native tests passed, and a separately preserved error-hiding mutation failed the decisive classification assertion. [Group E acceptance](GROUP-E-ACCEPTANCE.md) records synthetic temporary-root DPAPI tests and executed checks. This is feature-branch implementation, not a fix integrated into original stable; the historical trace below remains dated evidence.
 
 - **Issue ID**: ISSUE-09

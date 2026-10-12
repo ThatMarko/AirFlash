@@ -1,6 +1,16 @@
 # Playback coupling
 
-## Current local main and historical boundary
+## Verified state — 2026-10-12
+
+Stable base `cf420d97700463c56adc31408510e8336e99e51c` now includes merged [PR #19](https://github.com/Ding-Kyoma/AirFlash/pull/19)'s passive discovery retention. Pushed B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b` and tested integrated fork runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee` add the stronger serialized ownership/admission and selection/control contracts. Earlier `41190e0` discovery-driven Stop and `9e894ab` execution/publication statements below are historical.
+
+Current [reconciliation](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.App/ViewModels/AppViewModel.cs) retains owned Connecting, Pairing, Streaming and Standby through empty, partial, offline and repeated discovery, including adapter browse restart. Catalog availability stays truthful; it does not replace a complete owned transport with partial/offline data. New unavailable/incomplete starts remain rejected. A complete online reappearance may update only the original atomic owner/intent through [controller serialization](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.Core/SessionController.cs); valid identity promotion and applicable signature restarts remain.
+
+The active row retains Stop even when hidden/offline. Explicit Stop, PIN cancellation, shutdown and terminal transport/capture faults still govern cleanup/retry; passive discovery loss does not initiate it. Native retries create fresh processes and transport identities. Exact local mute restoration remains best effort after owned worker cleanup, with the new separate [recovery journal](control-and-mute.md); no immediate restoration or acoustic guarantee follows from discovery retention.
+
+B's refreshed 764-check UI run and 28-check stability command passed, alongside 304 Core and build. Integrated runtime passed 666 Core and six 1059-check synthetic UI pairs, with completed normal/native/package CI. These tests prove the fake-command, ownership and control outcomes; they do not attribute HomePod incidents to a network/hardware cause. See [B acceptance](../issues/GROUP-B-ACCEPTANCE.md).
+
+## Historical local-main audit — 2026-10-10 (9e894ab)
 
 Local main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7` now contains final B `0a2c1ac`, C `c3a1d5e` and D `48e7ab62`. In current [AppViewModel.ReconcileDiscoveryAsync](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs), missing/offline/incomplete discovery data does not revoke Connecting, Pairing, Streaming or Standby. A complete online reappearance may retarget only the captured owner/intent through [SessionController.TryUpdateReceiverAsync](../../desktop/AirFlash.Core/SessionController.cs). Its effective transport/settings signature can still restart an active non-pairing stream. The active panel overlay keeps Stop available while catalog availability remains truthful; after stop/terminal completion, rows retained only for ownership disappear.
 

@@ -1,5 +1,9 @@
 # [LOW] Settings does not expose its existing diagnostics-copy command
 
+## Implementation update — 2026-10-11
+
+Implemented on refreshed Group H `codex/fix-diagnostics-metrics` at `7f5135384d2245cfdf39d9c77b591c39df1981e3`, against original stable `cf420d97700463c56adc31408510e8336e99e51c`. [Monitor's localized action](https://github.com/ThatMarko/AirFlash/blob/7f5135384d2245cfdf39d9c77b591c39df1981e3/desktop/AirFlash.App/Ui/SettingsWindow.xaml) exposes the existing `CopyDiagnosticsCommand` with keyboard/automation access. The same serializer, STA clipboard operation and Settings error surface remain in use; isolated tests inject a writer rather than touching the user's clipboard. [Group H acceptance](GROUP-H-ACCEPTANCE.md) records realized button/binding, Idle/Streaming/Error, copied snapshots and failure checks without settings saves, engine commands or audio mutation. This supersedes earlier unimplemented labels; original stable has not integrated H and the earlier audit/proposal below is historical.
+
 - **Issue ID**: ISSUE-15
 - **Implementation plan**: [Work package ISSUE-15](IMPLEMENTATION_PLAN.md#issue-15)
 - **PR group**: H — Diagnostics/observability

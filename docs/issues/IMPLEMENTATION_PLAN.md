@@ -1,6 +1,25 @@
 # AirFlash implementation plan
 
-## Continuation on 2026-10-11
+## Current implementation — stable refresh on 2026-10-11
+
+All 17 reports are implemented in the fork. The unmerged B–H and installer feature branches have been refreshed to verified original stable `cf420d97700463c56adc31408510e8336e99e51c`; their complete diffs and every outgoing commit exclude this fork's analysis/issues/planning documents. Current fork code source `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1` contains the reviewed implementations and the controlled EQ fixture correction. The reboot gate is satisfied. Its Release build has zero warnings/errors and all 667 Core tests pass in Debug and Release. Exact-source normal CI and complete unofficial packaged UI/DPI/MSI qualification both pass; earlier `107174a` receipts remain separate. Final crossed WPF and Windows hosted/package qualification are recorded in [continuation acceptance](CONTINUATION-ACCEPTANCE.md), including failures and limitations.
+
+A and scrolling are integrated upstream. PR #19 is now merged and covers part of discovery retention/fresh-snapshot handling; B still adds atomic lifecycle ownership, admission/selection/manual-routing guards and stronger controls. PR #15 remains closed and unmerged at its frozen old head; issue #14 is open. C–H and the installer fixture repair are fork implementations, with no new upstream publication authorized. Earlier dated progress, pending-reboot and proposal statements below are historical and superseded by this section.
+
+| Group | Current branch head | Acceptance |
+| --- | --- | --- |
+| A | `de13b6d` (already upstream) | [Build scope](ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md) |
+| B | `442e8d8` | [Session/receiver package](GROUP-B-ACCEPTANCE.md) |
+| C | `5d72da3` | [Settings preservation/validation](GROUP-C-ACCEPTANCE.md) |
+| D | `277efc5` | [Bounded DNS process ownership](GROUP-D-ACCEPTANCE.md) |
+| E | `0ebc59b` | [PIN and credential lookup](GROUP-E-ACCEPTANCE.md) |
+| F | `421e1ea` | [IPC errors and EQ outcomes](GROUP-F-ACCEPTANCE.md) |
+| G | `96b9120` | [Owned mute recovery](GROUP-G-ACCEPTANCE.md) |
+| H | `6855dfe` | [Diagnostics/padding/localization](GROUP-H-ACCEPTANCE.md) |
+
+The original work packages below remain requirements/history, not evidence that current stable or feature code still has every original defect. Implementation on a tested fork branch is distinct from integration into upstream stable. New upstream issues/PRs, reopening B, upstream merges and releases still require explicit publication/action authorization.
+
+## Historical continuation stage — early 2026-10-11
 
 The [continuation acceptance](CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
 
@@ -8,7 +27,7 @@ The user subsequently authorized [fork synchronization on 2026-10-11](README.md#
 
 This plan retains **17 reports in eight coherent PR groups**. Its work-package sections describe the original implementation requirements on `41190e0`; they are not a claim that implemented A–D still have those defects or missing test seams. [Group B acceptance](GROUP-B-ACCEPTANCE.md) and [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) retain standalone, fork-main and downloaded build evidence separately. Issue numbers organize the original backlog by severity; they are not the execution order.
 
-## Current local integration — 2026-10-10
+## Historical local integration — 2026-10-10
 
 All 17 pre-existing local branches are contained in local fork `main` at **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`**; every branch remains, with its original non-main tip preserved. This combines A/B/C/D, scrolling, installer refresh, the 19 cross-group verification assertions and actual upstream `d4aa068`. The desktop/native/scripts/tests/installer trees match previously verified `6fe467b`; historical Group A validation workflow history is also retained. No push, new publication or upstream merge was performed.
 

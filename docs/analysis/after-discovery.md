@@ -1,10 +1,22 @@
 # After discovery: catalog, session updates, and auto-connect
 
-## Continuation on 2026-10-11
+## Verified state — 2026-10-12
+
+Stable `cf420d97700463c56adc31408510e8336e99e51c` and pushed B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b` are integrated into tested fork runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`. Older baseline/continuation sections below remain historical, including their pending-reboot and incomplete E–H status.
+
+Upstream [PR #19](https://github.com/Ding-Kyoma/AirFlash/pull/19) is merged. Its [stable consumer](https://github.com/Ding-Kyoma/AirFlash/blob/cf420d97700463c56adc31408510e8336e99e51c/desktop/AirFlash.App/ViewModels/AppViewModel.cs) retains active discovery targets, rereads the session after persistence, skips passive updates during Pairing and uses live state for retained controls. This removes already-fixed passive-retention scope; it does not establish atomic owner/intent admission, candidate fallback, exact manual routing or hidden active controls.
+
+The [fork consumer](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.App/ViewModels/AppViewModel.cs) captures snapshot/owner/intent atomically before identity saving. Afterward a fresh capture must match the original owner and intent; serialized retargeting checks again. Complete online reappearance may promote identity or cause an applicable signature restart. Missing/partial data remains catalog availability rather than transport revocation. The active overlay retains Stop even when hidden/offline; manual rows persist independently and selected-adapter no-fallback remains intact.
+
+Automatic start uses separate admission from click Toggle: intent is captured before persistence, eligibility/options are rechecked under the settings gate, and the controller requires the original owner/intent plus inactivity. Pair/Stop/new explicit work invalidate older intent immediately. Attempted candidates are filtered before ranking, and only admitted attempts change attempted/last-used state. Rejected work preserves valid saves and newer suppression. [ReceiverSelection](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.Core/ReceiverSelection.cs) preserves exact manual/group selections and rejects ambiguous member ownership.
+
+B refresh passed 139 focused/304 Core checks, build, 764 English UI checks with Chinese region and the new 28-check stability command. Integrated runtime passed 666 Core and six 1059-check mock UI pairs; current normal/native/package CI is complete. These results do not establish a hardware disconnection cause. See [B acceptance](../issues/GROUP-B-ACCEPTANCE.md), [Settings](settings.md) and [Discovery](discovery.md).
+
+## Earlier continuation snapshot — 2026-10-11 (437 Core)
 
 The [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
 
-## Current local main and historical boundary
+## Historical local-main audit — 2026-10-10 (9e894ab)
 
 Source audit on 2026-10-10: local `main` at `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7` includes final B `0a2c1ac`, C `c3a1d5e`, D `48e7ab62`, scrolling and updated upstream. The sections from the pipeline through the original source/verification table describe pinned **`41190e0`**, including its discovery-driven Stop, address-only routing and delayed automatic-admission defects. They are historical behavior, not the behavior of this merged main.
 
@@ -162,7 +174,7 @@ On an initial discovery with no active session, the timer or an explicit play/Pa
 [`DiscoveryTests`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/DiscoveryTests.cs#L9) and [`ReceiverIdentityTests`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L22) cover pure interface selection, aggregation, stereo counting, endpoint conflicts, and migrations. [`SessionTests.cs:91–123`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L91) covers identity updates retaining transport, changed effective latency restarting once, and renamed/reordered stereo members retaining transport. These xUnit tests do not instantiate `AppViewModel`. The separate WPF [`UiRegression` harness](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L163), invoked by `--ui-smoke`, covers failed identity-save coupling, open drafts, automatic-attempt migration/offline recovery, and stopping playback when a stereo member disappears. The attempted-preferred-receiver fallback edge, manual-row address redirection, and delayed automatic admission race lack dedicated assertions there. All of that harness uses mock discovery/audio/engine services, not live receivers.
 
 
-## Implemented Group B behavior
+## Earlier Group B implementation (through 9e894ab)
 
 The preceding baseline audit describes `41190e0`. Initial B at `342aeb77cb85ff6f3f7f850161b3db79d8637945` was integrated historically at `72dc7c7`; later production follow-up `11c6046` and verification-only fixes advanced the pushed feature to `0a2c1ac`. All are now ancestors of local main `9e894ab`. B remains unmerged upstream with PR #15 closed. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for the separate dated test evidence.
 

@@ -1,15 +1,23 @@
 # [MEDIUM] Validate the selected .NET SDK before release reservation and native build
 
+## Verified update — 2026-10-12
+
+- **Status**: Resolved upstream. Stable `cf420d97700463c56adc31408510e8336e99e51c` contains A `de13b6d3e22a177537ed9d5977fe693a5b497fc1` through merged PR #11; no original Group A implementation scope remains.
+
+[Shared host context/preflight](https://github.com/Ding-Kyoma/AirFlash/blob/cf420d97700463c56adc31408510e8336e99e51c/scripts/dotnet-common.ps1) resolves the same chosen executable under `desktop/global.json` (`10.0.100/latestFeature`) from the intended desktop directory, retains deliberate host precedence, and reports a shadowing runtime-only/incompatible installation. [Build](https://github.com/Ding-Kyoma/AirFlash/blob/cf420d97700463c56adc31408510e8336e99e51c/scripts/build.ps1) validates before reservation, cleanup or native work; the [release workflow](https://github.com/Ding-Kyoma/AirFlash/blob/cf420d97700463c56adc31408510e8336e99e51c/.github/workflows/release.yml) prepares/checks SDK before reservation. Installer overrides use that same explicit context. Informational runtime commands, forwarding and exit propagation remain compatible.
+
+Tested fork runtime/source `dc521ae4236479cf21f9881b2d053f51a0fea7ee` passed 120 Python fixtures and normal/package CI; these are not release dispatches or version reservations. The later fork `fc1b718` release-helper changes are separate from that evidence. Earlier severity, call-order defect, unavailable-tooling and pending-reboot statements below are historical. The installer payload-refresh package remains separately recorded, not new A scope.
+
 - **Issue ID**: ISSUE-05
 - **Implementation plan**: [Work package ISSUE-05](IMPLEMENTATION_PLAN.md#issue-05)
 - **PR group**: A — Build readiness
 - **Severity**: MEDIUM; build prerequisites fail after avoidable build/release side effects
 - **Kind**: Defect — tooling
 - **Subsystem**: Build & Tests
-- **Status**: Implemented; [PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11) merged upstream on 2026-10-09 and [issue #10](https://github.com/Ding-Kyoma/AirFlash/issues/10) closed; integrated into local fork `main`
+- **Historical status (2026-10-10)**: Implemented; [PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11) merged upstream on 2026-10-09 and [issue #10](https://github.com/Ding-Kyoma/AirFlash/issues/10) closed; integrated into local fork `main`
 - **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
 - **Evidence status**: Original audit was source-only; subsequent isolated implementation checks are recorded below
-- **Implementation status**: `origin/codex/fix-build-preflight`, commit `de13b6d3e22a177537ed9d5977fe693a5b497fc1`
+- **Historical implementation status (2026-10-10)**: `origin/codex/fix-build-preflight`, commit `de13b6d3e22a177537ed9d5977fe693a5b497fc1`
 - **Target files**: [dotnet.ps1:5–24](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/dotnet.ps1#L5), [build.ps1:17–33](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/build.ps1#L17), [build-installer.ps1:39–45](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/build-installer.ps1#L39), [global.json:1](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/global.json#L1)
 - **Analysis context**: [Audit/toolchain verification limits](../analysis/audit.md)
 
@@ -45,7 +53,7 @@ Review-setting correction — **2026-10-07**: Marko subsequently identified that
 
 Group A's tested feature commit was merged into local fork `main` at `ca84c7c`, followed by Group B at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`. This does not merge upstream PR #11 or alter its feature branch. [Combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) records hosted packaging and tests of the downloaded binaries separately from the original standalone checks above. No public release or version reservation is implied.
 
-## Accepted fix and current local integration — 2026-10-10
+## Accepted fix and historical local integration — 2026-10-10
 
 PR #11 merged on 2026-10-09 at upstream merge `347cb24`; its earlier approval gate is historical, and upstream run `37660774239` subsequently succeeded. Stable upstream `d4aa0686fc411de6655aac313243f0f6bf71e439` includes this fix. The feature branch remains at `de13b6d`.
 

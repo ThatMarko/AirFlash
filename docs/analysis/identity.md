@@ -1,6 +1,16 @@
 # Identity
 
-## Current local main and historical boundary
+## Verified state — 2026-10-12
+
+Stable base `cf420d97700463c56adc31408510e8336e99e51c` is integrated with pushed B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b` and C `5d72da3b77b4ac72f858966baef04b8a4ad8b1ad` in tested fork runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`. The earlier unchanged-file and unpushed/reboot statements refer to their explicitly older audits, not the final tree.
+
+[ReceiverSelection](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.Core/ReceiverSelection.cs) preserves an explicit manual row and an explicitly selected group. Discovered-member redirection needs unique live canonical/broadcast-alias ownership; address or address-plus-port alone is not a fallback in this implementation. The selected manual endpoint, port, identity and preferences therefore remain authoritative even when a discovered stereo group shares an address. Ambiguity fails before a command.
+
+Identity persistence still uses ReceiverCatalog migrations. Its asynchronous [application consumer](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.App/ViewModels/AppViewModel.cs) captures snapshot/owner/intent together before saving, accepts fresh state only for that same authority, and guards retargeting under controller serialization. Valid same-owner promotion remains possible through metrics and Pairing; changed signatures retain their applicable restart behavior. C validates loaded manual rows before this pipeline. Catalog identity never replaces accessory `/info deviceID` as the credential key.
+
+Upstream PR #19 fixes bounded discovery-retention cases, not manual routing or serialized ownership. B remains separate fork scope; PR #15 is closed without merge. B refresh passed 139 focused/304 Core checks, Release build, 764 English UI checks with Chinese regional culture and the new 28-check stability command. See [B acceptance](../issues/GROUP-B-ACCEPTANCE.md); current tests use synthetic identities and no credential store or receivers.
+
+## Historical local-main audit — 2026-10-10 (9e894ab)
 
 The detailed identity/catalog analysis below is pinned to `41190e0`. The `Receiver`, `ReceiverIdentity` and `ReceiverCatalog` production files remain byte-for-byte unchanged in local main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`, as confirmed by the source diff. The later selection stage changed: [ReceiverSelection.ResolvePlayback](../../desktop/AirFlash.Core/ReceiverSelection.cs) preserves explicit manual/group identity and routes discovered members only through canonical identity or confirmed broadcast aliases with unambiguous live ownership. Address-only stereo substitution has been removed; syntactically classifying an id as broadcast still does not authenticate a receiver.
 

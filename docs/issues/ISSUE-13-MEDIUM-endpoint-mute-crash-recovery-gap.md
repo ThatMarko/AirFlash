@@ -1,5 +1,9 @@
 # [MEDIUM] Prior endpoint mute bits cannot be recovered after forced desktop termination
 
+## Implementation update — 2026-10-11
+
+Implemented on refreshed Group G `codex/fix-mute-recovery` at `96b9120116555f496d50ffc270ba54666b303534`, against original stable `cf420d97700463c56adc31408510e8336e99e51c`. [The separate journal/coordinator](https://github.com/ThatMarko/AirFlash/blob/96b9120116555f496d50ffc270ba54666b303534/desktop/AirFlash.Core/MuteRecoveryCoordinator.cs) retains actual playback endpoint, exact prior bit and GUID/generation ownership under an exclusive lease; durable intent precedes mutation. Recovery conservatively preserves uncertain records, and recording/unknown direction cannot trigger mute access. A completed restore followed by failed saving retries persistence only while that knowledge survives. The modeless review preserves Stop access; muted-start admission remains globally conservative even for recording sources. [G acceptance](GROUP-G-ACCEPTANCE.md) and [the recovery contract](../MUTE-RECOVERY.md) document synthetic failures and durability limits. Physical reboot/power-loss persistence and upstream integration are not claimed. Earlier unimplemented labels and proposals are historical.
+
 - **Issue ID**: ISSUE-13
 - **Implementation plan**: [Work package ISSUE-13](IMPLEMENTATION_PLAN.md#issue-13)
 - **PR group**: G — Owned mute recovery

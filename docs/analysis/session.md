@@ -1,10 +1,22 @@
 # Session control
 
-## Continuation on 2026-10-11
+## Verified state — 2026-10-12
+
+The current original stable base is `cf420d97700463c56adc31408510e8336e99e51c`. Pushed B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b` is integrated into tested fork runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`. The earlier `41190e0`/`9e894ab` and first continuation sections are historical; E/F/G/H are now implemented in the fork, with details in their dedicated analysis pages.
+
+[SessionController](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.Core/SessionController.cs) atomically captures snapshot, desktop lifecycle owner and explicit/automatic intent. Metrics publications and native-process retries do not replace that owner. Explicit Play, Pair, Stop and shutdown invalidate older intent synchronously, before waits; admission validates authority and inactive state under serialization, including eligible Error. Replacement cleanup rechecks the same action's intent after awaits. Retries still create new engine processes/session UUIDs/PTP/SSRCs, not RTP resume.
+
+The [app consumer](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.App/ViewModels/AppViewModel.cs) revalidates canonical identity, visibility, completeness, online status and settings after persistence while holding the settings gate through automatic admission. Only admitted attempts update attempted/last-used state; a failed admitted connection counts. Guarded retargeting retains valid same-owner identity promotion, while stale work cannot alter a replacement's receiver, settings or diagnostics. Pair supersedes a held settings save without awaiting that gate or a PIN prompt.
+
+Upstream PR #19 supplies passive retention and bounded fresh-snapshot/Pairing protections; it does not supply this ownership/admission contract. Hidden/offline active controls, manual routing and candidate fallback remain B scope. Current mute readiness, terminal IPC routing, PIN normalization and optional capture metrics preserve these ownership checks; see [mute](control-and-mute.md), [failures](failures.md), [authentication](auth.md) and [capture](capture-clocks.md).
+
+B refresh passed 304 Core, build, 764 isolated English UI checks with Chinese region and 28 stability checks. Integrated runtime passed 666 Core and six 1059-check UI pairs with completed exact-source normal/native/package CI. [B acceptance](../issues/GROUP-B-ACCEPTANCE.md) retains the decisive baseline failures and controlled gates. No real audio or receivers were exercised.
+
+## Earlier continuation snapshot — 2026-10-11 (437 Core)
 
 The [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
 
-## Current local main and historical boundary
+## Historical local-main audit — 2026-10-10 (9e894ab)
 
 The state diagram, call table and source-linked detailed body below describe the audited **`41190e0`** baseline. In local main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`, passive discovery loss no longer calls Stop, and automatic starts use `TryStartAutomaticAsync`; explicit Play/Pair/Stop still retain their ordinary serialized lifecycle paths. Manual/group selection no longer redirects by shared address. Those baseline edges must not be read as current main behavior.
 

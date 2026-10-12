@@ -1,10 +1,22 @@
 # Discovery
 
-## Continuation on 2026-10-11
+## Verified state — 2026-10-12
+
+The current stable base is `cf420d97700463c56adc31408510e8336e99e51c`. Fork D is pushed at `277efc5b389acd2b9699c9b25baf83450274096f` and is integrated into tested runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`. The later fork head `fc1b718` changes three release-helper files, not this runtime. Earlier `41190e0`, `d4aa068`, `9e894ab` and first continuation sections below are historical, including their reboot/publication status.
+
+**Lifetime correction:** the contract review of `91698d8` and Microsoft's [Resolve](https://learn.microsoft.com/en-us/windows/win32/api/windns/nf-windns-dnsserviceresolve)/[ResolveCancel](https://learn.microsoft.com/en-us/windows/win32/api/windns/nf-windns-dnsserviceresolvecancel) documentation did not establish that an ordinary result or successful Cancel return proves callback quiescence. Earlier claims that resolve callbacks independently settle inputs, and the old probe's zero-owner counters, do not establish safe native reclamation. The conservative in-process prototype was rejected because two browse cycles could exhaust a name's retained-owner allowance.
+
+Current [resolve ownership](https://github.com/ThatMarko/AirFlash/blob/277efc5b389acd2b9699c9b25baf83450274096f/desktop/AirFlash.App/Services/ResolveProcessDnsServiceApi.cs) uses one bounded child process per query. Admission roots the operation before Start; a global limit of eight includes unstarted, starting, cancelled and unobserved-exit children. Only successful observation of the exact child's exit settles a started process owner. Reply, Kill or read failure alone does not settle ownership; failed exit observation reports failure and retains the owner until later successful observation. The [helper](https://github.com/ThatMarko/AirFlash/blob/277efc5b389acd2b9699c9b25baf83450274096f/desktop/AirFlash.App/Services/DnsResolveHelper.cs) dispatches before WPF/logging/configuration, copies only the first bounded reply, starts no descendants and has a six-second self-termination watchdog. Reply delivery and process settlement are separate.
+
+[WindowsDiscovery](https://github.com/ThatMarko/AirFlash/blob/277efc5b389acd2b9699c9b25baf83450274096f/desktop/AirFlash.App/Services/WindowsDiscovery.cs) separately tracks advertisements, cached expiry, current logical request token, resource owner and epoch: five-second initial deadlines, 20-second refresh, 1–30-second retry backoff, a ten-second resume cache, and caps including old epochs. Pending browse inputs remain in the parent until documented terminal cancellation 1223 and native/callback frames have ended; Cancel return alone is insufficient. Scoped visibility/startup browsing and selected-adapter no-fallback remain upstream behavior. Passive availability loss does not revoke B's owned transport.
+
+The old intermittent failure was reproduced as a fixture draining deferred cancellation while synchronously waiting for its own callback return; both drain schedules now have explicit gates. The documentation-only green rerun was not its repair. Current D passed 108 focused/295 Core checks, a warning-free Release build and six synthetic real-child checks. Integrated runtime passed 666 Core checks, build, 120 Python checks, six 1059-check UI pairs and exact-source [native/managed CI](https://github.com/ThatMarko/AirFlash/actions/runs/38188371849), [normal CI](https://github.com/ThatMarko/AirFlash/actions/runs/38188372687) and [package validation](https://github.com/ThatMarko/AirFlash/actions/runs/38188372675). These are synthetic/service-isolated results; no current live DNS or receiver probe was run. See [D acceptance](../issues/GROUP-D-ACCEPTANCE.md).
+
+## Earlier continuation snapshot — 2026-10-11 (437 Core)
 
 The [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
 
-## Current local main and historical boundary
+## Historical local-main audit — 2026-10-10 (9e894ab)
 
 Local main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7` includes corrected D `48e7ab62`, final B `0a2c1ac` and C `c3a1d5e`. The detailed browse/resolve/cache sections through the original verification table below describe **historical `41190e0`**, including its missing deadline and native lifetime limits. In current [WindowsDiscovery](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs), `_advertised`, `_records`, `_pending` and `_owners` have separate lifetimes; [DiscoveryPolicy](../../desktop/AirFlash.App/Services/DnsServiceApi.cs) defines a five-second monotonic resolve deadline, 20-second successful refresh/adapter checks, 90-second record expiry, bounded 1–30-second exponential retry, and ownership caps. The coordinator's infrastructure runs maintenance each second. Cache expiry retains still-advertised names. TTL-zero or advertisement expiry retires that name and its logical request; exact owner/epoch checks reject late results.
 
@@ -151,7 +163,7 @@ The audited code is the `41190e0` runtime baseline retained by `c077a05`; see [t
 [`DiscoveryTests.SelectedInterfaceNeverFallsBackToAllWhenMissingOrDisconnected`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/DiscoveryTests.cs#L9) covers pure interface selection. `AirFlash.Tests` references Core, not the WPF project; its discovery tests do not exercise `dnsapi.dll`, native cancellation races, the 20-second timer, hung callbacks, or TTL-zero removal delivery. Those behavior paths are verified by source inspection here, not by a live receiver experiment.
 
 
-## Implemented Group B behavior
+## Earlier Group B implementation (through 9e894ab)
 
 The preceding baseline audit describes `41190e0`. Initial B at `342aeb77cb85ff6f3f7f850161b3db79d8637945` was integrated historically at `72dc7c7`; later production follow-up `11c6046` and verification-only fixes advanced the pushed feature to `0a2c1ac`. All are now ancestors of local main `9e894ab`. B remains unmerged upstream with PR #15 closed. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate dated test evidence.
 
@@ -159,7 +171,9 @@ Group B changes desktop handling after publication. Empty, incomplete or repeate
 
 Group B alone leaves browse, resolve, expiry and native DNS cancellation code unchanged; Group D separately changes those paths and is now present in local main. The selected discovery interface still has no fallback when unavailable and still does not bind playback egress. The retained transport remains governed by worker health, explicit user actions and controller cleanup. The B checklist records mock publication/adapter cases, without claiming live DNS, route or receiver validation.
 
-## Implemented Group D behavior
+## Historical in-process Group D implementation (48e7ab62; lifetime conclusions superseded)
+
+The following describes the old implementation and observations. Its resolve callback-settlement assumptions and zero-owner probe accounting are superseded by the lifetime correction and process boundary above; they are not a safe-quiescence contract.
 
 The original audit and Group B addendum above retain their own source boundaries. Local branch `codex/fix-discovery-resolve` initially tested `4c79f2254910365dc9f5931fcdc52851c7043abe`; its corrected head is **`48e7ab62dd034085a53825d17e52b6bbf3714315`**, based on historical stable `41190e0`. D is now integrated into local main `9e894ab` but remains unpushed/unpublished and unmerged upstream. [Group D acceptance](../issues/GROUP-D-ACCEPTANCE.md) records initial/follow-up checks and API lifetime limits. Group C was completed first separately; the earlier [A/B/C/D validation composition](../issues/ABCD-INTEGRATION-ACCEPTANCE.md) retains its own execution boundary and does not constitute new main testing.
 

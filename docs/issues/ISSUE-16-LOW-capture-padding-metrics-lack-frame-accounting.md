@@ -1,5 +1,9 @@
 # [LOW] Capture-padding telemetry lacks missing-frame accounting
 
+## Implementation update — 2026-10-11
+
+Implemented on refreshed Group H at `7f5135384d2245cfdf39d9c77b591c39df1981e3`, against original stable `cf420d97700463c56adc31408510e8336e99e51c`. [Native accounting](https://github.com/ThatMarko/AirFlash/blob/7f5135384d2245cfdf39d9c77b591c39df1981e3/native/airflash-engine/src/live.rs) saturates `padded_frames` and `fully_padded_packets`, counting missing output-rate slots before EQ once per shared pull. Captured silence is not padding; recording and playback use the same downstream queue. Optional desktop UInt64 fields retain the full range, display invalid/absent values unavailable, reset current metrics per attempt and preserve pre-fault snapshots. Existing underrun semantics remain unchanged; no input-rate fill percentage, network-loss or acoustic measurement is inferred. [H acceptance](GROUP-H-ACCEPTANCE.md) records both-rate synthetic fixtures and actual hosted native checks. This supersedes unimplemented labels; upstream integration and hardware qualification are not claimed, and the original audit/proposal below is historical.
+
 - **Issue ID**: ISSUE-16
 - **Implementation plan**: [Work package ISSUE-16](IMPLEMENTATION_PLAN.md#issue-16)
 - **PR group**: H — Diagnostics/observability

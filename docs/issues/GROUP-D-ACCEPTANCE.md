@@ -1,5 +1,48 @@
 # Group D feature acceptance
 
+## Current stable-base qualification — 2026-10-11
+
+Current public head `277efc5b389acd2b9699c9b25baf83450274096f` is pushed against stable `cf420d9`. Independent review, 108 focused/295 owning Core tests, warning-free Release build and six actual synthetic helper-process checks pass. Resolve owners are rooted before Start, share a global eight-owner bound across restarts/instances, and settle only after confirmed helper-process exit. Reply, timeout, Cancel/Kill result or failed wait alone never settles ownership. Logical request/epoch/deadline/cache/backoff state remains separate, and browse cancellation remains deferred outside callback/publication frames. The permanent two-owner prototype was rejected because ordinary repeated resolutions exhausted it. New stability diagnostics are isolated before logging/WPF; DNS child/check dispatch still precedes all application startup. Real DNS and hardware reliability are not qualified by these receiver-free fixtures.
+
+These current sections supersede earlier pending-reboot, unpushed-feature and proposal wording. Combined fork results and publication limits are recorded in [continuation acceptance](CONTINUATION-ACCEPTANCE.md). The dated evidence below retains its original source boundary.
+
+## Earlier implementation evidence
+
+## Stable refresh and lifetime correction — 2026-10-11
+
+Current public feature `accb48a7b8212c170af86fc50d38db9e7d7201dd` normally
+integrates original stable `91698d8`, is independently reviewed and pushed to the
+fork, and is integrated into fork main. The sections below retain historical
+source and qualification. In particular, an ordinary `DnsServiceResolve` result
+or successful cancellation does **not** establish callback quiescence; the older
+resolve-settlement description below is superseded.
+
+The refreshed implementation puts the unchanged interface-scoped Windows resolve
+operation in a bounded helper process. The parent owns its process handle before
+starting it and retains capacity until actual process exit is observed. A result,
+deadline, cancellation request or kill request alone does not settle ownership.
+The eight-slot global limit counts blocked starts and unobserved terminated
+children across epochs and API instances. A child watchdog bounds the attempt;
+native resolve inputs remain owned until that child exits. Browse uses its
+documented terminal cancellation plus frame settlement separately. Epoch, request
+token, advertisement, cache and logical deadline remain distinct.
+
+The original intermittent cancellation test is resolved by explicit scheduling
+of both deferred-drain winners. Its fake had waited for the drainer currently
+executing its own cancellation callback. Both scheduling cases now pass, and
+mutations removing native/publication deferral fail the relevant assertions.
+The later documentation-only green run was never accepted as a repair.
+
+Refreshed verification: 292 Core tests, warning-free Release build and six actual
+receiver-free synthetic helper processes locally. Exact-source Windows run
+`38166102166` passes 47 native tests, 292 Core tests, lint/build/compatibility checks
+and the six helpers. Process exit, rather than native cancel return, is asserted.
+Fake missing/late/inline callbacks, blocked starts, failed kill/wait, retries,
+wire bounds and 100 browse cycles cover settlement and capacity reuse. The
+rejected persistent-query prototype and failed/successful receipts are preserved.
+This does not qualify actual Windows DNS cancellation delivery, receiver behavior
+or helper startup cost on every machine. No new upstream issue/PR is authorized.
+
 ## Continuation on 2026-10-11
 
 The [continuation acceptance](CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.

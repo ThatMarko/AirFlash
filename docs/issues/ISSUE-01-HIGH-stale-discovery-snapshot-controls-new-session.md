@@ -1,19 +1,29 @@
 # [HIGH] A stale discovery snapshot can stop an independently started session
 
+## Verified update — 2026-10-12
+
+- **Status**: Implemented and pushed in fork B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`, integrated into tested runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`; the full ownership fix is not merged upstream.
+
+Stable `cf420d97700463c56adc31408510e8336e99e51c` includes PR #19's passive retention, fresh snapshot after saving and Pairing exclusion. Remove those already-fixed branches from new upstream scope. A fresh read alone still does not bind delayed work to its original lifecycle through controller serialization.
+
+The [fork app](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.App/ViewModels/AppViewModel.cs) captures snapshot/owner/intent atomically before persistence, accepts refreshed state only for the same authority, and calls [serialized guarded retargeting](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.Core/SessionController.cs). Metrics/retries retain ownership; legitimate same-owner identity promotion and applicable signature restart remain. No unused conditional discovery Stop is retained.
+
+B refresh passed 139 focused/304 Core, build, 764 English UI checks with Chinese region and 28 stability checks. [Acceptance](GROUP-B-ACCEPTANCE.md) preserves controlled delayed-save, replacement, save-failure and promotion assertions. PR #15 remains closed without merge; PR #19 is merged. Historical report/proposals below are pinned to their stated baselines; no receiver incident is inferred.
+
 - **Issue ID**: ISSUE-01
 - **Implementation plan**: [Work package ISSUE-01](IMPLEMENTATION_PLAN.md#issue-01)
 - **PR group**: B — Session lifecycle
 - **Severity**: HIGH — an unrelated discovery transaction can cancel a new user-selected pairing session or overwrite its receiver.
 - **Kind**: Defect
 - **Subsystem**: Desktop discovery/session concurrency
-- **Status**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
+- **Historical status (2026-10-10)**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
 - **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
 - **Evidence status**: The original audit specified the asynchronous interleaving without executing it. Subsequent isolated baseline observations reproduced both stale-control branches; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No field incident is attributed to it.
-- **Implementation status**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
+- **Historical implementation status (2026-10-10)**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
 - **Target files**: [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166), [SettingsWindow.xaml.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs#L20), [SessionController.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L212)
 - **Analysis context**: [Playback coupling](../analysis/playback-coupling.md), [After discovery](../analysis/after-discovery.md), [Session](../analysis/session.md)
 
-## Current local implementation
+## Historical local implementation — 2026-10-10 (9e894ab)
 
 `ReconcileDiscoveryAsync` captures the owner and explicit-intent token atomically before identity persistence. Complete online updates go through `TryUpdateReceiverAsync`, which validates ownership/intent under `_serial` and rechecks intent around replacement cleanup. Passive absence no longer calls Stop. A new Pair, same-id replacement or explicit intent therefore prevents stale reconciliation from controlling its session.
 

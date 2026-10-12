@@ -1,18 +1,26 @@
 # [MEDIUM] Semantically invalid loaded settings reach startup and playback
 
+## Verified update — 2026-10-12
+
+- **Status**: Implemented in pushed C `5d72da3b77b4ac72f858966baef04b8a4ad8b1ad`, based on stable `cf420d97700463c56adc31408510e8336e99e51c` and integrated into tested runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`; loaded semantic validation remains fork scope.
+
+After migration/normalization, [Load](https://github.com/ThatMarko/AirFlash/blob/5d72da3b77b4ac72f858966baef04b8a4ad8b1ad/desktop/AirFlash.Core/SettingsStore.cs) invokes [validation](https://github.com/ThatMarko/AirFlash/blob/5d72da3b77b4ac72f858966baef04b8a4ad8b1ad/desktop/AirFlash.Core/Settings.cs) before returning settings. Null manual elements and invalid/null sample rates produce controlled recovery, a warning and preservation rather than downstream exceptions or automatic playback/mute. Schema 1 migration, schema 2, supported root/equalizer extension fields, valid manual rows, nullable overrides and unavailable selected adapters remain compatible. Future positive-integer schemas are rejected and latch persistence blocking; host checks do not add DNS or every stricter manual-dialog rule.
+
+C refresh passed 300 Core/build; integrated invalid-input startup fixtures passed within six 1059-check UI runs and 666 Core/build. Startup's separate read-only engine hello remains compatible. See [acceptance](GROUP-C-ACCEPTANCE.md) for exact executed failure/no-side-effect boundaries. Older baseline behavior and missing-fixture statements below are historical; no real configuration, capture or endpoints were used.
+
 - **Issue ID**: ISSUE-07
 - **Implementation plan**: [Work package ISSUE-07](IMPLEMENTATION_PLAN.md#issue-07)
 - **PR group**: C — Settings preservation/validation
 - **Severity**: MEDIUM
 - **Kind**: Defect — persisted configuration validation
-- **Status**: Implemented in local main `9e894ab`; Group C remains unpushed/unpublished and unmerged upstream. Main execution/testing is deferred until after reboot.
+- **Historical status (2026-10-10)**: Implemented in local main `9e894ab`; Group C remains unpushed/unpublished and unmerged upstream. Main execution/testing is deferred until after reboot.
 - **Evidence status**: Original loader/validation failures executed in isolated Core; fixed constructor/startup checked with WPF mocks. [Group C acceptance](GROUP-C-ACCEPTANCE.md) specifies the executed case boundaries.
-- **Implementation status**: Corrected Group C head `c3a1d5e` (after initial `e129466`) is integrated locally. [Feature acceptance](GROUP-C-ACCEPTANCE.md) records executed feature evidence; [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) keeps earlier composition results separate from this source-only main audit.
+- **Historical implementation status (2026-10-10)**: Corrected Group C head `c3a1d5e` (after initial `e129466`) is integrated locally. [Feature acceptance](GROUP-C-ACCEPTANCE.md) records executed feature evidence; [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) keeps earlier composition results separate from this source-only main audit.
 - **Runtime baseline**: `41190e0`; documentation baseline `c077a05` and audited [settings](../analysis/settings.md), [session](../analysis/session.md), and [after-discovery](../analysis/after-discovery.md) pages
 - **Target files**: [SettingsStore.cs:16–55](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SettingsStore.cs#L16-L55), [Settings.cs:88–110](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Settings.cs#L88-L110), [AppViewModel.cs:78–97](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L78-L97)
 - **Analysis context**: [Settings](../analysis/settings.md), [Session](../analysis/session.md), [After discovery](../analysis/after-discovery.md)
 
-## Current local implementation
+## Historical local implementation — 2026-10-10 (9e894ab)
 
 [SettingsStore.Load](../../desktop/AirFlash.Core/SettingsStore.cs) normalizes supported null collections/options and broadcast aliases, then calls [AppSettings.Validate](../../desktop/AirFlash.Core/Settings.cs) before returning settings to runtime. Validation returns a diagnostic for null manual elements, blank/duplicate ordinal ids, blank hosts, invalid ports, unsupported/null sample rates, enums, ranges and malformed equalizer values. Recovery returns defaults plus a warning and exact-byte preservation obligation rather than returning the invalid object; an unavailable selected adapter is retained. Manual-host validation is deliberately a nonblank/range check, without DNS or the UI dialog's stricter host-syntax/IPv6/duplicate-endpoint rules. Nullable manual display names, supported nullable overrides and root/equalizer extension fields remain compatible.
 

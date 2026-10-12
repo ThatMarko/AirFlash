@@ -1,5 +1,11 @@
 # Control traffic and local mute
 
+## Current feature source — 2026-10-11
+
+Group G is implemented on `codex/fix-mute-recovery` at `96b9120116555f496d50ffc270ba54666b303534`, refreshed against original stable `cf420d97700463c56adc31408510e8336e99e51c`. [MuteRecoveryCoordinator](https://github.com/ThatMarko/AirFlash/blob/96b9120116555f496d50ffc270ba54666b303534/desktop/AirFlash.Core/MuteRecoveryCoordinator.cs) journals the actual endpoint ID, exact prior true/false bit, owner GUID and acquisition generation under an exclusive lifetime file lease. Durable intent precedes mutation. Normal cleanup still attempts exact restoration after persistence failure; known completed restoration retries saving without overwriting a later external change. Stale differing bits require an explicit, revalidated choice outside audio/settings/lifecycle locks.
+
+The opened endpoint's direction is authoritative. Recording mute access and new ownership are skipped; a saved ID now resolving to recording or uncertain direction remains pending with no mute read/write. Default capture still resolves the console Render endpoint. Admission conservatively requires resolved recovery whenever the local-muting option is enabled, even for recording; disabling that option permits playback without discarding obligations. Constructor/enumeration/read-only checks do not initialize recovery. [The recovery contract](../MUTE-RECOVERY.md) and [G acceptance](../issues/GROUP-G-ACCEPTANCE.md) state flushing limits, fake interruption evidence and best-effort cleanup. Physical reboot/power-loss persistence and upstream integration are not claimed. Earlier in-memory-only descriptions below are historical.
+
 The main audit below describes pinned historical `41190e0`. The final section describes the merged local source at `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`, reviewed on 2026-10-10 without executing the app, builds, or tests.
 
 The WPF process owns local endpoint mute. The native session has one volume worker, one feedback worker per member, and one PTP worker when timing is PTP. Discovery does not drive those workers, but it can cause the desktop to stop the session; that indirectly tears them down. See [Playback coupling](playback-coupling.md).

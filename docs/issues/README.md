@@ -1,6 +1,25 @@
 # AirFlash implementation backlog
 
-## Continuation on 2026-10-11
+## Current implementation — stable refresh on 2026-10-11
+
+All 17 reports are implemented in the fork. The unmerged B–H and installer feature branches have been refreshed to verified original stable `cf420d97700463c56adc31408510e8336e99e51c`; their complete diffs and every outgoing commit exclude this fork's analysis/issues/planning documents. Current fork code source `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1` contains the reviewed implementations and the controlled EQ fixture correction. The reboot gate is satisfied. Its Release build has zero warnings/errors and all 667 Core tests pass in Debug and Release. Exact-source normal CI and complete unofficial packaged UI/DPI/MSI qualification both pass; earlier `107174a` receipts remain separate. Final crossed WPF and Windows hosted/package qualification are recorded in [continuation acceptance](CONTINUATION-ACCEPTANCE.md), including failures and limitations.
+
+A and scrolling are integrated upstream. PR #19 is now merged and covers part of discovery retention/fresh-snapshot handling; B still adds atomic lifecycle ownership, admission/selection/manual-routing guards and stronger controls. PR #15 remains closed and unmerged at its frozen old head; issue #14 is open. C–H and the installer fixture repair are fork implementations, with no new upstream publication authorized. Earlier dated progress, pending-reboot and proposal statements below are historical and superseded by this section.
+
+| Group | Current branch head | Acceptance |
+| --- | --- | --- |
+| A | `de13b6d` (already upstream) | [Build scope](ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md) |
+| B | `442e8d8` | [Session/receiver package](GROUP-B-ACCEPTANCE.md) |
+| C | `5d72da3` | [Settings preservation/validation](GROUP-C-ACCEPTANCE.md) |
+| D | `277efc5` | [Bounded DNS process ownership](GROUP-D-ACCEPTANCE.md) |
+| E | `0ebc59b` | [PIN and credential lookup](GROUP-E-ACCEPTANCE.md) |
+| F | `421e1ea` | [IPC errors and EQ outcomes](GROUP-F-ACCEPTANCE.md) |
+| G | `96b9120` | [Owned mute recovery](GROUP-G-ACCEPTANCE.md) |
+| H | `6855dfe` | [Diagnostics/padding/localization](GROUP-H-ACCEPTANCE.md) |
+
+The original work packages below remain requirements/history, not evidence that current stable or feature code still has every original defect. Implementation on a tested fork branch is distinct from integration into upstream stable. New upstream issues/PRs, reopening B, upstream merges and releases still require explicit publication/action authorization.
+
+## Historical continuation stage — early 2026-10-11
 
 The [continuation acceptance](CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
 
@@ -8,7 +27,7 @@ The [continuation acceptance](CONTINUATION-ACCEPTANCE.md) supersedes the earlier
 
 At the user's instruction, all 18 retained local branches were pushed to `ThatMarko/AirFlash` and every remote head was verified against its local commit. This includes C/D and all preserved backup/validation branches. Fresh upstream stable `d4aa068` was already contained in main, so no new upstream merge was needed. Earlier statements that C/D feature branches were unpushed describe the dated 2026-10-10 audit and are superseded by this synchronization. C/D still have no upstream issue/PR submission. Runtime source is unchanged; local application/build/testing remains deferred until after reboot.
 
-The **17 retained reports** are numbered continuously from **ISSUE-01 through ISSUE-17**. Their original `41190e0` classifications were four HIGH, nine MEDIUM and four LOW: fourteen source-supported defects, one recovery gap and two enhancements. Nine reports are now implemented in local `main`; eight remain proposals. File order preserves the original severity grouping; implementation follows the dependency plan rather than numeric order.
+The **17 retained reports** are numbered continuously from **ISSUE-01 through ISSUE-17**. Their original `41190e0` classifications were four HIGH, nine MEDIUM and four LOW: fourteen source-supported defects, one recovery gap and two enhancements. All 17 reports are implemented in the current fork; earlier dated entries retain their original proposal status. File order preserves the original severity grouping; implementation follows the dependency plan rather than numeric order.
 
 [Implementation plan](IMPLEMENTATION_PLAN.md) defines a small set of coherent PR groups, the work for every issue, dependencies, parallel work, regression fixtures, and completion gates. **The next new report is ISSUE-18.**
 
@@ -28,7 +47,7 @@ The Settings scrollbar issues have an [acceptance record](SETTINGS-SCROLL-ACCEPT
 
 On 2026-10-07, the user authorized Task 3 publication in this order: scrolling [issue #12](https://github.com/Ding-Kyoma/AirFlash/issues/12) / [PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13), then Group B [issue #14](https://github.com/Ding-Kyoma/AirFlash/issues/14) / [PR #15](https://github.com/Ding-Kyoma/AirFlash/pull/15). Both originally targeted the verified `41190e0` stable base and excluded fork-only documents. Their original upstream runs awaited maintainer approval with no jobs started. Current status is stated above; acceptance records retain the exact historical heads/run links. These GitHub numbers are separate from the local report identifiers below.
 
-## Current local integration
+## Historical local integration
 
 On 2026-10-10, all 17 pre-existing local branch tips were merged into fork `main` at **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`**, with every branch preserved and a separate pre-merge preservation branch. This includes current B/C/D plus upstream Traditional Chinese support. C/D are now locally integrated but remain unpushed/unpublished. Remote main and upstream PRs were not changed. The source audit covers every report and analysis page; see [audit coverage](../analysis/audit.md#merged-main-documentation-audit--2026-10-10).
 
@@ -38,23 +57,23 @@ Application/build/test execution on this merged main is **deferred until after t
 
 | Report | Original severity | Kind | Baseline scope (`41190e0`) | Local main status |
 | --- | --- | --- | --- | --- |
-| [ISSUE-01](ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md) | HIGH | Defect | Stale discovery reconciliation can stop or retarget a newer session | Implemented; new-main execution deferred |
-| [ISSUE-02](ISSUE-02-HIGH-delayed-autoconnect-replaces-new-session.md) | HIGH | Defect | A delayed automatic start can replace Pair or undo a newer Stop | Implemented; new-main execution deferred |
-| [ISSUE-03](ISSUE-03-HIGH-discovery-disconnects-active-playback.md) | HIGH | Defect | Passive discovery absence/incompleteness stops established playback | Implemented; new-main execution deferred |
-| [ISSUE-04](ISSUE-04-HIGH-dns-resolve-without-deadline-stalls-discovery.md) | HIGH | Defect | A resolve without completion has no deadline and suppresses future queries | Implemented; new-main execution deferred |
-| [ISSUE-05](ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md) | MEDIUM | Defect — tooling | Selected SDK compatibility is checked after avoidable build/release side effects | Implemented; new-main execution deferred |
-| [ISSUE-06](ISSUE-06-MEDIUM-settings-recovery-reread-escapes.md) | MEDIUM | Defect | Settings recovery rereads a failing file and can throw from its catch | Implemented; new-main execution deferred |
-| [ISSUE-07](ISSUE-07-MEDIUM-invalid-loaded-settings-reach-runtime.md) | MEDIUM | Defect — persisted configuration validation | Semantically invalid loaded JSON reaches unchecked runtime assumptions | Implemented; new-main execution deferred |
-| [ISSUE-08](ISSUE-08-MEDIUM-pairing-pin-format-mismatch.md) | MEDIUM | Defect | The PIN dialog accepts formatted values rejected by native validation | Unimplemented proposal |
-| [ISSUE-09](ISSUE-09-MEDIUM-credential-probe-errors-look-like-absence.md) | MEDIUM | Defect — credential error classification | Credential existence errors can select transient authentication | Unimplemented proposal |
-| [ISSUE-10](ISSUE-10-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md) | MEDIUM | Defect | An attempted preferred receiver blocks an unattempted candidate | Implemented; new-main execution deferred |
-| [ISSUE-11](ISSUE-11-MEDIUM-manual-play-redirected-to-stereo-by-address.md) | MEDIUM | Defect | Manual Play can redirect to a stereo group by address alone | Implemented; new-main execution deferred |
-| [ISSUE-12](ISSUE-12-MEDIUM-uncorrelated-ipc-errors-become-timeouts.md) | MEDIUM | Defect — IPC contract | Uncorrelated terminal IPC rejections become unrelated host timeouts | Unimplemented proposal |
-| [ISSUE-13](ISSUE-13-MEDIUM-endpoint-mute-crash-recovery-gap.md) | MEDIUM | Recovery gap | Prior endpoint mute bits have no durable crash-recovery record | Unimplemented proposal |
-| [ISSUE-14](ISSUE-14-LOW-equalizer-ignored-update-success-metadata.md) | LOW | Defect — IPC result contract | Ignored EQ updates return success metadata for the submitted curve | Unimplemented proposal |
-| [ISSUE-15](ISSUE-15-LOW-unbound-copy-diagnostics-command.md) | LOW | Defect — UI binding | Settings has no action bound to its diagnostics-copy command | Unimplemented proposal |
-| [ISSUE-16](ISSUE-16-LOW-capture-padding-metrics-lack-frame-accounting.md) | LOW | Enhancement | Capture padding lacks missing-frame/whole-packet accounting | Unimplemented proposal |
-| [ISSUE-17](ISSUE-17-LOW-orphaned-translation-keys-cleanup.md) | LOW | Enhancement | Review ten candidate keys; current scope includes both Chinese catalogs | Unimplemented proposal |
+| [ISSUE-01](ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md) | HIGH | Defect | Stale discovery reconciliation can stop or retarget a newer session | Implemented in fork; see current acceptance |
+| [ISSUE-02](ISSUE-02-HIGH-delayed-autoconnect-replaces-new-session.md) | HIGH | Defect | A delayed automatic start can replace Pair or undo a newer Stop | Implemented in fork; see current acceptance |
+| [ISSUE-03](ISSUE-03-HIGH-discovery-disconnects-active-playback.md) | HIGH | Defect | Passive discovery absence/incompleteness stops established playback | Implemented in fork; see current acceptance |
+| [ISSUE-04](ISSUE-04-HIGH-dns-resolve-without-deadline-stalls-discovery.md) | HIGH | Defect | A resolve without completion has no deadline and suppresses future queries | Implemented in fork; see current acceptance |
+| [ISSUE-05](ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md) | MEDIUM | Defect — tooling | Selected SDK compatibility is checked after avoidable build/release side effects | Implemented in fork; see current acceptance |
+| [ISSUE-06](ISSUE-06-MEDIUM-settings-recovery-reread-escapes.md) | MEDIUM | Defect | Settings recovery rereads a failing file and can throw from its catch | Implemented in fork; see current acceptance |
+| [ISSUE-07](ISSUE-07-MEDIUM-invalid-loaded-settings-reach-runtime.md) | MEDIUM | Defect — persisted configuration validation | Semantically invalid loaded JSON reaches unchecked runtime assumptions | Implemented in fork; see current acceptance |
+| [ISSUE-08](ISSUE-08-MEDIUM-pairing-pin-format-mismatch.md) | MEDIUM | Defect | The PIN dialog accepts formatted values rejected by native validation | Implemented in fork; see current acceptance |
+| [ISSUE-09](ISSUE-09-MEDIUM-credential-probe-errors-look-like-absence.md) | MEDIUM | Defect — credential error classification | Credential existence errors can select transient authentication | Implemented in fork; see current acceptance |
+| [ISSUE-10](ISSUE-10-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md) | MEDIUM | Defect | An attempted preferred receiver blocks an unattempted candidate | Implemented in fork; see current acceptance |
+| [ISSUE-11](ISSUE-11-MEDIUM-manual-play-redirected-to-stereo-by-address.md) | MEDIUM | Defect | Manual Play can redirect to a stereo group by address alone | Implemented in fork; see current acceptance |
+| [ISSUE-12](ISSUE-12-MEDIUM-uncorrelated-ipc-errors-become-timeouts.md) | MEDIUM | Defect — IPC contract | Uncorrelated terminal IPC rejections become unrelated host timeouts | Implemented in fork; see current acceptance |
+| [ISSUE-13](ISSUE-13-MEDIUM-endpoint-mute-crash-recovery-gap.md) | MEDIUM | Recovery gap | Prior endpoint mute bits have no durable crash-recovery record | Implemented in fork; see current acceptance |
+| [ISSUE-14](ISSUE-14-LOW-equalizer-ignored-update-success-metadata.md) | LOW | Defect — IPC result contract | Ignored EQ updates return success metadata for the submitted curve | Implemented in fork; see current acceptance |
+| [ISSUE-15](ISSUE-15-LOW-unbound-copy-diagnostics-command.md) | LOW | Defect — UI binding | Settings has no action bound to its diagnostics-copy command | Implemented in fork; see current acceptance |
+| [ISSUE-16](ISSUE-16-LOW-capture-padding-metrics-lack-frame-accounting.md) | LOW | Enhancement | Capture padding lacks missing-frame/whole-packet accounting | Implemented in fork; see current acceptance |
+| [ISSUE-17](ISSUE-17-LOW-orphaned-translation-keys-cleanup.md) | LOW | Enhancement | Review ten candidate keys; current scope includes both Chinese catalogs | Implemented in fork; see current acceptance |
 
 ## Execution order
 

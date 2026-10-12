@@ -1,5 +1,9 @@
 # [LOW] Remove ten statically unused keys from the Chinese catalogs after reference review
 
+## Implementation update — 2026-10-11
+
+Implemented as Group H's final cleanup, source-confirmed on refreshed `codex/fix-diagnostics-metrics` at `7f5135384d2245cfdf39d9c77b591c39df1981e3` against original stable `cf420d97700463c56adc31408510e8336e99e51c`. The ten retained candidates below are removed from both [Simplified](https://github.com/ThatMarko/AirFlash/blob/7f5135384d2245cfdf39d9c77b591c39df1981e3/desktop/AirFlash.Core/Strings.zh.json) and Traditional catalogs after final literal, markup and dynamic lookup review. Current diagnostics/capture-direction labels, EQ presets, format arguments, generated version text and serialized settings compatibility fields remain. [Group H acceptance](GROUP-H-ACCEPTANCE.md) records localization and English/Chinese mock UI checks; no test mirrors the removed-key list. This supersedes earlier unimplemented labels; original stable has not integrated H, and the original candidate inventory and proposal below remain historical.
+
 - **Issue ID**: ISSUE-17
 - **Implementation plan**: [Work package ISSUE-17](IMPLEMENTATION_PLAN.md#issue-17)
 - **PR group**: H — Diagnostics/observability

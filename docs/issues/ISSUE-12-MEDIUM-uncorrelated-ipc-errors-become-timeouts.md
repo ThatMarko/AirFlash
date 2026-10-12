@@ -1,5 +1,9 @@
 # [MEDIUM] Transport-wide IPC command errors are discarded and become unrelated session timeouts
 
+## Implementation update — 2026-10-11
+
+Implemented on refreshed Group F `codex/fix-jsonl-control` at `963400782fcfaa966a6b9e4f9a8fef73388dee66`, against original stable `cf420d97700463c56adc31408510e8336e99e51c`. [EngineEvents](https://github.com/ThatMarko/AirFlash/blob/963400782fcfaa966a6b9e4f9a8fef73388dee66/desktop/AirFlash.Core/EngineEvents.cs), startup handshake and session readers recognize the exact v1 process-owned `command_error`/`ipc` envelope with explicit empty id/session, null host and false retryable before ordinary session filtering. Playback/pairing preserve original detail and nonretryable classification, including under force-reconnect; stale ordinary events remain filtered. [Group F acceptance](GROUP-F-ACCEPTANCE.md) records fake connections and receiver-free native parser fixtures. No general pipe-size/reader hardening or hardware qualification is claimed. This supersedes earlier unimplemented labels; original stable has not integrated F, and the original trace/proposal below is historical.
+
 - **Issue ID**: ISSUE-12
 - **Implementation plan**: [Work package ISSUE-12](IMPLEMENTATION_PLAN.md#issue-12)
 - **PR group**: F — JSONL control contracts

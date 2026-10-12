@@ -1,5 +1,9 @@
 # [LOW] Ignored equalizer updates return success metadata for the submitted curve
 
+## Implementation update — 2026-10-11
+
+Implemented on refreshed Group F at `963400782fcfaa966a6b9e4f9a8fef73388dee66`, against original stable `cf420d97700463c56adc31408510e8336e99e51c`. [Control::set](https://github.com/ThatMarko/AirFlash/blob/963400782fcfaa966a6b9e4f9a8fef73388dee66/native/airflash-engine/src/equalizer.rs) returns an outcome plus retained sequence/preparation. Accepted/idempotent requests serialize retained metadata; stale/conflicting requests return compatible nonfatal `equalizer_error` without replacing the mailbox. Replay identity is equality of the full retained `Prepared` value, including gain and bypass. Adoption does not claim audio-thread pickup or DSP completion. [Group F acceptance](GROUP-F-ACCEPTANCE.md) records retained-state/serialized-reply assertions and a failing submitted-metadata mutation. No receiver or capture run is required. This supersedes earlier unimplemented labels; F remains absent from original stable, and the original audit/proposal below is historical.
+
 - **Issue ID**: ISSUE-14
 - **Implementation plan**: [Work package ISSUE-14](IMPLEMENTATION_PLAN.md#issue-14)
 - **PR group**: F — JSONL control contracts

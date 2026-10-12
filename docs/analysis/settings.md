@@ -1,6 +1,18 @@
 # Settings and the desktop shell
 
-## Current local main and historical boundary
+## Verified state — 2026-10-12
+
+Stable source is `cf420d97700463c56adc31408510e8336e99e51c`. Pushed C `5d72da3b77b4ac72f858966baef04b8a4ad8b1ad` is integrated into tested fork runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`; it is not an upstream-integrated settings fix. Earlier `41190e0`/`9e894ab` descriptions and deferred-reboot statements below retain their historical boundaries.
+
+[SettingsStore](https://github.com/ThatMarko/AirFlash/blob/5d72da3b77b4ac72f858966baef04b8a4ad8b1ad/desktop/AirFlash.Core/SettingsStore.cs) captures readable bytes inside the guarded read, decodes BOMs compatibly and never rereads the failing path in recovery. Preservation obligations survive both startup Load calls and later saves. Genuine initial absence differs from unreadable/uncertain presence; defaults do not authorize overwriting an uncaptured original. Both persistence paths verify required exact-byte backups before replacement, retain failed obligations for retry and preserve a different existing backup with a separate sibling. Warnings describe captured versus unreadable preservation, not a backup that already exists.
+
+After schema-1 migration and documented normalization, [validation](https://github.com/ThatMarko/AirFlash/blob/5d72da3b77b4ac72f858966baef04b8a4ad8b1ad/desktop/AirFlash.Core/Settings.cs) rejects invalid/null sample rates, null manual entries, invalid ranges and structure before catalog/playback consumers receive settings. Schema 2, supported unknown fields, nullable overrides, valid manual rows and unavailable selected adapter IDs remain compatible. Future-schema rejection blocks persistence until a valid reread. Loaded host checks do not perform DNS or duplicate every stricter manual-dialog rule; ordinary saves do not coordinate arbitrary external file writers or prove power-loss durability.
+
+Upstream's recording-endpoint support preserves the existing endpoint ID/schema. Actual direction and mute eligibility belong to [capture](capture-clocks.md) and [mute recovery](control-and-mute.md). Every dispatched diagnostic, including the new `--stability-check`, selects isolated startup data before logging/WPF; D's helper dispatch precedes even that path.
+
+C refresh passed 129 focused/300 Core checks and a warning-free Release build. Tested integrated runtime passed 666 Core, build and six 1059-check synthetic UI pairs, including temporary locked/BOM/invalid/future-schema stores. Recovery fixtures explicitly request browsing when catalog publication is part of the assertion; defaults with automatic admission disabled correctly leave hidden startup browsing paused. See [C acceptance](../issues/GROUP-C-ACCEPTANCE.md) for executed cases; no real configuration or endpoints were accessed.
+
+## Historical local-main audit — 2026-10-10 (9e894ab)
 
 Local main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7` includes final C **`c3a1d5e4bf2879054e729b77440f97aa259155e9`**, B `0a2c1ac`, D `48e7ab62`, scrolling and updated upstream. C/D remain unpushed/unpublished; A and scrolling are merged upstream, while B PR #15 remains closed without merge. The sections beginning with the desktop settings object below describe historical **`41190e0`** behavior and its original anchors. In particular, the recovery reread, missing post-load validation and single Simplified Chinese catalog are not current main behavior.
 
