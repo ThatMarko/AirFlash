@@ -344,7 +344,9 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         }
         MergeManualReceivers();
         if (!CatalogEqual(before, AllReceivers)) { RefreshReceivers(); CatalogChanged?.Invoke(); }
-        if (currentSnapshot.Receiver is { IsManual: false } current)
+        var refreshed = Session.Capture();
+        if (refreshed.Owner == captured.Owner && refreshed.AutomaticIntent == captured.AutomaticIntent
+            && refreshed.Snapshot.Receiver is { IsManual: false } current)
         {
             var id = ReceiverMigrations.GetValueOrDefault(current.Id, current.Id);
             // Browse availability does not revoke an already owned transport/handshake.
@@ -368,8 +370,9 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             && left.Codecs.SequenceEqual(right.Codecs) && left.Aliases.SequenceEqual(right.Aliases) && CatalogEqual(left.Members, right.Members);
     private void RefreshReceivers()
     {
+        var currentSnapshot = Session.Snapshot;
         var visible = AllReceivers.Where(r => r.Online && !_settings.ReadOptions(r.Id).Hidden).ToList();
-        if (_snapshot.IsActive && _snapshot.Receiver is { } active && visible.All(r => r.Id != active.Id))
+        if (currentSnapshot.IsActive && currentSnapshot.Receiver is { } active && visible.All(r => r.Id != active.Id))
             visible.Add(_known.GetValueOrDefault(active.Id) ?? active with { Online = false });
         visible = visible.OrderBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
         foreach (var row in Receivers.Where(row => visible.All(r => r.Id != row.Receiver.Id)).ToArray()) Receivers.Remove(row);

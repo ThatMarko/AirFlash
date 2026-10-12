@@ -94,6 +94,21 @@ internal static class UiRegression
             Check(!await vm.ApplyAsync() && !vm.HasChanges && store.Saved.MuteWhileStreaming && vm.Error.Contains("mock mute failed", StringComparison.Ordinal), "saved configuration and audio failure are distinguished", checks);
             audio.FailMute = false; vm.Draft.MuteWhileStreaming = false; await vm.ApplyAsync();
 
+            vm.Draft.CaptureEndpoint = "endpoint-c";
+            vm.Draft.MuteWhileStreaming = true;
+            Check(await vm.ApplyAsync() && store.Saved.CaptureEndpoint == "endpoint-c", "recording selection saves with automatic mute enabled", checks);
+            await Until(() => app.Snapshot.State == PlaybackState.Streaming);
+            audio.Items = [new("endpoint-a", "Speaker"), new("endpoint-b", "Virtual output")];
+            await vm.LoadEndpointsAsync(true);
+            Check(vm.Draft.CaptureEndpoint == "endpoint-c" && vm.Endpoints.Any(e => e.Id == "endpoint-c" && e.Name.StartsWith(L.Get("Unavailable · "), StringComparison.Ordinal)), "missing recording selection remains visible", checks);
+            var recording = new AudioEndpoint("endpoint-c", "Voicemeeter Output", AudioEndpointKind.Recording);
+            audio.Items = [new("endpoint-a", "Speaker"), new("endpoint-b", "Virtual output"), recording];
+            await vm.LoadEndpointsAsync(true);
+            Check(vm.Draft.CaptureEndpoint == "endpoint-c" && vm.Endpoints.Contains(recording), "restored recording endpoint retains ID and type", checks);
+            vm.Draft.CaptureEndpoint = "endpoint-b";
+            vm.Draft.MuteWhileStreaming = false;
+            Check(await vm.ApplyAsync(), "switching back to playback succeeds", checks);
+
             vm.SelectedPage = SettingsViewModel.AudioCapturePage; await vm.LoadEndpointsAsync(false);
             Check(vm.Endpoints.Any(e => e.Id == "endpoint-b"), "audio page uses cached endpoints", checks);
             audio.Items = [new("endpoint-a", "Renamed")];
@@ -240,7 +255,9 @@ internal static class UiRegression
             await app.ToggleAsync(app.AllReceivers[0]); await Until(() => app.Snapshot.State == PlaybackState.Streaming);
             discovery.Items = ReceiverAggregator.Build(services.Take(2)); discovery.Publish();
             await Until(() => app.AllReceivers.Single().Members.Length == 1);
-            Check(app.Snapshot.IsActive && app.Snapshot.Receiver?.Members.Length == 2 && app.AllReceivers.Single().Detail.Contains("1/2", StringComparison.Ordinal) && engine.CreatedCount == 1,
+            Check(app.Snapshot.State == PlaybackState.Streaming && app.Snapshot.Receiver?.Members.Length == 2
+                && app.AllReceivers.Single().Detail.Contains("1/2", StringComparison.Ordinal)
+                && engine.CreatedCount == 1 && engine.DisposedCount == 0,
                 "missing stereo member stays one of two in catalog while owned complete playback continues", checks);
         }
         finally { await vm.ApplicationCompleted; window.Close(); }
