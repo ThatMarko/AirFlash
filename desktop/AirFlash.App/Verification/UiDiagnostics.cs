@@ -172,7 +172,9 @@ internal static class UiDiagnostics
             // Border rounds its thickness at the current DPI before arranging
             // its child. The finite parent-assigned slot is authoritative; the
             // child's RenderSize may grow beyond that slot for unwrapped text.
-            var inner = LayoutInformation.GetLayoutSlot(content);
+            var inner = new Rect(card.BorderThickness.Left + card.Padding.Left, card.BorderThickness.Top + card.Padding.Top,
+                Math.Max(0, card.ActualWidth - card.BorderThickness.Left - card.BorderThickness.Right - card.Padding.Left - card.Padding.Right),
+                Math.Max(0, card.ActualHeight - card.BorderThickness.Top - card.BorderThickness.Bottom - card.Padding.Top - card.Padding.Bottom));
             var origin = block.TranslatePoint(new(), card);
             var contentBounds = content.TransformToAncestor(card).TransformBounds(new Rect(content.RenderSize));
             var valueBounds = new Rect(origin, block.RenderSize);
