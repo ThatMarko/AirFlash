@@ -66,6 +66,10 @@ internal static class UiDiagnostics
             await ShowPaddingAsync(window);
             var normal = PaddingLayout(window);
             Render(window, Path.Combine(directory, "diagnostics-padding-max.png"));
+            // Controlled regression variant: preserve the healthy normal layout,
+            // then prove the minimum-width assertion detects unwrapped overflow.
+            Descendants(window).OfType<TextBlock>().Single(block => block.Name == "MonitorPaddedFramesValue")
+                .SetCurrentValue(TextBlock.TextWrappingProperty, TextWrapping.NoWrap);
             var width = window.Width; window.Width = window.MinWidth; await Pump();
             if (fractionalDpi) await UseFractionalDpiAsync(window);
             await ShowPaddingAsync(window);
