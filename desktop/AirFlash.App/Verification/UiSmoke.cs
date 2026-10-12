@@ -44,7 +44,7 @@ internal static class UiSmoke
         {
             try
             {
-                await UiDiagnostics.RunAsync(checks, directory);
+                await UiDiagnostics.RunAsync(checks, directory, args.Contains("--ui-diagnostics-dpi"));
                 App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
                     ui_culture = CultureInfo.CurrentUICulture.Name, note = "Synthetic capture metrics and injected diagnostics writer only." });
                 return 0;
