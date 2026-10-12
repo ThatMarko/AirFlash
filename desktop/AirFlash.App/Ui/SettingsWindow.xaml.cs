@@ -11,9 +11,9 @@ public partial class SettingsWindow : Window
     public SettingsViewModel ViewModel { get; }
     private readonly HashSet<ValidationError> _errors = [];
     private readonly Dictionary<int, FrameworkElement> _pages = [];
-    public SettingsWindow(AppViewModel app)
+    public SettingsWindow(AppViewModel app, Action<string>? diagnosticsWriter = null)
     {
-        InitializeComponent(); ViewModel = new(app); DataContext = ViewModel;
+        InitializeComponent(); ViewModel = new(app, diagnosticsWriter); DataContext = ViewModel;
         WindowThemeService.Track(this);
         AppIconService.Track(this);
         ViewModel.CloseRequested += _ => Close();
