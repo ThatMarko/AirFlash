@@ -84,8 +84,8 @@ public sealed class AudioService : IAudioService, IMuteRecoveryService, IAsyncDi
     {
         using var enumerator = new MMDeviceEnumerator();
         var endpoints = new List<AudioEndpoint>();
-        foreach (var device in enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
-            using (device) endpoints.Add(new(device.ID, device.FriendlyName));
+        foreach (var device in enumerator.EnumerateAudioEndPoints(DataFlow.All, DeviceState.Active))
+            using (device) endpoints.Add(new(device.ID, device.FriendlyName, device.DataFlow == DataFlow.Capture ? AudioEndpointKind.Recording : AudioEndpointKind.Playback));
         return endpoints;
     }
     private static string? DefaultEndpoint()
