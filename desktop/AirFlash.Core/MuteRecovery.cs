@@ -30,6 +30,8 @@ public interface IMuteRecoveryService
 public interface IMuteEndpoint : IDisposable
 {
     string Id { get; }
+    // Direction comes from the opened endpoint, never catalog metadata.
+    AudioEndpointKind Kind { get; }
     bool Muted { get; set; }
 }
 

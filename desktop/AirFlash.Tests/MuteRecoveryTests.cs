@@ -160,15 +160,294 @@ public sealed class MuteRecoveryTests
     }
 
     [Fact]
-    public void PreInitializeFailureDoesNotEnableMuteOrTouchEndpoint()
+    public void PreInitializePlaybackFailureDoesNotReadMuteOrAccessJournal()
     {
         var backend = new Backend(false);
         var journal = new Journal();
         using var recovery = new MuteRecoveryCoordinator(backend, journal);
         Assert.ThrowsAny<Exception>(() => recovery.Mute(null));
         Assert.Equal(MuteRecoveryStatus.NotInitialized, recovery.Snapshot.Status);
-        Assert.Empty(backend.Handles);
+        Assert.All(backend.Handles, handle => Assert.True(handle.Disposed));
+        Assert.Equal(0, backend.Gets);
+        Assert.Empty(backend.Writes);
         Assert.Equal(0, journal.Reads);
+        Assert.Equal(0, journal.Leases);
+        Assert.Empty(journal.Written);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RecordingMuteDoesNotReadMuteOrAccessJournalBeforeInitialization(bool previous)
+    {
+        var backend = new Backend(previous) { Kind = AudioEndpointKind.Recording, FailGet = true, ThrowAfterSet = true };
+        var journal = new Journal { FailReads = true, FailWrites = true };
+        using var recovery = new MuteRecoveryCoordinator(backend, journal);
+        recovery.Mute(null);
+        recovery.Mute(EndpointId);
+        Assert.Equal(previous, backend.Bit);
+        Assert.Equal(0, backend.Gets);
+        Assert.Empty(backend.Writes);
+        Assert.Equal(0, journal.Reads);
+        Assert.Equal(0, journal.Leases);
+        Assert.Empty(journal.Written);
+        Assert.Empty(recovery.Snapshot.Entries);
+        Assert.Equal(MuteRecoveryStatus.NotInitialized, recovery.Snapshot.Status);
+        Assert.All(backend.Handles, handle => Assert.True(handle.Disposed));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void RecordingMutePreservesInitializedOrPendingRecoveryWithoutMuteAccess(bool previous, bool pending)
+    {
+        var backend = new Backend(previous) { Kind = AudioEndpointKind.Recording, FailGet = true, ThrowAfterSet = true };
+        var original = pending ? Saved(previous, "Owned") : null;
+        var journal = new Journal { Bytes = original };
+        using var recovery = new MuteRecoveryCoordinator(backend, journal);
+        recovery.Initialize();
+        var reads = journal.Reads; var leases = journal.Leases;
+        recovery.Mute(null);
+        recovery.Mute(EndpointId);
+        Assert.Equal(previous, backend.Bit);
+        Assert.Equal(0, backend.Gets);
+        Assert.Empty(backend.Writes);
+        Assert.Equal(reads, journal.Reads);
+        Assert.Equal(leases, journal.Leases);
+        Assert.Empty(journal.Written);
+        Assert.Equal(original, journal.Bytes);
+        Assert.Equal(pending ? MuteRecoveryStatus.Pending : MuteRecoveryStatus.Ready, recovery.Snapshot.Status);
+        if (pending) Assert.Null(Assert.Single(recovery.Snapshot.Entries).CurrentMute);
+        else Assert.Empty(recovery.Snapshot.Entries);
+        Assert.All(backend.Handles, handle => Assert.True(handle.Disposed));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void RecordingEndpointMustHaveValidIdentityBeforeDirectionOrJournalAccess(string identity)
+    {
+        var backend = new Backend(false) { Kind = AudioEndpointKind.Recording };
+        var journal = new Journal();
+        using var recovery = new MuteRecoveryCoordinator(backend, journal);
+        Assert.Throws<InvalidDataException>(() => recovery.Mute(identity));
+        Assert.Equal(0, backend.KindReads);
+        Assert.Equal(0, backend.Gets);
+        Assert.Empty(backend.Writes);
+        Assert.Equal(0, journal.Reads);
+        Assert.Equal(0, journal.Leases);
+        Assert.Empty(journal.Written);
+        Assert.True(Assert.Single(backend.Handles).Disposed);
+    }
+
+    [Theory]
+    [InlineData(AudioEndpointKind.Playback)]
+    [InlineData(AudioEndpointKind.Recording)]
+    public void ExplicitMuteRejectsDifferentValidIdentityBeforeKindMuteOrJournal(AudioEndpointKind kind)
+    {
+        var backend = new Backend(false) { Kind = kind, ReturnedId = "synthetic-other-endpoint" };
+        var journal = new Journal();
+        using var recovery = new MuteRecoveryCoordinator(backend, journal);
+        Assert.Throws<InvalidOperationException>(() => recovery.Mute(EndpointId));
+        Assert.Equal(0, backend.KindReads);
+        Assert.Equal(0, backend.Gets);
+        Assert.Empty(backend.Writes);
+        Assert.Equal(0, journal.Reads);
+        Assert.Equal(0, journal.Leases);
+        Assert.Empty(journal.Written);
+        Assert.Empty(recovery.Snapshot.Entries);
+        Assert.True(Assert.Single(backend.Handles).Disposed);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(2)]
+    public void UnknownEndpointDirectionCannotReadMuteOrAcquireJournal(int direction)
+    {
+        var backend = new Backend(false) { Kind = (AudioEndpointKind)direction };
+        var journal = new Journal();
+        using var recovery = new MuteRecoveryCoordinator(backend, journal);
+        Assert.Throws<InvalidOperationException>(() => recovery.Mute(null));
+        Assert.Equal(0, backend.Gets);
+        Assert.Empty(backend.Writes);
+        Assert.Equal(0, journal.Reads);
+        Assert.Equal(0, journal.Leases);
+        Assert.Empty(journal.Written);
+        Assert.Empty(recovery.Snapshot.Entries);
+        Assert.True(Assert.Single(backend.Handles).Disposed);
+    }
+
+    [Fact]
+    public void EndpointDirectionFailureDoesNotReadMuteOrAcquireJournal()
+    {
+        var backend = new Backend(false) { FailKind = true };
+        var journal = new Journal();
+        using var recovery = new MuteRecoveryCoordinator(backend, journal);
+        Assert.Throws<IOException>(() => recovery.Mute(null));
+        Assert.Equal(0, backend.Gets);
+        Assert.Empty(backend.Writes);
+        Assert.Equal(0, journal.Reads);
+        Assert.Equal(0, journal.Leases);
+        Assert.Empty(journal.Written);
+        Assert.True(Assert.Single(backend.Handles).Disposed);
+    }
+
+    [Theory]
+    [InlineData(-1, false)]
+    [InlineData(2, false)]
+    [InlineData(0, true)]
+    public void UncertainRecoveryDirectionPreservesRawObligationWithoutMuteAccess(int direction, bool failDirection)
+    {
+        var backend = new Backend(false) { Kind = (AudioEndpointKind)direction, FailKind = failDirection };
+        var original = Saved(false, "Owned");
+        var journal = new Journal { Bytes = original };
+        using var recovery = new MuteRecoveryCoordinator(backend, journal);
+        recovery.Initialize(); recovery.Refresh(); recovery.Restore();
+        var pending = Assert.Single(recovery.Snapshot.Entries);
+        Assert.Equal(MuteRecoveryStatus.Pending, recovery.Snapshot.Status);
+        Assert.Null(pending.CurrentMute);
+        Assert.Equal(0, backend.Gets);
+        Assert.Empty(backend.Writes);
+        Assert.Empty(journal.Written);
+        Assert.Equal(original, journal.Bytes);
+        backend.Kind = AudioEndpointKind.Playback; backend.FailKind = false; backend.Bit = true;
+        recovery.Refresh();
+        var returned = Assert.Single(recovery.Snapshot.Entries);
+        recovery.Resolve(recovery.Snapshot.Revision, returned.Owner, returned.Generation,
+            returned.EndpointId, MuteRecoveryChoice.KeepCurrent);
+        Assert.True(backend.Bit);
+        Assert.Empty(backend.Writes);
+        Assert.Empty(recovery.Snapshot.Entries);
+        Assert.True(recovery.Snapshot.CanMute);
+        Assert.All(backend.Handles, handle => Assert.True(handle.Disposed));
+    }
+
+    [Theory]
+    [InlineData(false, "Intent")]
+    [InlineData(true, "Intent")]
+    [InlineData(false, "Owned")]
+    [InlineData(true, "Owned")]
+    [InlineData(false, "Restoring")]
+    [InlineData(true, "Restoring")]
+    public void StaleRecordingOwnershipStaysPendingAndCanRecoverWhenPlaybackReturns(bool previous, string state)
+    {
+        var backend = new Backend(previous) { Kind = AudioEndpointKind.Recording, FailGet = true };
+        var original = Saved(previous, state);
+        var journal = new Journal { Bytes = original };
+        using var recovery = new MuteRecoveryCoordinator(backend, journal);
+        recovery.Initialize(); recovery.Refresh(); recovery.Restore();
+        var pending = Assert.Single(recovery.Snapshot.Entries);
+        Assert.Equal(MuteRecoveryStatus.Pending, recovery.Snapshot.Status);
+        Assert.Null(pending.CurrentMute);
+        Assert.False(pending.Live);
+        Assert.False(pending.KnownRestored);
+        Assert.Equal(original, journal.Bytes);
+        Assert.Empty(journal.Written);
+        Assert.Equal(0, backend.Gets);
+        Assert.Empty(backend.Writes);
+        Assert.Throws<InvalidOperationException>(() => recovery.Resolve(recovery.Snapshot.Revision,
+            pending.Owner, pending.Generation, pending.EndpointId, MuteRecoveryChoice.RestoreSaved));
+        Assert.Equal(original, journal.Bytes);
+        backend.Kind = AudioEndpointKind.Playback; backend.FailGet = false; backend.Bit = !previous;
+        recovery.Refresh();
+        var returned = Assert.Single(recovery.Snapshot.Entries);
+        Assert.Equal(!previous, returned.CurrentMute);
+        recovery.Resolve(recovery.Snapshot.Revision, returned.Owner, returned.Generation,
+            returned.EndpointId, MuteRecoveryChoice.RestoreSaved);
+        Assert.Equal(previous, backend.Bit);
+        Assert.Equal([previous], backend.Writes);
+        Assert.Empty(recovery.Snapshot.Entries);
+        Assert.True(recovery.Snapshot.CanMute);
+        Assert.All(backend.Handles, handle => Assert.True(handle.Disposed));
+    }
+
+    [Theory]
+    [InlineData(MuteRecoveryChoice.RestoreSaved)]
+    [InlineData(MuteRecoveryChoice.KeepCurrent)]
+    public void DirectionChangedAfterReviewCannotRestoreOrAbandonOwnership(MuteRecoveryChoice choice)
+    {
+        var backend = new Backend(true);
+        var original = Saved(false, "Owned");
+        var journal = new Journal { Bytes = original };
+        using var recovery = new MuteRecoveryCoordinator(backend, journal);
+        recovery.Initialize();
+        var shown = Assert.Single(recovery.Snapshot.Entries);
+        var reads = journal.Reads; var gets = backend.Gets;
+        backend.Kind = AudioEndpointKind.Recording; backend.FailGet = true;
+        Assert.Throws<InvalidOperationException>(() => recovery.Resolve(recovery.Snapshot.Revision,
+            shown.Owner, shown.Generation, shown.EndpointId, choice));
+        Assert.Equal(MuteRecoveryStatus.Pending, recovery.Snapshot.Status);
+        Assert.Null(Assert.Single(recovery.Snapshot.Entries).CurrentMute);
+        Assert.Equal(gets, backend.Gets);
+        Assert.Empty(backend.Writes);
+        Assert.Equal(reads, journal.Reads);
+        Assert.Empty(journal.Written);
+        Assert.Equal(original, journal.Bytes);
+        Assert.All(backend.Handles, handle => Assert.True(handle.Disposed));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LivePlaybackDirectionChangeRetainsExactBitForLaterRestoreAndRetry(bool previous)
+    {
+        var backend = new Backend(previous);
+        var journal = new Journal();
+        using var recovery = new MuteRecoveryCoordinator(backend, journal);
+        recovery.Initialize(); recovery.Mute(null);
+        var owned = Assert.Single(recovery.Snapshot.Entries);
+        var gets = backend.Gets;
+        backend.Kind = AudioEndpointKind.Recording; backend.FailGet = true;
+        recovery.Mute(null);
+        Assert.ThrowsAny<Exception>(recovery.Restore);
+        recovery.Refresh();
+        var retained = Assert.Single(recovery.Snapshot.Entries);
+        Assert.Equal(owned.Generation, retained.Generation);
+        Assert.Equal(previous, retained.PreviousMute);
+        Assert.Null(retained.CurrentMute);
+        Assert.Equal(gets, backend.Gets);
+        Assert.Equal([true], backend.Writes);
+        Assert.False(recovery.Snapshot.CanMute);
+        backend.Kind = AudioEndpointKind.Playback; backend.FailGet = false;
+        recovery.Restore();
+        Assert.Equal(previous, backend.Bit);
+        Assert.Equal(new[] { true, previous }, backend.Writes);
+        recovery.Mute(null); recovery.Restore();
+        Assert.Equal(previous, backend.Bit);
+        Assert.Equal(new[] { true, previous, true, previous }, backend.Writes);
+        Assert.All(backend.Handles, handle => Assert.True(handle.Disposed));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void DefaultChangesAcrossRecordingAndPlaybackPreserveOnlyPlaybackOwnership(bool recordingBit)
+    {
+        var backend = new MultipleEndpoints();
+        const string recordingId = "synthetic-recording";
+        backend.Bits[recordingId] = recordingBit; backend.Kinds[recordingId] = AudioEndpointKind.Recording;
+        var journal = new Journal();
+        using var recovery = new MuteRecoveryCoordinator(backend, journal);
+        recovery.Initialize(); recovery.Mute(null);
+        backend.Default = recordingId;
+        var writes = journal.Written.Count;
+        recovery.Mute(null);
+        Assert.Single(recovery.Snapshot.Entries);
+        Assert.Equal(writes, journal.Written.Count);
+        Assert.Equal(0, backend.Gets.GetValueOrDefault(recordingId));
+        Assert.Equal(0, backend.Sets.GetValueOrDefault(recordingId));
+        Assert.Equal(recordingBit, backend.Bits[recordingId]);
+        backend.Default = "synthetic-second";
+        recovery.Mute(null);
+        Assert.Equal(2, recovery.Snapshot.Entries.Count);
+        recovery.Restore();
+        Assert.False(backend.Bits[EndpointId]);
+        Assert.True(backend.Bits["synthetic-second"]);
+        Assert.Equal(recordingBit, backend.Bits[recordingId]);
+        Assert.Equal(0, backend.Sets.GetValueOrDefault(recordingId));
+        Assert.All(backend.Handles, handle => Assert.True(handle.Disposed));
     }
 
     [Theory]
@@ -577,22 +856,29 @@ public sealed class MuteRecoveryTests
 
     private sealed class Backend(bool previous) : IMuteEndpointBackend
     {
-        public bool Bit = previous, ThrowAfterSet, Unavailable, FailGet;
+        public bool Bit = previous, ThrowAfterSet, Unavailable, FailGet, FailKind;
+        public AudioEndpointKind Kind = AudioEndpointKind.Playback;
+        public string? ReturnedId;
+        public int Gets, KindReads;
         public readonly List<bool> Writes = [];
         public readonly List<Endpoint> Handles = [];
         public IMuteEndpoint Open(string? endpointId)
         {
             if (Unavailable) throw new IOException("Synthetic endpoint unavailable");
-            var handle = new Endpoint(this, endpointId ?? EndpointId);
+            var handle = new Endpoint(this, ReturnedId ?? endpointId ?? EndpointId);
             Handles.Add(handle); return handle;
         }
         public sealed class Endpoint(Backend backend, string id) : IMuteEndpoint
         {
             public string Id => id;
+            public AudioEndpointKind Kind
+            {
+                get { backend.KindReads++; return backend.FailKind ? throw new IOException("Synthetic direction read failure") : backend.Kind; }
+            }
             public bool Disposed;
             public bool Muted
             {
-                get => backend.FailGet ? throw new IOException("Synthetic endpoint read failure") : backend.Bit;
+                get { backend.Gets++; return backend.FailGet ? throw new IOException("Synthetic endpoint read failure") : backend.Bit; }
                 set
                 {
                     backend.Bit = value; backend.Writes.Add(value);
@@ -607,6 +893,8 @@ public sealed class MuteRecoveryTests
     {
         public string Default = EndpointId;
         public readonly Dictionary<string, bool> Bits = new(StringComparer.Ordinal) { [EndpointId] = false, ["synthetic-second"] = true };
+        public readonly Dictionary<string, AudioEndpointKind> Kinds = new(StringComparer.Ordinal);
+        public readonly Dictionary<string, int> Gets = new(StringComparer.Ordinal), Sets = new(StringComparer.Ordinal);
         public readonly HashSet<string> Unavailable = new(StringComparer.Ordinal);
         public readonly List<Endpoint> Handles = [];
         public IMuteEndpoint Open(string? endpointId)
@@ -618,8 +906,13 @@ public sealed class MuteRecoveryTests
         public sealed class Endpoint(MultipleEndpoints backend, string id) : IMuteEndpoint
         {
             public string Id => id;
+            public AudioEndpointKind Kind => backend.Kinds.GetValueOrDefault(id, AudioEndpointKind.Playback);
             public bool Disposed;
-            public bool Muted { get => backend.Bits[id]; set => backend.Bits[id] = value; }
+            public bool Muted
+            {
+                get { backend.Gets[id] = backend.Gets.GetValueOrDefault(id) + 1; return backend.Bits[id]; }
+                set { backend.Sets[id] = backend.Sets.GetValueOrDefault(id) + 1; backend.Bits[id] = value; }
+            }
             public void Dispose() => Disposed = true;
         }
     }
@@ -630,11 +923,12 @@ public sealed class MuteRecoveryTests
         public bool FailWrites, FailReads;
         public string? FailState, FailAfterState, ArchiveFailure;
         public Action<byte[]>? BeforeWrite;
-        public int Reads;
+        public int Reads, Leases;
         public readonly List<byte[]> Written = [], Archived = [];
         private bool _leased;
         public IDisposable AcquireLease()
         {
+            Leases++;
             if (_leased) throw new MuteRecoveryBusyException("Synthetic lease is already owned");
             _leased = true; return new Lease(() => _leased = false);
         }
