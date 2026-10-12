@@ -42,6 +42,14 @@ public sealed class SessionTests
         var pending = controller.PreviewEqualizerAsync(oldOwner, Sound(7));
         await controller.ClearEqualizerPreviewAsync(oldOwner); await pending;
         Assert.Equal(4, EqGain(process.Commands.Last(c => c.Command == "set_equalizer")));
+        // Controlled schedule: the original quiet fake crosses its finite read
+        // deadline before the next preview. Keep the original gain assertion.
+        var failure = new TaskCompletionSource<SessionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Failed(SessionSnapshot snapshot) { if (snapshot.State == PlaybackState.Error) failure.TrySetResult(snapshot); }
+        controller.Changed += Failed;
+        try { Failed(controller.Snapshot); await failure.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+        finally { controller.Changed -= Failed; }
+        Assert.True(process.Disposed);
         await controller.PreviewEqualizerAsync(newOwner, Sound(9));
         await controller.ClearEqualizerPreviewAsync(oldOwner);
         Assert.Equal(9, EqGain(process.Commands.Last(c => c.Command == "set_equalizer")));
