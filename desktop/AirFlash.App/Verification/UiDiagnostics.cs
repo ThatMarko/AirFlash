@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Reflection;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -29,7 +30,7 @@ internal static class UiDiagnostics
         var store = new Store(); var audio = new Audio(); var factory = new Factory();
         await using var app = new AppViewModel(store, new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, factory,
             Application.Current.Dispatcher) { EngineVersion = "synthetic-engine" };
-        var writer = new Writer(); SettingsWindow? window = null;
+        var writer = new Writer(); SettingsWindow? window = null; RestoreGate? cleanupGate = null;
         try
         {
             app.Start(); await app.Startup;
@@ -76,8 +77,18 @@ internal static class UiDiagnostics
             window.Close(); window = null;
             await MetricsAsync(app, factory, 12, ("padded_frames", 705UL), ("fully_padded_packets", 2UL));
             var error = Snapshot(app.Session, item => item.State == PlaybackState.Error);
-            factory.Latest.Emit(new { @event = "error", code = "synthetic_error", kind = "rtsp", retryable = false, message = "synthetic receiver fault", host = "192.0.2.30" });
-            await error; await Pump();
+            cleanupGate = new(); audio.TerminalRestore = cleanupGate;
+            audio.ShouldPauseRestore = () => app.Session.Snapshot.State == PlaybackState.Error;
+            Task? completedWorker = null;
+            try
+            {
+                factory.Latest.Emit(new { @event = "error", code = "synthetic_error", kind = "rtsp", retryable = false, message = "synthetic receiver fault", host = "192.0.2.30" });
+                await error; await cleanupGate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                completedWorker = JoinOwnedWorkerAsync(app.Session);
+                Check(!completedWorker.IsCompleted, "Error publication does not complete the owned worker while terminal audio cleanup is held", checks);
+            }
+            finally { cleanupGate.Release.TrySetResult(); }
+            await (completedWorker ?? throw new InvalidOperationException("Missing synthetic fault worker.")); await Pump();
             window = Open(app, writer); await Pump();
             Check(Values(window) == ("705", "2"), "reopened Monitor refreshes the latest capture counters after hidden updates", checks);
             var expander = Descendants(window).OfType<Expander>().Single(item => Equals(item.Header, L.Get("Statistics before the last failure")));
@@ -100,7 +111,16 @@ internal static class UiDiagnostics
             Check(Values(window) == ("0", "0"), "fresh worker zero counters display as measured zeros rather than unavailable", checks);
             await CopyAsync(window, app, writer, store, factory, audio, checks, "fresh Streaming attempt");
         }
-        finally { window?.Close(); await app.StopAsync(); }
+        finally { cleanupGate?.Release.TrySetResult(); window?.Close(); await app.StopAsync(); }
+    }
+
+    // No replacement is admitted between the Error signal and this read. Join that
+    // exact synthetic attempt before attributing subsequent side effects to Copy.
+    private static Task JoinOwnedWorkerAsync(SessionController session)
+    {
+        var worker = typeof(SessionController).GetField("_work", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(session) as Task
+            ?? throw new InvalidOperationException("The synthetic session worker is unavailable.");
+        return worker.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
     private static SettingsWindow Open(AppViewModel app, Writer writer)
@@ -241,11 +261,25 @@ internal static class UiDiagnostics
     private sealed class Audio : IAudioService
     {
         public int Mutes, Restores;
+        public RestoreGate? TerminalRestore;
+        public Func<bool>? ShouldPauseRestore;
         public event Action? EndpointsChanged { add { } remove { } }
         public Task<IReadOnlyList<AudioEndpoint>> GetEndpointsAsync() => Task.FromResult<IReadOnlyList<AudioEndpoint>>([new("synthetic-render", "Synthetic output")]);
         public Task<string?> GetDefaultEndpointIdAsync() => Task.FromResult<string?>("synthetic-render");
         public Task MuteAsync(string? endpointId) { Mutes++; return Task.CompletedTask; }
-        public Task RestoreAsync() { Restores++; return Task.CompletedTask; }
+        public async Task RestoreAsync()
+        {
+            if (TerminalRestore is { } gate && ShouldPauseRestore?.Invoke() == true)
+            {
+                TerminalRestore = null; gate.Entered.TrySetResult(); await gate.Release.Task.ConfigureAwait(false);
+            }
+            Interlocked.Increment(ref Restores);
+        }
+    }
+    private sealed class RestoreGate
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
     private sealed class Factory : IEngineFactory
     {
