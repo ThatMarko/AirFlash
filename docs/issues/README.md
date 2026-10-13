@@ -17,7 +17,7 @@ Original stable Main is `cf420d97700463c56adc31408510e8336e99e51c`, already cont
 | G | 13 | `fcded6b` | [Owned mute recovery](GROUP-G-ACCEPTANCE.md); publication pending authorization |
 | H | 15, 16, 17 | `6855dfe` | [Diagnostics/padding/localization](GROUP-H-ACCEPTANCE.md); publication pending authorization |
 | Scrolling | Separate UI follow-up | `54cd18e` | [Scrolling](SETTINGS-SCROLL-ACCEPTANCE.md); PR #13 merged |
-| Installer | Separate packaging follow-up | `b6ae095` | [Payload refresh and qualification fixtures](INSTALLER-REFRESH-ACCEPTANCE.md); publication pending authorization |
+| Installer | Separate packaging follow-up | `b6ae095` | [Payload refresh and qualification fixtures](INSTALLER-REFRESH-ACCEPTANCE.md); [issue #20](https://github.com/Ding-Kyoma/AirFlash/issues/20) and [PR #21](https://github.com/Ding-Kyoma/AirFlash/pull/21) open; not merged |
 
 ## Current acceptance
 
