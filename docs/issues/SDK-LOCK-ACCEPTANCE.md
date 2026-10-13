@@ -1,5 +1,9 @@
 # SDK and locked analyzer dependency consistency
 
+## Later D preparation — 2026-10-13
+
+Standalone D `b8ee79511e2fa41ee02651dad83d50e008f9f680` now includes SDK consistency `03432df` and passes 303 Core / 113 focused on both SDKs; [D acceptance](GROUP-D-ACCEPTANCE.md) records its additional metadata/fixture corrections, six actual culture cells and hosted source qualification. Main `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` contains it and passes 677 Core locally and in complete SDK 10.0.402 hosted/package validation; the linked D acceptance binds its actual UI/MSI results separately. Thus the remaining branches awaiting SDK 10.0.402 preparation are B/G/H; the D limitation recorded at the earlier repair completion below is historical, not a current blocker.
+
 ## Current correction — 2026-10-13
 
 Qualified fork code is `7a4f9f58e9222e12a98afa398c51ebf31b31a4f0`. Shared two-file correction `386cc4d24e3ce2a88d449b523dd5aaf39f031fca` was independently based on original stable `cf420d97700463c56adc31408510e8336e99e51c`, reviewed, and applied to Main and the four existing open PR branches. It changes the WPF project and normal CI workflow; no runtime controller, Rust source, lock file or SDK resolver policy changes.

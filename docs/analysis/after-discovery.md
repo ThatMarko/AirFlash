@@ -1,5 +1,11 @@
 # After discovery: catalog, session updates, and auto-connect
 
+## Discovery preparation supplement — 2026-10-13
+
+Current fork code `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` integrates standalone D `b8ee79511e2fa41ee02651dad83d50e008f9f680`, based on original `cf420d97700463c56adc31408510e8336e99e51c`. Every changed valid current record/TXT refresh now requests catalog publication; gpn/igl/pk/cn no longer silently wait for unrelated publication. The older description-only notification statement below is pinned0623787 behavior. Reconciliation/settings gates/controller authority and manual persistence are unchanged. Helper TXT case-insensitive keys preserve identity/stereo/codec input to aggregation.
+
+[D acceptance](../issues/GROUP-D-ACCEPTANCE.md) records source, tests, reviews and limits. The earlier source map below retains its pinned historical baseline.
+
 This page describes fork `main` at **`06237873dcb6394eb35e97a017c536843bd7743d`**, reviewed on 2026-10-12. Original stable `cf420d97700463c56adc31408510e8336e99e51c` is already included. All Group B changes are pushed and integrated in this main; their upstream publication status remains separate. [Audit](audit.md) and [current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) define the source and verification boundaries.
 
 A publication aggregates service records on the discovery publisher's thread and queues reconciliation on the WPF dispatcher. Resolve's publication trigger compares only its description fields, so a gpn/igl/pk/cn-only cached refresh can await a later publication before reaching this pipeline. Reconciliation takes the asynchronous settings gate; ordinary persistence can yield the dispatcher while Settings Pair and worker events proceed. Controller serialization supplies the final session authority check. Startup's engine `hello` is a separate initialization operation, not a playback start. Discovery demand, notification limits and DNS operation ownership are described in [Discovery](discovery.md).

@@ -1,5 +1,9 @@
 # Build, packaging and release ownership
 
+## Discovery build qualification — 2026-10-13
+
+D `b8ee79511e2fa41ee02651dad83d50e008f9f680` now includes shared SDK commit `03432df`: locked restore/build / 303 Core pass on both actual 10.0.401 and 10.0.402, with existing locks/resolver/analyzer flags preserved. Fork Main `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` contains the corrections and passes 677 Core locally; [D acceptance](../issues/GROUP-D-ACCEPTANCE.md) separates exact standalone, integrated and hosted runs. [Exact Main normal CI](https://github.com/ThatMarko/AirFlash/actions/runs/38471862347) and [full package](https://github.com/ThatMarko/AirFlash/actions/runs/38471862427) succeed at `c5ddb894`: 138 Python / 677 Core / 69 native (two ignored), six portable UI cells × 1,075, three observed 125% DPI cells × 40 and disposable MSI lifecycle. Downloaded UI, bundle-audit and repeated-packaging reports share the exact portable hash; both distinct synthetic payloads have matching embedded hashes/sizes and preserve prior input/package. No release reservation or release is performed. Older build/source qualifications below remain historical.
+
 ## SDK dependency consistency — 2026-10-13
 
 Fork code `7a4f9f58e9222e12a98afa398c51ebf31b31a4f0` explicitly references the already-locked `Microsoft.NET.ILLink.Tasks` 10.0.12 as a private build dependency. Single-file publishing enables this analyzer even with trimming disabled. SDK 10.0.402 otherwise injects 10.0.13, while the unchanged lock requests 10.0.12; unchanged original-source locked restore passes with 10.0.401 and fails with 10.0.402. The SDK suppresses its implicit addition when the project supplies an explicit reference, stabilizing this dependency without freezing SDK/runtime roll-forward or weakening locked restore/analyzers.

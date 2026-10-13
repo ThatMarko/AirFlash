@@ -1,5 +1,9 @@
 # AirFlash completed implementation and publication plan
 
+## Discovery preparation update — 2026-10-13
+
+D `b8ee79511e2fa41ee02651dad83d50e008f9f680` is refreshed and independently reviewed against original `cf420d97700463c56adc31408510e8336e99e51c`: shared SDK consistency, full TXT notification, helper TXT-key semantics/LF, joined fixture cleanup and actual WPF dispatcher coverage are qualified. Fork Main `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` integrates it. [D acceptance](GROUP-D-ACCEPTANCE.md) binds 303 Core on each SDK, six observed WPF cells × 580 and source-exact hosted checks; [draft index](upstream-drafts/README.md) holds unpublished issue/PR drafts. Earlier dated plans/status below retain their original snapshots. No new upstream publication or release is authorized/performed.
+
 ## Standalone preparation update — 2026-10-13
 
 Current integrated code is `892a458078930b7b25d973d773e0a93e356ef36b`; later documentation-only heads retain its code trees. [Draft/branch index](upstream-drafts/README.md) records the eight independently based, clean, pushed branches, every outgoing-commit privacy check and final peer review. Original stable remains `cf420d97700463c56adc31408510e8336e99e51c`. A/scroll are already merged; B reuses issue #14 and excludes PR #19's integrated overlap. No upstream publishing/reopen/merge or release is authorized/performed.

@@ -1,5 +1,13 @@
 # Verification boundaries and evidence
 
+## Discovery preparation supplement — 2026-10-13
+
+Current fork code `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` integrates standalone D `b8ee79511e2fa41ee02651dad83d50e008f9f680`, based on original `cf420d97700463c56adc31408510e8336e99e51c`. D final-head qualification is 303 Core / 113 focused on each SDK, six full WPF catalog/format cells × 580, focused dispatcher 16, controlled invalid culture and real synthetic children through both host styles. Seven new controls fail before correction, one unchanged/reordered control passes, and all eight pass afterward; queue-bypass mutation fails bounded startup rather than reaching its initially expected later thread assertion. Earlier D3×568 did not implement a formatting-culture override or exact Traditional Chinese restoration and does not qualify the new matrix. Diagnostic-only constructor culture selection and observed report fields now prove independent formatting/UI catalog; normal startup is unchanged. IsSettled is an earlier flag, so fixtures join the registered settlement notification before claiming child disposal/global-capacity cleanup.
+
+Integrated Main `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` has its own completed [package qualification](https://github.com/ThatMarko/AirFlash/actions/runs/38471862427): 138 Python / 677 Core / 69 native (two ignored), six portable UI cells × 1,075, three observed 125% DPI cells × 40 and disposable MSI lifecycle. Downloaded reports bind exact source/portable hash and observed cultures; these are separate from D's standalone counts.
+
+[D acceptance](../issues/GROUP-D-ACCEPTANCE.md) records source, tests, reviews and limits. The earlier source map below retains its pinned historical baseline.
+
 ## Later preparation supplement — 2026-10-13
 
 The pinned 2026-10-12 source map below remains an audit of `0623787`. Current code Main `892a458078930b7b25d973d773e0a93e356ef36b` adds E timeout/Stop regression signals, G Pair/save regression propagation, strictly lower installer fixture selection before side effects, and fork-only exact-source/optional-UI package validation. Ordinary application behavior described by the map is unchanged; test/tool/workflow tree equality with `4ae1db4` no longer applies. [Current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) and [standalone drafts/branches](../issues/upstream-drafts/README.md) bind source/results. Main CI/package now pass 669 Core, 138 Python and 69 native tests (two ignored), six portable UI runs × 1,064, three observed 125% DPI runs × 40 and disposable MSI lifecycle. Each standalone group has separate results. No source review is relabeled runtime execution and no hardware/release claim is added.

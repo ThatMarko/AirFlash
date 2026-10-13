@@ -1,5 +1,11 @@
 # Playback coupling
 
+## Discovery preparation supplement — 2026-10-13
+
+Current fork code `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` integrates standalone D `b8ee79511e2fa41ee02651dad83d50e008f9f680`, based on original `cf420d97700463c56adc31408510e8336e99e51c`. The pinned062 description-subset notification limitation below is superseded by full record/TXT publication. gpn affects group name; igl affects leader ordering/TransportKey and applicable owned retarget/restart; cn affects subsequent start codec payloads, not an automatic codec-only engine restart; pk affects compatible endpoint merging. This adds no authority to stale callbacks: current token/epoch/deadline and existing app/controller guards still apply. Offline/partial transport retention and manual routing policy are unchanged.
+
+[D acceptance](../issues/GROUP-D-ACCEPTANCE.md) records source, tests, reviews and limits. The earlier source map below retains its pinned historical baseline.
+
 This page describes fork `main` at **`06237873dcb6394eb35e97a017c536843bd7743d`**, reviewed on 2026-10-12, including original stable `cf420d97700463c56adc31408510e8336e99e51c`. Discovery availability and owned transport now have separate lifetimes. [Audit](audit.md), [B acceptance](../issues/GROUP-B-ACCEPTANCE.md) and [current qualification](../issues/CONTINUATION-ACCEPTANCE.md) define evidence limits.
 
 ## The check

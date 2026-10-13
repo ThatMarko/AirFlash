@@ -1,13 +1,17 @@
 # [HIGH] DNS resolution has finite logical deadlines and explicit resource ownership
 
-- **Status**: Implemented, pushed and integrated in fork `main` `8989b3609dd1294f4d1d6eb1502f345cc22bc382`.
-- **Group / feature**: D, `codex/fix-discovery-resolve`, `277efc5b389acd2b9699c9b25baf83450274096f`.
+- **Status**: Implemented, pushed and integrated in fork `main` `c5ddb894e8bf0f977a94920ff26878c3cf5e1004`.
+- **Group / feature**: D, `codex/fix-discovery-resolve`, `b8ee79511e2fa41ee02651dad83d50e008f9f680`.
 - **Stable comparison**: `cf420d97700463c56adc31408510e8336e99e51c` does not contain this deadline/process-ownership fix.
 - **Original severity**: HIGH logical rediscovery suppression at `41190e0`; no demonstrated Windows leak/network cause is claimed.
 - **Plan / evidence**: [ISSUE-04](IMPLEMENTATION_PLAN.md#issue-04), [D acceptance](GROUP-D-ACCEPTANCE.md), [current acceptance](CONTINUATION-ACCEPTANCE.md).
 - **Analysis**: [Discovery](../analysis/discovery.md).
 
-## 1. Current behavior
+## Refreshed preparation — 2026-10-13
+
+Final standalone b8ee79511e2fa41ee02651dad83d50e008f9f680 passes 303 Core / 113 focused on both SDKs, six observed WPF catalog/format cells × 580, actual synthetic helpers and exact-source hosted Windows qualification. Full TXT publication and case-insensitive helper TXT lookup preserve stable metadata behavior. [Current D acceptance](GROUP-D-ACCEPTANCE.md) binds failed controls, Main integration and all limits; no upstream publication is performed. The runtime narrative and earlier executions below retain their named historical sources.
+
+## 1. Recorded runtime behavior
 
 [WindowsDiscovery](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Services/WindowsDiscovery.cs) separates advertisement, cached record, pending logical token, retained owner and epoch. Five-second monotonic initial/refresh deadlines work even without a cached record. Failure retires only the exact token, and a still-advertised name retries with one-to-thirty-second exponential backoff. Same-epoch obsolete tokens and old epochs cannot publish stale records or clear a newer request.
 

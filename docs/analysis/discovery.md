@@ -1,5 +1,11 @@
 # Discovery
 
+## Discovery preparation supplement — 2026-10-13
+
+Current fork code `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` integrates standalone D `b8ee79511e2fa41ee02651dad83d50e008f9f680`, based on original `cf420d97700463c56adc31408510e8336e99e51c`. Full ServiceRecord/TXT equality now triggers publication, restoring cf420d9 behavior; Describe remains log formatting only. The older gpn/igl/pk/cn notification limitation below belongs to pinned0623787 and is superseded. Helper JSON copies TXT into OrdinalIgnoreCase dictionaries without changing values and rejects case-folded duplicates. Successful replies explicitly emit LF. Browse settlement remains terminal 1223 plus tracked calls/managed consumer sections, not arbitrary native return-stack observation.
+
+[D acceptance](../issues/GROUP-D-ACCEPTANCE.md) records source, tests, reviews and limits. The earlier source map below retains its pinned historical baseline.
+
 This page describes fork `main` at **`06237873dcb6394eb35e97a017c536843bd7743d`**, reviewed on 2026-10-12, including original stable `cf420d97700463c56adc31408510e8336e99e51c`. Final Group D `277efc5` is pushed and integrated here, not merged upstream. [Audit](audit.md) and [D acceptance](../issues/GROUP-D-ACCEPTANCE.md) bind results and historical failures to their sources.
 
 The desktop uses Windows DNS-SD without Bonjour. Long-lived browse operations remain in the WPF process; production resolves run one query per bounded helper process because an ordinary resolve callback or successful Cancel return does not prove callback quiescence. [WindowsDiscovery](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.App/Services/WindowsDiscovery.cs) owns logical state, [NativeDnsServiceApi](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.App/Services/NativeDnsServiceApi.cs) owns native browse inputs, and [ResolveProcessDnsServiceApi](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.App/Services/ResolveProcessDnsServiceApi.cs) owns resolve-child lifetimes.

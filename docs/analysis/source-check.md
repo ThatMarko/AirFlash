@@ -1,5 +1,11 @@
 # Source check
 
+## Discovery preparation supplement — 2026-10-13
+
+Current fork code `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` integrates standalone D `b8ee79511e2fa41ee02651dad83d50e008f9f680`, based on original `cf420d97700463c56adc31408510e8336e99e51c`. The old unsupported claim that every TXT-only refresh notifies subscribers is superseded for current c5ddb89: full record/TXT equality now restores original stable publication. Helper key lookup remains case-insensitive through JSON with exact values. Meaningful consumer assertions and unchanged-source red controls support these corrections; neither real DNS callback reliability nor arbitrary native return-stack quiescence is established. Source, carrier workflow, compiled binary and actual execution stay separately identified.
+
+[D acceptance](../issues/GROUP-D-ACCEPTANCE.md) records source, tests, reviews and limits. The earlier source map below retains its pinned historical baseline.
+
 This page checks claims against **fork `main` at `06237873dcb6394eb35e97a017c536843bd7743d`**, reviewed on 2026-10-12. Its runtime matches `8989b36` and qualified `4ae1db4`; it includes original stable `cf420d97700463c56adc31408510e8336e99e51c` and the 17 reported fixes. The original `41190e0` audit is history, not a statement that its repaired defects persist. [Audit](audit.md) records independent review of every analysis page; [verification](verification.md) separates actual test layers and [current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) binds executed evidence.
 
 Deleted speculative reports, unrelated implementations, proposal text and local incident correlation are not source evidence. Development `67435a4` remains excluded. Current source facts, controlled regression observations, CI/artifact results and unmeasured hardware behavior stay distinct.
