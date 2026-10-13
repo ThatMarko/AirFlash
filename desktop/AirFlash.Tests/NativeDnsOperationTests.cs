@@ -489,10 +489,13 @@ public sealed class NativeDnsOperationTests
         using var disposeRequested = new ManualResetEventSlim();
         using var allowOtherPublication = new ManualResetEventSlim();
         using var otherBrowseReturned = new ManualResetEventSlim();
+        using var allowLastResolveCancellation = new ManualResetEventSlim();
         var before = Counters.Read();
         var api = new TrackingDnsApi(new NativeDnsServiceApi(calls));
         var firstPublication = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var otherRecordCommitted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lastResolveCancellationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var otherResolveCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var starts = new ConcurrentQueue<(NativeCall Call, string? Name)>();
         var errors = new ConcurrentQueue<string>();
         const string otherName = "Kitchen._airplay._tcp.local";
@@ -518,6 +521,16 @@ public sealed class NativeDnsOperationTests
         var browse = starts.Single(entry => !entry.Call.Resolve && entry.Name == Type).Call;
         NativeDnsServiceApi.DispatchBrowse(0, browse.Context, calls.PtrRecord(Name, 3600), calls);
         var firstResolve = starts.Single(entry => entry.Call.Resolve && entry.Name == Name).Call;
+        calls.BeforeCancel = call =>
+        {
+            if (!call.Resolve || call.Context != firstResolve.Context) return;
+            // Callback/publication completion and browse settlement cannot join
+            // this separate resolve-cancellation worker. Hold it before counting
+            // its native call so the early-count race has a controlled schedule.
+            lastResolveCancellationEntered.TrySetResult();
+            if (!allowLastResolveCancellation.Wait(TimeSpan.FromSeconds(10)))
+                errors.Enqueue("The final resolve cancellation gate was not released.");
+        };
         discovery.Changed += receivers =>
         {
             if (receivers.Count != 1 || receivers[0].Address != "10.0.0.1") return;
@@ -536,6 +549,7 @@ public sealed class NativeDnsOperationTests
             Assert.NotNull(calls.ReadRequestName(call.Request));
             Assert.Equal(call.Context, Marshal.ReadIntPtr(call.Cancel));
             if (!call.Resolve) NativeDnsServiceApi.DispatchBrowse(1223, call.Context, IntPtr.Zero, calls);
+            else if (call.Context != firstResolve.Context) otherResolveCancelled.TrySetResult();
         };
         Task first = Task.CompletedTask, other = Task.CompletedTask;
         try
@@ -562,6 +576,23 @@ public sealed class NativeDnsOperationTests
             await Task.WhenAll(api.BrowseSettlementTasks).WaitAsync(TimeSpan.FromSeconds(10));
             Assert.True(SpinWait.SpinUntil(() => discovery.Snapshot.NativeOwners == 2, TimeSpan.FromSeconds(10)),
                 "Native settlement did not reach the discovery owner registry.");
+            await lastResolveCancellationEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await otherResolveCancelled.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(3, calls.CancelCalls);
+            Assert.Equal(Name, calls.ReadRequestName(firstResolve.Request));
+            Assert.Equal(firstResolve.Context, Marshal.ReadIntPtr(firstResolve.Cancel));
+            Assert.Equal(before.Owners + 2, NativeDnsServiceApi.CurrentOwnerCount);
+            Assert.Equal(before.Buffers + 6, NativeDnsServiceApi.AllocatedBufferCount);
+            Assert.Equal(before.Released + 2, NativeDnsServiceApi.ReleasedOwnerCount);
+            var cancellationWorkers = NativeDnsServiceApi.PendingCancellationWorkers(calls);
+            Assert.False(cancellationWorkers.IsCompleted);
+            allowLastResolveCancellation.Set();
+            await cancellationWorkers.WaitAsync(TimeSpan.FromSeconds(10));
+            // Successful cancellation does not settle resolve ownership. Only
+            // the joined synthetic boundary below can reclaim these inputs.
+            Assert.Equal(before.Owners + 2, NativeDnsServiceApi.CurrentOwnerCount);
+            Assert.Equal(before.Buffers + 6, NativeDnsServiceApi.AllocatedBufferCount);
+            Assert.Equal(before.Released + 2, NativeDnsServiceApi.ReleasedOwnerCount);
             Assert.Empty(errors);
             Assert.Equal(4, calls.CancelCalls);
             Assert.Equal(2, calls.FreeRecordCalls);
@@ -573,7 +604,7 @@ public sealed class NativeDnsOperationTests
         }
         finally
         {
-            disposeRequested.Set(); allowOtherPublication.Set(); otherBrowseReturned.Set();
+            disposeRequested.Set(); allowOtherPublication.Set(); otherBrowseReturned.Set(); allowLastResolveCancellation.Set();
             try { await Task.WhenAll(first, other).WaitAsync(TimeSpan.FromSeconds(10)); }
             finally
             {
@@ -582,6 +613,7 @@ public sealed class NativeDnsOperationTests
                     if (operation.IsResolve) NativeDnsServiceApi.DispatchResolve(995, new(operation.Token), IntPtr.Zero, calls);
                     else NativeDnsServiceApi.DispatchBrowse(1223, new(operation.Token), IntPtr.Zero, calls);
                 await Task.WhenAll(api.BrowseSettlementTasks).WaitAsync(TimeSpan.FromSeconds(10));
+                await NativeDnsServiceApi.PendingCancellationWorkers(calls).WaitAsync(TimeSpan.FromSeconds(10));
             }
         }
     }
@@ -862,7 +894,7 @@ public sealed class NativeDnsOperationTests
         public uint StartStatus = 9506, CancelStatus;
         public Exception? StartError, CancelError;
         public int StartCalls, CancelCalls, FreeInstanceCalls, FreeRecordCalls;
-        public Action<NativeCall>? DuringStart, DuringCancel;
+        public Action<NativeCall>? DuringStart, BeforeCancel, DuringCancel;
         public Action<IntPtr>? BeforeFree;
         public uint StartResolve(IntPtr request, IntPtr cancel) => Start(request, cancel, true);
         public uint StartBrowse(IntPtr request, IntPtr cancel) => Start(request, cancel, false);
@@ -881,7 +913,9 @@ public sealed class NativeDnsOperationTests
         public uint CancelBrowse(IntPtr cancel) => Cancel(cancel);
         private uint Cancel(IntPtr cancel)
         {
-            Interlocked.Increment(ref CancelCalls); DuringCancel?.Invoke(_calls[cancel]);
+            var call = _calls[cancel];
+            BeforeCancel?.Invoke(call);
+            Interlocked.Increment(ref CancelCalls); DuringCancel?.Invoke(call);
             if (CancelError is not null) throw CancelError;
             return CancelStatus;
         }
