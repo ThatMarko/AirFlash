@@ -2,21 +2,21 @@
 
 ## Current source and verification
 
-This map describes integrated fork runtime **`8989b3609dd1294f4d1d6eb1502f345cc22bc382`**, verified on **2026-10-12**. Its desktop, native engine, scripts, installer, tests and workflow trees match qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`. Subsequent documentation-only commits do not change that runtime baseline.
+This map reviews fork **`main` at `06237873dcb6394eb35e97a017c536843bd7743d`**, on **2026-10-12**. Its desktop, native engine, scripts, installer, tests and workflow trees match runtime `8989b3609dd1294f4d1d6eb1502f345cc22bc382` and qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`. Documentation-only updates do not change that runtime baseline. Every original analysis file receives a new source review; three additional maps cover previously scattered shell, build and verification behavior.
 
 Original stable `cf420d97700463c56adc31408510e8336e99e51c` is included. All eight groups, Settings scrolling and installer repairs are integrated in the fork. A and scrolling are also upstream; merged PR #19 supplies only part of B. B PR #15 remains closed without merge. C–H and the installer follow-up remain fork implementations.
 
-Current source links pin the fork runtime. Historical sections retain the original `41190e0` audit and earlier evidence. [Upstream dev](upstream-dev.md) is excluded, not an implementation source. [Issue status and publication plan](../issues/README.md) separates completed code from pending upstream actions.
+Current source links pin `06237873`; historical sections retain the original `41190e0` audit and earlier evidence. [Upstream dev](upstream-dev.md) is excluded, not an implementation source. [Issue status and publication plan](../issues/README.md) separates integrated code from pending upstream actions. Completing the reported fixes does not mean the application has no remaining limitations; the source maps state those explicitly.
 
 | Evidence | Actual scope and result |
 | --- | --- |
 | Local checks | `4ae1db4`: 667 Core tests in Debug and Release; Release build zero warnings/errors. Later `8989b36`: fresh Release 667, build zero warnings/errors, 124 Python tests and lint passed |
-| [Exact-main CI](https://github.com/ThatMarko/AirFlash/actions/runs/38296750592) | `8989b36`: successful managed/native/Python checks, discovery stability, bundle audit and packaged startup/compatibility |
+| [Exact reviewed-main CI](https://github.com/ThatMarko/AirFlash/actions/runs/38329156167) | `06237873`: 667 Core, 124 Python plus lint, 69 native passes with two ignored; native checks/build, discovery stability, bundle audit and packaged startup/compatibility succeeded |
 | [Packaged integration](https://github.com/ThatMarko/AirFlash/actions/runs/38294493405) | `4ae1db4`: 69 native passes, recording-device qualification and the 30-minute localhost soak ignored; 667 Core; six full portable UI pairs of 1,059 assertions each; three observed 125% DPI cases of 40 each; disposable-runner MSI lifecycle |
 | Earlier narrow checks | The 225 modal PIN assertions and six actual synthetic DNS-helper checks belong to their stated earlier source, not new executions on `8989b36` |
 | Remaining limits | Real receiver reliability, acoustic/network measurements and physical power-loss durability are unqualified |
 
-[Continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) binds failures, controls and passes to their actual source/binary. [Audit](audit.md) records all-file source/document review. These references do not claim another hardware or application run.
+[Continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) binds failures, controls and passes to their actual source/binary. [Audit](audit.md) records all-file source/document review; [verification](verification.md) explains exactly which layers run real code, fake services, shell integration or hosted packages. These references do not claim a new hardware run.
 
 ## Reading the subsystem maps
 
@@ -26,6 +26,7 @@ Current source links pin the fork runtime. Historical sections retain the origin
 | [After discovery](after-discovery.md) | Catalog reconciliation, active rows, manual routing and automatic admission after persistence |
 | [Identity](identity.md) | Canonical ids, aliases and preferences; separate accessory credential identity |
 | [Settings](settings.md) | Schema 2, migration, preservation, loaded validation, Apply and startup |
+| [Desktop shell](desktop-shell.md) | Startup/readiness, tray, windows/dialogs, commands, themes, updates, autostart and shutdown ordering |
 | [Session](session.md) | Atomic snapshot/owner/intent, serialized lifecycle changes, engine attempts and controls |
 | [Engine](engine.md) | Command process/worker, authentication, RTSP, PTP, capture and RTP |
 | [Equalizer](equalizer.md) | Filter/headroom preparation, preview ownership, sequence outcomes and adoption |
@@ -35,9 +36,26 @@ Current source links pin the fork runtime. Historical sections retain the origin
 | [Capture and clocks](capture-clocks.md) | Loopback/recording capture, output padding, underruns and clocks |
 | [Control and mute](control-and-mute.md) | Exact-bit restore, journal/lease/review, RTSP serialization and PTP binding |
 | [Credentials and IPC](credentials-and-ipc.md) | JSONL v1 limits/events and accessory-keyed DPAPI files |
+| [Build and release](build-and-release.md) | Selected SDK, native/dependency policy, embedding, reservations, packaging, MSI and workflow boundaries |
+| [Verification](verification.md) | Test architecture, scheduling/negative controls, diagnostic side effects, source/binary/CI provenance and unqualified behavior |
 | [Source check](source-check.md) | Supported claims and limits of source/mocks |
 | [Upstream dev](upstream-dev.md) | Excluded-development comparison |
 | [Audit](audit.md) | Coverage, provenance, independent review and verification limits |
+
+## Source directories and fork composition
+
+| Source area | Owning maps and consumers |
+| --- | --- |
+| `desktop/AirFlash.Core` | Settings/store, catalog/identity/selection, serialized session, JSONL events, EQ, mute journal/lease, update policy; consumed by the WPF view models and Core tests |
+| `desktop/AirFlash.App/ViewModels` | Catalog admission/reconciliation, drafts/Apply, endpoint and EQ preview, Monitor; [after discovery](after-discovery.md), [settings](settings.md), [session](session.md), [equalizer](equalizer.md) |
+| `desktop/AirFlash.App/Services` | Audio MTA/backend, DNS browse/helper boundary, paths/engine extraction, tray/single instance/autostart/platform services; [discovery](discovery.md), [mute](control-and-mute.md), [shell](desktop-shell.md), [build](build-and-release.md) |
+| App windows, `Ui`, resources and localization | Panel/Settings/PIN/recovery controls, popup geometry, themes/icons, bindings/dynamic text and scrolling; [shell](desktop-shell.md), [settings](settings.md), [auth](auth.md), [EQ](equalizer.md), [failures](failures.md) |
+| `native/airflash-engine/src` | JSONL parser/control, worker, auth/DPAPI, RTSP, capture/resampling, EQ, clocks and RTP/feedback/retransmit/volume; [engine](engine.md) and its dedicated subsystem maps |
+| App `Verification`, Core/native tests, root `tests` | Separate seams, harnesses and fixtures; [verification](verification.md), with regression assertions linked by each subsystem |
+| `scripts`, `installer`, `.github/workflows`, manifests/locks | SDK/native builds, API compatibility audit, finite probes, reservation/release verification, WiX refresh/lifecycle and unofficial CI; [build](build-and-release.md), [verification](verification.md) |
+| `docs/analysis`, `docs/issues` | Private fork source maps, implementation plans and acceptance evidence; intentionally excluded from public implementation branches |
+
+Original stable `cf420d9` contributes inherited WPF/engine behavior and later upstream recording-capture/platform changes. The fork additionally integrates A–H, scrolling and installer fixes, with separate public feature histories and acceptance. A/scrolling are upstream; PR #19 overlaps only bounded B retention. The remaining fork behavior is not silently treated as upstream integration. Ordinary update checks still target the original repository's stable release, not this fork's unofficial package. See [build/release](build-and-release.md) before packaging and [upstream status](../issues/README.md) before publication.
 
 ## Two processes
 
@@ -80,9 +98,9 @@ A reply, timeout or successful-looking cancellation does not prove child exit. S
 
 ## Startup and readiness
 
-Production callers are [Program](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Program.cs), [App startup](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/App.xaml.cs) and [AppViewModel](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/AppViewModel.cs).
+Production callers are [Program](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.App/Program.cs), [App startup](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.App/App.xaml.cs) and [AppViewModel](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.App/ViewModels/AppViewModel.cs).
 
-1. Helper modes return before normal desktop initialization. Supported diagnostics select isolated output/data before logging and WPF; ordinary startup keeps its normal data location.
+1. Helper modes return before normal desktop initialization. Supported diagnostics select isolated output/data before logging and WPF; ordinary startup keeps its normal data location. Engine extraction still uses the normal SHA-keyed local engine cache, independently of diagnostic data isolation.
 2. Normal startup checks the Windows baseline and initializes WPF/localization. The single-instance owner continues; another instance signals it and exits.
 3. One stateful `SettingsStore` loads for theme/language and again in the view model. Preservation obligations survive both reads. Startup constructs audio, deferred engine readiness, discovery, view model, panel and tray.
 4. The shell starts asynchronous view-model initialization and displays the panel unless `--startup` was passed. Engine initialization is awaited after shell readiness. Its failure leaves the shell available with diagnostics/retry; new starts require readiness.
@@ -95,7 +113,7 @@ Current startup does not guarantee an empty first publication: retained cache/ad
 
 1. **Discover.** Browse `_airplay._tcp.local` and `_raop._tcp.local` on the chosen IPv4 interface. Resolve advertised names to IPv4/port/TXT with TTL-based expiry, deadlines/backoff and bounded owners.
 2. **Identify.** Aggregate advertisements and confirmed stereo relationships. Reconcile aliases/settings. Manual rows persist independently and keep explicit host/port/options.
-3. **Admit.** Play/Pair/Stop/shutdown invalidate older automatic intent before awaits. Automatic work captures controller authority before persistence, then revalidates canonical candidate/options/online/completeness/visibility under the settings gate and serialized admission. Only admitted attempts update attempted/last-used state.
+3. **Admit.** Play/Pair/Stop and view-model disposal invalidate older automatic intent before their controller waits. Shell Quit reaches that disposal after earlier Settings/engine-initialization waits; [desktop shell](desktop-shell.md) records this source-derived window. Automatic work captures controller authority before persistence, then revalidates canonical candidate/options/online/completeness/visibility under the settings gate and serialized admission. Only admitted attempts update attempted/last-used state.
 4. **Connect.** Resolve members to IPv4 and launch the engine. New stereo attempts require completeness. Pairing uses its PIN flow and exclusive authentication method. Delayed retargeting must retain desktop owner/intent even if a row id is reused.
 5. **Retain and clean up.** Passive loss keeps the owned transport and controls. Compatible identity promotion can update it under guards. Explicit Stop and terminal faults still clean up. Retries create a new process, session UUID, PTP clock and SSRCs rather than resuming RTP.
 
@@ -103,11 +121,11 @@ Attempted candidates are filtered before ranking. An attempted preferred row doe
 
 ## What crosses the process boundary
 
-[SessionController](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/SessionController.cs) sends member IPv4/port/codec information, capture endpoint, latency, output sample rate, master gain and EQ. Catalog/display identities are not credential keys. Native endpoint direction determines recording input versus playback loopback flags.
+[SessionController](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.Core/SessionController.cs) sends member IPv4/port/codec information, capture endpoint, latency, output sample rate, master gain and EQ. Catalog/display identities are not credential keys. Native endpoint direction determines recording input versus playback loopback flags.
 
 The desktop uses `source: loopback`, `timing: ptp` and unbounded normal playback duration; a selected recording endpoint is handled by its actual native direction. Master gain derives from master volume and panel mute, not the saved per-row volume field.
 
-Protocol version remains 1. Native stdin byte accounting includes the newline and differs from desktop stdout validation. The exact defined empty-correlated terminal IPC rejection is recognized before ordinary session filtering, with original detail and nonretryable classification. Ordinary stale events remain filtered; nonfatal EQ rejection remains nonfatal. See [Credentials and IPC](credentials-and-ipc.md).
+Protocol version remains 1. Native stdin byte accounting includes the newline and differs from desktop stdout validation. The exact defined empty-correlated terminal IPC rejection is recognized before ordinary session filtering, with original detail and nonretryable classification. During Pair's awaited PIN prompt, the sole event reader pauses, so processing can wait until the prompt resumes; cancellation/timeout may win. Ordinary stale events remain filtered; nonfatal EQ rejection remains nonfatal. See [Credentials and IPC](credentials-and-ipc.md).
 
 Credentials use current-user DPAPI and accessory `/info deviceID`. Catalog alias/manual identity changes do not migrate files. Genuine initial credential-file absence permits transient authentication; storage/decrypt/parse/verification errors remain errors. The inherited missing/empty `deviceID` path is separately bounded in [Authentication](auth.md).
 
@@ -126,7 +144,7 @@ The separate mute journal records actual endpoint identity, exact prior bit and 
 | Output sample rate | 44100 | Also 48000 |
 | Standby | Off | Configured local silence changes the label; the stream continues |
 
-Defaults come from [AppSettings](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/Settings.cs); normalization/validation is in [Settings](settings.md).
+Defaults come from [AppSettings](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.Core/Settings.cs); normalization/validation is in [Settings](settings.md).
 
 ## Scope of one session
 

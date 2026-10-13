@@ -2,26 +2,29 @@
 
 ## Current implementation map — 2026-10-12
 
-This audit describes **your fork's `main` at `8989b3609dd1294f4d1d6eb1502f345cc22bc382`**. It includes freshly verified original stable `cf420d97700463c56adc31408510e8336e99e51c` and all ten implementation heads: Groups A–H, scrolling and installer refresh. Every report in `docs/issues` is implemented here; public integration and hardware qualification are separate.
+This audit reviews **your fork's `main` at `06237873dcb6394eb35e97a017c536843bd7743d`**. It includes freshly verified original stable `cf420d97700463c56adc31408510e8336e99e51c` and all ten implementation heads: Groups A–H, scrolling and installer refresh. The reported fixes are integrated here; public integration, additional source limits and hardware qualification are separate.
 
-The desktop/native/scripts/installer/tests/workflow trees match tested code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`; `8989b36` adds private documentation. This update rewrites the subsystem/report narratives around that current production source, rather than requiring an appended correction to reinterpret an obsolete baseline body. [Current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) binds executed evidence to actual sources/binaries.
+The desktop/native/scripts/installer/tests/workflow trees match runtime `8989b3609dd1294f4d1d6eb1502f345cc22bc382` and tested code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`; subsequent commits update documentation only. This pass rechecks every analysis page, follows callers and consumers, corrects overbroad claims and adds missing shell/build/verification maps. [Current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) binds executed evidence to actual sources/binaries. It is not reclassified as a new runtime test by a source review.
 
 ## Pinned evidence
 
 | Identity | Purpose |
 | --- | --- |
-| `8989b3609dd1294f4d1d6eb1502f345cc22bc382` | Current fork-main source reviewed here; pushed before this docs-only update |
+| `06237873dcb6394eb35e97a017c536843bd7743d` | Exact fork-main checkout reviewed by this all-analysis pass; normal push CI succeeded |
+| `8989b3609dd1294f4d1d6eb1502f345cc22bc382` | Previous current-runtime/documentation source, with fresh local managed/Python verification |
 | `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1` | Code-identical complete packaged integration qualification |
 | `cf420d97700463c56adc31408510e8336e99e51c` | Original stable main already contained locally |
 | `41190e0d13a63a714c08dffe73ababca1804875c` | Historical original runtime audit and original defect traces |
 | `c077a0577de26ad7e44b8fd50f62456e12965fb0` | Historical documentation checkout, runtime unchanged from 41190e0 |
 | `67435a4e0df6a40e5e709e2b75dc9b24a457dda6` | Historical excluded upstream/dev comparison, never a runtime source base |
 
-Current source links pin **ThatMarko/8989b36**. Stable comparisons pin **Ding-Kyoma/cf420d9**. Original defects retain **Ding-Kyoma/41190e0**. A current Git checkout, an opened PR, a proposal and a real-device measurement are not interchangeable evidence.
+Current source links pin **ThatMarko/06237873**. Stable comparisons pin **Ding-Kyoma/cf420d9**. Original defects retain **Ding-Kyoma/41190e0**. Archival documentation links retain their actual older commit. A current Git checkout, an opened PR, a proposal and a real-device measurement are not interchangeable evidence.
 
 ## Coverage of every original page
 
-All seventeen analysis pages and all thirty-two issue/plan/acceptance/template files are reviewed. The per-file source/evidence receipt identifies callers, consumers, tests and material corrections. Separate pages remain because they describe distinct ownership boundaries.
+All **seventeen pre-existing analysis pages** receive a fresh independent source review. Three justified additions bring the map to **twenty pages**: desktop shell, build/release and verification. Authors own disjoint files; final review rotates to a different source specialist and includes the final regression descriptions. The per-file receipt identifies author/reviewer, final content hash, source boundary and resolved findings. Separate pages describe distinct ownership boundaries.
+
+The preceding `06237873` documentation commit reviewed seventeen analysis and thirty-two issue/plan/acceptance/template files together. This deeper follow-up focuses on `docs/analysis`; `docs/issues` is unchanged. It qualifies remaining source limits instead of claiming that completing the earlier report acceptance eliminates every issue in the program. Directory/component coverage is indexed in [README](README.md#source-directories-and-fork-composition).
 
 | Page | Current source and important boundary |
 | --- | --- |
@@ -30,6 +33,7 @@ All seventeen analysis pages and all thirty-two issue/plan/acceptance/template f
 | [After discovery](after-discovery.md) | Atomic authority through save, truthful catalog, active controls, automatic admission and manual routing |
 | [Identity](identity.md) | Canonical/broadcast/endpoint separation, preference migration and explicit unique selection |
 | [Settings](settings.md) | Both Load calls, exact-byte preservation, loaded validation, future-schema latch, Apply and shell |
+| [Desktop shell](desktop-shell.md) | Startup/readiness overlap, single instance/tray, commands/dialogs, themes/localization/placement, updates/autostart and actual Quit ordering |
 | [Session](session.md) | Owner/intent serialization, Pair/retry/process lifetimes, signatures, endpoint recovery, metrics |
 | [Engine](engine.md) | Native auth/RTSP/capture/timing/media watches and worker/command-loop distinction |
 | [Authentication](auth.md) | ASCII PIN, error-preserving credential read, exclusive auth path and accessory identity |
@@ -39,6 +43,8 @@ All seventeen analysis pages and all thirty-two issue/plan/acceptance/template f
 | [Control and mute](control-and-mute.md) | Durable intent/exclusive ownership, actual device direction, conservative recovery and exact-bit restore |
 | [Credentials and IPC](credentials-and-ipc.md) | Current-user DPAPI/accessory key, JSONL limits/correlation and compatibility |
 | [Equalizer](equalizer.md) | Retained mailbox outcome, preparation versus DSP adoption, preview ownership and geometry |
+| [Build and release](build-and-release.md) | Selected-host resolver, managed/native dependencies, embedding/audits, reservation/failure side effects, MSI and original/fork workflows |
+| [Verification](verification.md) | Linked App/Core seams versus WPF, fake/backend/localhost boundaries, negative controls, diagnostic side effects and exact package/CI provenance |
 | [Source check](source-check.md) | Current supported/rejected claims and incident inference limits |
 | [Upstream dev](upstream-dev.md) | Excluded development snapshot only |
 | This audit | Recursive coverage, source qualification and historical corrections |
@@ -59,6 +65,25 @@ Groups A and scrolling are already upstream. PR #19 supplies bounded passive ret
 | Padding metrics describe network loss | They count missing local output-rate frame slots before EQ and whole 352-frame pulls |
 | Tests still await manual reboot/E–H unimplemented | Reboot gate is satisfied; all reports are integrated and qualified within stated fake/hosted bounds |
 
+## Findings from the complete analysis peer review
+
+| Earlier overbroad claim | Source-grounded correction |
+| --- | --- |
+| Every worker completion emits `stopped` | Playback, handshake-only, Pair, early cancellation and worker panic have distinct paths; the command slot can outlive the worker. [Engine](engine.md) traces producers and consumers |
+| A stored/acknowledged gain update always changes subsequent PCM | Live capture samples atomic gain; finite WAV probes eagerly load initial-gain PCM and do not reread it in the send loop |
+| Pair process rejection is always acted on immediately | The sole Pair reader awaits PIN handling; a prompt-open rejection can wait, and cancellation/timeout may win. Existing IPC regression scripts rejection before `pin_required`; [auth](auth.md) and [failures](failures.md) preserve this coverage limit |
+| Persistent multi-member Pair is transactional | Credentials save after each successful member; later failure/cancellation does not roll back earlier saved credentials |
+| Shutdown invalidates intent before any wait | View-model/controller disposal does; shell Quit first awaits Settings Apply and engine initialization disposal. [Shell](desktop-shell.md) records the source-derived admission window |
+| Browse settlement proves all native callback frames returned | The owner tracks Start/Cancel calls and managed callback sections; release can occur inside the reverse P/Invoke return frame. [Discovery](discovery.md) separates tracked safety conditions from undocumented native-stack quiescence |
+| The forty-second read deadline excludes initial-send elapsed time | It starts before the EQ writer lock and Start send; those waits reduce later read budget but are not themselves canceled by this deadline |
+| Only catalog mutations notify catalog consumers | Reconciliation uses a catalog-change flag, but readiness/recovery notifications also raise `CatalogChanged` |
+| Every changed TXT field immediately publishes discovery | Resolve compares a description omitting `gpn`, `igl`, `pk` and `cn`; those changes enter the cache but alone do not trigger immediate Changed/log publication |
+| Diagnostic data isolation covers every local write | Embedded engine extraction uses the normal SHA-keyed local cache independently of isolated logs/settings; modes have different real-service boundaries |
+| All prerequisite failures precede version allocation | Selected-SDK preflight does; later native/Python/installer failures can leave a persisted reservation. Equal-version packaging rebuild also does not guarantee same-version MSI upgrade acceptance |
+| Core tests contain no desktop implementation | Selected App sources are linked into the Core test assembly; actual WPF/XAML/dialog testing remains separate |
+
+These are documentation corrections or source-derived limitations, not newly executed device reproductions or runtime repairs. The verification page marks which assertions cover each boundary and which paths remain unqualified.
+
 ## Non-negotiable invariants: implementation check
 
 WPF and Rust share no memory/C-ABI; JSONL v1 and config schema 2 remain compatible. SDK preflight respects actual desktop/global.json selection. Blocking DNS/RTSP/capture work stays off the UI dispatcher. Selected unavailable discovery adapter never falls back to all interfaces. Manual endpoints/options persist independently; new stereo starts require complete groups.
@@ -73,6 +98,7 @@ Local playback mute records the exact original bit before mutation and restores 
 | --- | --- |
 | Current `8989b36` local sync/readiness | SDK 10.0.401 resolution; locked Release build with zero warnings/errors; 667 Core, 124 Python, lint passed |
 | Code `4ae1db4` local validation | 667 Core in Debug and Release; warning-free Release build |
+| [Reviewed-main CI 38329156167](https://github.com/ThatMarko/AirFlash/actions/runs/38329156167) | `06237873` succeeded: 124 Python/lint, 667 Core, 69 native with two ignored, native checks/build, discovery stability, bundle audit and packaged self/compat startup |
 | [Exact-main CI 38296750592](https://github.com/ThatMarko/AirFlash/actions/runs/38296750592) | Green: managed/Python/native checks, stability, bundle and packaged startup |
 | [Exact-code integration 38294493405](https://github.com/ThatMarko/AirFlash/actions/runs/38294493405) | Green: 667 Core, 124 Python/lint, 69 native; six complete portable regional/catalog runs, 1,059 assertions each; three observed 125% DPI runs, 40 each; disposable-runner MSI lifecycle |
 | Native exclusions | Recording-device qualification and thirty-minute localhost soak remain two ignored tests; not both hardware tests |
@@ -80,7 +106,7 @@ Local playback mute records the exact original bit before mutation and restores 
 | This documentation task | Source/caller/test/evidence audit, all-file Markdown/UTF-8/fence/JSON/relative heading/tracked-file/pinned-source checks, changed-path/whitespace review and Mermaid syntax parsing |
 | Independent documentation review | Rotated source/provenance/cross-page review; final receipt records review completion and resolved findings |
 
-No runtime suite is rerun solely for Markdown changes. Structural counts and per-file hashes belong to the new dated documentation receipt, not the older 8989 audit receipt. Native execution is hosted because local Rust/MSVC prerequisites remain absent. No real config/credential/receiver/endpoint operation, local MSI install, release workflow or branch deletion is performed by this documentation update.
+No local runtime suite is rerun solely for Markdown changes. Structural counts and per-file hashes belong to the new all-analysis receipt, preserving the preceding all-49-document receipts. Normal CI's already completed `06237873` run is independently inspected; a later documentation push must retain its own actual CI state. Native execution is hosted because local Rust/MSVC prerequisites remain absent. No real config/credential/receiver/endpoint operation, local MSI install, release workflow or branch deletion is performed by this documentation update.
 
 ## Remaining evidence limits
 

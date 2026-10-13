@@ -2,7 +2,7 @@
 
 ## Current fork Main — 2026-10-12
 
-These notes describe **excluded development** `67435a4e0df6a40e5e709e2b75dc9b24a457dda6`, not current runtime behavior. Current fork Main is `8989b3609dd1294f4d1d6eb1502f345cc22bc382`; original stable is `cf420d97700463c56adc31408510e8336e99e51c`. Git ancestry verifies the development commit is not merged into Main. Implemented A–H, recording capture, scrolling and installer changes arrived through original stable and separate reviewed feature histories; they do not import the development transport/clock negotiation.
+These notes describe **excluded development** `67435a4e0df6a40e5e709e2b75dc9b24a457dda6`, not current runtime behavior. Reviewed fork Main is `06237873dcb6394eb35e97a017c536843bd7743d`, with runtime unchanged from `8989b36`/qualified `4ae1db4`; original stable is `cf420d97700463c56adc31408510e8336e99e51c`. Git ancestry verifies the development commit is not merged into Main. Implemented A–H, recording capture, scrolling and installer changes arrived through original stable and separate reviewed feature histories; they do not import the development transport/clock negotiation.
 
 The original comparison is `git diff 41190e0 67435a4`; development is one commit after original runtime `41190e0d13a63a714c08dffe73ababca1804875c`, not after fork documentation `c077a0577de26ad7e44b8fd50f62456e12965fb0`. The full historical table below preserves that source boundary. Current native source is **not** identical to the old baseline: stable recording capture and E/F/H authentication, controls and padding changes are implemented. Historical assertions about unchanged native trees apply only to their then-recorded composition.
 
@@ -10,15 +10,15 @@ The original comparison is `git diff 41190e0 67435a4`; development is one commit
 
 | Area | Current Main contract; see the dedicated map for full trace |
 | --- | --- |
-| Updates | [UpdateService](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/UpdateService.cs) still queries original stable latest, rejects draft/prerelease and uses validated tags. It does not subscribe to dev or the fork's releases |
-| Start command | [SessionController](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/SessionController.cs) uses existing peers, `timing="ptp"`, chosen capture endpoint and supported sample rate. It does not send dev `transport`/`compatibility_buffer_ms` negotiation |
+| Updates | [UpdateService](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.Core/UpdateService.cs) still queries original stable latest, rejects draft/prerelease and uses validated tags. It does not subscribe to dev or the fork's releases |
+| Start command | [SessionController](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.Core/SessionController.cs) uses existing peers, `timing="ptp"`, chosen capture endpoint and supported sample rate. It does not send dev `transport`/`compatibility_buffer_ms` negotiation |
 | Settings | Current custom buffers clamp/validate to 0–2000ms, with 120/200/500ms preset semantics. Dev's per-receiver 10,000ms extension is excluded |
 | Restart | Current endpoint/peer/latency/rate signature plus desktop ownership guards remain; no dev advertised-negotiation signature fields are imported |
 | Discovery | Current bounded helper-process resolve ownership and passive-retention coupling differ from both old baseline and unchanged dev discovery |
 | Engine | Current recording/loopback capture, E/F authentication/JSONL/EQ outcome and H padding changes do not imply dev buffered TCP/type103, NTP selection or capability fallback |
 | Diagnostics | Optional padding/transport diagnostics remain source-defined. Dev negotiated-format/buffer/fallback events do not establish current runtime negotiation or acoustic measurements |
 
-Current maps are [discovery](discovery.md), [session](session.md), [settings](settings.md), [auth](auth.md), [engine](engine.md), [capture/clocks](capture-clocks.md), [equalizer](equalizer.md) and [source limits](source-check.md). The reboot gate is satisfied and current Main is qualified separately in [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md). No dev binary was built or run for this documentation review.
+Current maps include [discovery](discovery.md), [session](session.md), [settings](settings.md), [auth](auth.md), [engine](engine.md), [capture/clocks](capture-clocks.md), [equalizer](equalizer.md), [shell](desktop-shell.md), [build/release](build-and-release.md) and [source limits](source-check.md). The reboot gate is satisfied; [verification](verification.md) and [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) bind qualification to actual source/package. This page's historical comparison receives a fresh independent review, without building or running dev or importing its behavior into current maps.
 
 ## Historical 41190e0-to-67435a4 comparison
 

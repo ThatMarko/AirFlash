@@ -1,0 +1,133 @@
+# Build, packaging and release ownership
+
+## Source and evidence boundary
+
+This map follows fork source/documentation head **`06237873dcb6394eb35e97a017c536843bd7743d`**, reviewed on 2026-10-12. Its build/runtime trees match `8989b3609dd1294f4d1d6eb1502f345cc22bc382` and qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`. Original stable `cf420d97700463c56adc31408510e8336e99e51c` is already included. Source links below pin 0623787; qualification remains bound to the commit and executable actually tested.
+
+The project has three different operations: ordinary managed/native checks, isolated package validation, and production release construction. A successful check or an unofficial package is not a published release. Production construction reserves a remote version before native build/publish, even if later publication is disabled. This documentation review executes none of those production operations.
+
+## Projects, dependencies and host selection
+
+| Component | Current build contract | Consumer |
+| --- | --- | --- |
+| [WPF project](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.App/AirFlash.App.csproj) | `net10.0-windows`, `win-x64`, WPF, self-contained/single-file defaults; NAudio 2.2.1; normal output `WinExe`, optional console output | Desktop shell, Windows audio services and embedded native engine |
+| [Core project](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.Core/AirFlash.Core.csproj) | `net10.0`; embedded Chinese catalogs; no WPF project dependency | Controllers/settings/protocol and Core tests |
+| [Common managed properties](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/Directory.Build.props) | Nullable/implicit usings, warnings as errors, deterministic output, NuGet lock-file generation | Desktop solution; production/CI commands request locked restore explicitly |
+| [Rust manifest](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/native/airflash-engine/Cargo.toml) | Edition 2024, declared minimum Rust 1.85; Windows API bindings and media/crypto dependencies; release thin LTO/strip | Separate `airflash-engine.exe`, communicating through JSONL v1 |
+| [Python project](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/pyproject.toml) | Python ≥3.12, NumPy, pytest/Ruff development tools; uv package disabled | Audit, fixture and repository tooling; not the installed WPF/engine process boundary |
+| [WiX project](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/installer/AirFlash.Package.wixproj) | WiX SDK 6.0.2, x64, UI/Util extensions at the configured WiX version | Standalone MSI containing the published EXE |
+
+Checked-in `Cargo.lock`, `uv.lock` and desktop `packages.lock.json` files constrain their owning dependency graphs. Native commands use `--locked`; CI begins with `uv sync --locked`; managed CI/publish request `RestoreLockedMode=true`. WiX SDK/extensions are versioned, but the installer helper does not itself request a NuGet locked restore. These are the flags actually present, not a claim that every invocation is fully reproducible across SDKs/runners.
+
+[dotnet-common.ps1](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/scripts/dotnet-common.ps1) selects one executable and retains its context for both preflight and invocation:
+
+1. An explicit `-DotnetPath`, when the caller supplies one. Relative overrides resolve against the repository root; missing overrides fail without fallback.
+2. Checkout-local `artifacts/dotnet/dotnet.exe`.
+3. The common Git checkout's `artifacts/dotnet/dotnet.exe`, derived through `git-common-dir` for an implementation worktree.
+4. An application named `dotnet` on PATH.
+
+Both SDK probing and later managed invocation run from **`desktop`** and restore the caller's cwd. The selected host executes `--version`; [desktop/global.json](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/global.json) asks for `10.0.100` with `latestFeature`. The host implements that resolver policy; the scripts do not substitute an exact-version or major-prefix regex. A preferred runtime-only/incompatible host that shadows a usable PATH host fails with its path, cwd, policy, exit/output and installation/replacement guidance. It is not silently exchanged for another installation.
+
+Unset `DOTNET_CLI_HOME` defaults under the checkout's artifacts; unset `NUGET_PACKAGES` prefers an existing local cache, then an existing integration-checkout cache, otherwise a local cache. Existing overrides remain intact. Telemetry is disabled for these calls. Selection does not install SDKs or alter global PATH.
+
+[dotnet.ps1](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/scripts/dotnet.ps1) forwards arguments/output and the native exit status. It deliberately does not force SDK validation onto runtime informational/execution commands. [check-dotnet.ps1](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/scripts/check-dotnet.ps1) is the separate selected-SDK check. Because the wrapper enters `desktop`, solution/project arguments such as `AirFlash.sln` and `AirFlash.Tests/AirFlash.Tests.csproj` are relative to that directory.
+
+## Native build and compatibility gates
+
+[build-native.ps1](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/scripts/build-native.ps1) finds cargo on PATH or the conventional user cargo path, then requires Visual Studio Build Tools and the C++ workload through `vswhere`. It does not provision those tools or establish every compiler/SDK environment setting. The Windows MSVC toolchain must be usable by cargo.
+
+The script replaces `CARGO_ENCODED_RUSTFLAGS` for its calls with explicit static CRT plus source/user-path remapping, restoring the old value afterward. It does not select `target-cpu=native` or a higher x86 ISA. With `-Check`, it runs locked native tests and all-target Clippy with warnings denied, then always performs the locked Release build. A failed test/lint/build stops the sequence. `dumpbin /DEPENDENTS` rejects dynamic `VCRUNTIME140`, `MSVCP140` or `ucrtbase` engine dependencies; the actual engine then goes through the Python PE audit.
+
+[compatibility_audit.py](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/scripts/compatibility_audit.py) reads actual normal/delay import tables, managed-loader status and PE headers against the repository's [Windows API catalog](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/scripts/windows-api-baseline.json). The application publish target audits actual `FilesToBundle` inputs plus the Rust executable **before** single-file bundling. Reports carry image/configuration hashes and source-call inventory.
+
+Known mandatory native imports above build 17763, malformed/native non-x64 images and an engine's dynamic CRT fail the audit. Unknown/ordinal imports, delayed imports and dynamic-loading sites remain explicit evidence gaps. Source-call inventory is a review aid, not an exhaustive semantic proof of every Windows call. Generic target flags and PE headers do not certify the bundled runtime's complete CPU/API behavior. The report itself says static audit only, with Windows 10 execution pending.
+
+The current host contract is [WindowsCompatibility](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.Core/WindowsCompatibility.cs): Windows ≥10.0.17763, both process and OS x64. [WindowsCapabilities](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.App/Services/WindowsCapabilities.cs) checks DNS-SD exports from System32; optional Windows 11 color attributes require build ≥22000. The [application manifest](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.App/app.manifest) selects asInvoker execution, PerMonitorV2 DPI and long-path awareness. A hosted Windows-2025 pass does not execute the documented Windows 10/LTSC matrix.
+
+## Publish payload and runtime extraction
+
+The app project conditionally embeds the existing Release engine as `AirFlash.Engine.exe`; ordinary managed builds can therefore succeed without a native artifact. `RequireEngineForPublish` blocks publish when that executable is absent. Presence alone does not bind an arbitrary manual publish to freshly built native source; the normal native-before-publish pipeline and exact-source artifact evidence supply that provenance.
+
+[build.ps1](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/scripts/build.ps1) publishes self-contained `win-x64`, with native library self-extraction, single-file compression, no trimming, locked restore, no debug symbols and source-path remapping. The release version feeds numeric EXE/assembly versions; preview adds `-rc.1` to informational version. The native crate's `0.1.0` engine version and the desktop's default source `0.2.0` are separate from reserved package versions.
+
+[AppPaths.ExtractEngine](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.App/Services/AppPaths.cs) reads embedded bytes, calculates SHA256 and uses a content-addressed directory under local application data. A matching existing engine is reused after checksum verification; otherwise a uniquely named temporary file is written and moved over the target. No old-version cache pruning is implemented there. The installed portable EXE contains its managed/runtime payload and engine, but launching the native process still requires writable extraction storage and permission to execute it.
+
+Production startup and diagnostics use this extraction path, then [ProcessEngineConnection](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.Core/EngineConnection.cs). [EngineHandshake](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.Core/EngineHandshake.cs) validates JSONL v1 hello with its default ten-second limit. The normal shell starts before deferred probing; failure leaves Retry/readiness diagnostics available. Native hello continues to report `qualification: partial` and `production_ready: false`; receiving hello is protocol readiness, not a real-device qualification. See [README](README.md#startup-and-readiness) and [Engine](engine.md).
+
+## Production build ordering and retained reservations
+
+The actual order in `build.ps1` is:
+
+1. Select and preflight the .NET host in desktop resolver context.
+2. Create artifacts and acquire an exclusive local `artifacts/release.lock` for the build lifetime.
+3. Reserve/validate the release version through [release-version.ps1](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/scripts/release-version.ps1).
+4. Remove existing root `build` and `dist`, rejecting paths outside the root's immediate children or root junctions.
+5. Build/audit native, publish/audit WPF, copy the portable EXE to `dist`, and bind successful bundle-audit evidence to its final checksum/version.
+6. Build the MSI using the same already selected host, remove root `build`, and require exactly the EXE/MSI output pair.
+7. Release the local lock in `finally`.
+
+Failed SDK preflight precedes lock/reservation/cleanup/cargo/publish. This is the repaired Group A boundary. It is not a claim that every later prerequisite/test failure precedes reservation: native compiler errors, compatibility audit, publishing or MSI failure can occur afterward. Failed builds do not roll back the remote reservation or local version record; residual outputs are not verified release assets. Consequently `build.ps1` is not an innocuous desktop build/test command.
+
+Reservation rules are source-defined:
+
+- Stable requires branch `main`; preview requires `codex/nic-discovery-preview`. The tracked tree must be clean. Ignored/untracked artifacts are not rejected by that tracked-tree check.
+- `NewVersion` and `ReservedVersion` are mutually exclusive. New versions must be canonical three-field values within MSI limits 255.255.65535; the automatic increment carries patch/minor without exceeding those limits.
+- The floor is the maximum of pre-GitHub 0.2.3, desktop source version, local `artifacts/release-version.txt`, an existing `dist/AirFlash.exe` numeric version, and origin tags matching `vX.Y.Z` or `reserved/X.Y.Z`.
+- A fresh reservation pushes the current commit to `refs/tags/reserved/X.Y.Z` with an empty expected ref lease. This atomically creates a previously absent reservation; it is not permission to overwrite a reservation. Failure leaves the previous local record intact.
+- A pre-reserved build requires GitHub Actions, the matching local record from that job, exact reservation ownership by HEAD, no published tag for that version and no newer floor. Local reuse of an old reservation is rejected.
+
+The local file lock coordinates this checkout's build; the remote absent-ref lease handles publishers racing for a version. Neither is a deployment lock. Reservations are version ownership, not release assets or proof that the build completed.
+
+## Original and fork release policy
+
+Original stable's reservation helper accepts only HTTPS `Ding-Kyoma/AirFlash` origin. The fork's preserved helper change additionally accepts HTTPS `ThatMarko/AirFlash`, with optional `.git`; other URLs, including SSH forms, remain rejected. Original stable already includes selected-SDK preflight. The fork also preserves workflow normalization of a supplied four-field version to the first three fields; the underlying local reservation API still accepts only canonical three-field input. Compare [original helper](https://github.com/Ding-Kyoma/AirFlash/blob/cf420d97700463c56adc31408510e8336e99e51c/scripts/release-version.ps1) and [original workflow](https://github.com/Ding-Kyoma/AirFlash/blob/cf420d97700463c56adc31408510e8336e99e51c/.github/workflows/release.yml).
+
+The current [Release workflow](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/.github/workflows/release.yml) is manually dispatched and runs only on main or the named preview branch. There is no own-fork-only job guard in this workflow: it operates on the repository hosting the run. It has a noncanceling release concurrency group and write permission in its release job. Checkout pins the triggering SHA with full history; SDK installation/check comes **before reservation**, then icon/Python/native/managed checks, reserved build, package verification and disposable MSI lifecycle.
+
+For main with `publish: true`, `gh release create` uploads EXE/MSI/checksums at HEAD using `docs/RELEASE-NOTES.md` and marks it latest. With `publish: false`, main assets are retained for maintainer publication. Preview assets are retained separately. All three routes reserve first. Disabling publish does not make dispatch read-only. The workflow's GitHub concurrency and local build lock have different scopes; its standalone reservation step is outside the later build-held local lock.
+
+The fork currently preserves copied historical published/reserved tags. Copying an existing reserved ref is not allocating a fresh version, but it can raise origin's future version floor. The synchronized original `v0.4.0` tag identifies original commit `81fa26bab0d5b42acaa4e5a5953ed05ae26e6350`, not the complete fork main. The fork's historical published release likewise does not establish current-main qualification. No universal tag mirror or reservation deletion is prescribed here; retained refs include a known historical reservation collision and must not be treated as all identical.
+
+The runtime [UpdateService](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.Core/UpdateService.cs) still queries **original repository stable latest**, rejects draft/prerelease and constructs a trusted original-repository download URL from a validated tag. Publishing a fork release does not redirect this client to the fork. `docs/RELEASE-NOTES.md` still describes the earlier original release; it needs a separately reviewed current-fork update before future release publication. Publication/release authorization is outside this documentation assignment.
+
+## Installer bytes and deployment lifecycle
+
+[build-installer.ps1](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/scripts/build-installer.ps1) resolves publish/output paths against the repository, requires an existing EXE, reads its three-field numeric file version and checks MSI limits. It then selects/preflights default or explicit `-DotnetPath` in desktop context **before creating the output directory**. The actual WiX build runs `-t:Rebuild` with absolute current `AppExe`; this clears stale intermediate binding state when an equal-version executable or source path changes. A successful incremental build or matching version alone did not prove embedded bytes.
+
+Rebuilding an equal-version MSI means packaging the current payload; it does not promise that Windows Installer accepts every different package as a same-version major upgrade. The authored upgrade/downgrade policy and repair semantics still apply. [Package.wxs](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/installer/Package.wxs) defines:
+
+| Concern | Authored behavior |
+| --- | --- |
+| Scope/payload | x64 per-machine package, embedded cabinet, Program Files application EXE; optional desktop/Start-menu shortcuts are enabled by default |
+| New installation baseline | x64/AMD64 and registry Windows build ≥17763; `Installed` permits maintenance/removal |
+| Upgrade/downgrade | Stable shared UpgradeCode, major-upgrade removal scheduled after InstallInitialize, explicit newer-installed rejection; no bypass for test versions |
+| Shutdown | Request the running application's close/end-session, wait ten seconds, then fail before InstallValidate if still running |
+| Refresh/repair | `RemoveFile` replaces the install-folder EXE on install; `REINSTALLMODE=amus`, file checksum and stable component identity support repair/replacement |
+| Uninstall | Remove authored application/shortcut registration and folders; settings, logs, pairing files, mute journal and engine cache are not authored MSI payloads |
+
+Preserving user-data locations means the MSI does not remove them. It does not prove preservation through every external script or later application migration. The lifecycle fixture checks a synthetic data sentinel, installed EXE checksum, one registration and shortcut cleanup.
+
+[test-installer-refresh.ps1](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/scripts/test-installer-refresh.ps1) packages two backdated synthetic PE copies with equal file versions but distinct bytes through the same fixture project/intermediates, using default then explicit hosts. It reads MSI File-table size/version and extracts payload bytes for checksum comparison, also verifying unchanged source input and first package. Synthetic copies are never executed or installed. This proves package refresh separately from deployment.
+
+[test-installer.ps1](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/scripts/test-installer.ps1) guards destructive lifecycle checks to **GitHub Actions plus a GitHub-hosted runner**. It performs fresh install/repair/uninstall, strictly-lower-version upgrade/repair/uninstall, optional stable-from-preview coverage and data/hash/registration/shortcut checks. [Predecessor selection](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/scripts/installer-test-common.ps1) takes the highest valid, non-draft/non-prerelease original stable version strictly below the actual EXE version; otherwise the fixture builds a lower synthetic package in separate intermediates. The prior failed 0.3.1-over-0.4.0 attempt was a wrong test predecessor, correctly rejected as downgrade. The fix changes test selection, not deployment guards.
+
+## Verification ownership and exact-source CI
+
+[verify-release.ps1](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/scripts/verify-release.ps1) compares EXE/MSI versions, executes packaged self/compat checks, verifies the final EXE checksum against successful bundle audit, exercises an invalid-output diagnostic error and writes `SHA256SUMS.txt`. The compat/invalid-output child waits are bounded at 30 seconds; its self-check launch uses `-Wait` without a surrounding script timeout. The contained native hello has its ten-second default, but this is not an outer bound on every possible application startup/disposal failure. Verification does not pair, stream or mutate an audio endpoint.
+
+| Workflow | What is actually checked out/tested | Distinct boundary |
+| --- | --- | --- |
+| [Normal CI](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/.github/workflows/ci.yml) | Main pushes and pull requests; checkout uses event context | Python/native/Core, discovery stability, audited self-contained publish and packaged self/compat checks; no reservation or MSI lifecycle |
+| [Fork integration](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/.github/workflows/fork-integration-validation.yml) | Own-fork-only; checkout and manifest enforce triggering `github.sha`; selected source paths trigger main push, or manual dispatch | Unreserved test version `0.3.1`, qualified portable/UI/DPI/MSI with hashes and source/run/attempt manifest; docs-only pushes do not satisfy its path filter |
+| [Native group](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/.github/workflows/group-native-validation.yml) | Own-fork-only manual exact 40-character source input, checkout verified; Git checkout credential persistence disabled | Native/Core plus optional modal PIN clipboard and actual synthetic DNS-helper checks; input source may differ from workflow-hosting commit |
+| [Diagnostics layout](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/.github/workflows/fork-ui-diagnostics-validation.yml) | Own-fork-only manual exact source input, verified apphost/DLL hashes | Three catalog fixtures at observed 125% DPI, actual glyph/card/viewport evidence; not real audio |
+| [Historical Group A](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/.github/workflows/group-a-validation.yml) | Trigger branch `codex/verify-build-preflight`, but checkout fixed to `de13b6d3e22a177537ed9d5977fe693a5b497fc1` | Historical A qualification, including default/explicit real MSI builds and runtime-only rejection; does not test the trigger branch's full current tree |
+| Release | Trigger SHA; branch/channel guards, write permission | Version reservation and possible public release, separate from these validation workflows |
+
+For manual source-input workflows, record both the workflow-hosting revision and verified checked-out implementation SHA. A run title/head SHA alone does not identify tested code. Artifact source/run/attempt and binary hashes are decisive; [current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) preserves that distinction and failure/control provenance.
+
+[Exact current documentation-head normal CI 38329156167](https://github.com/ThatMarko/AirFlash/actions/runs/38329156167) succeeded at 0623787. Earlier [runtime-main normal CI 38296750592](https://github.com/ThatMarko/AirFlash/actions/runs/38296750592) succeeded at 8989b36. [Full package integration 38294493405](https://github.com/ThatMarko/AirFlash/actions/runs/38294493405) succeeded at code-identical 4ae1db4: 124 Python/lint, 667 Core, 69 native passes with two named ignored tests, six full portable catalog/region pairs of 1,059 assertions, three observed 125% DPI cases of 40 each and disposable MSI lifecycle. The ignored recording-device qualification and 30-minute localhost soak remain separate limitations; they are not both hardware tests. The 225 modal PIN assertions and six actual synthetic DNS-helper checks belong to earlier stated-source runs, not new 062/4ae execution.
+
+Owning isolated tooling regressions are [SDK/preflight fixtures](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/tests/test_dotnet_preflight.py), [reservation fixtures](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/tests/test_release_version.py), [PE audit fixtures](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/tests/test_compatibility_audit.py) and [predecessor fixtures](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/tests/test_installer_predecessor.py). Failed SDK tests explicitly assert zero reservation/cleanup/cargo/publish; reservation tests alone are not that ordering proof. Installer byte refresh and deployed lifecycle are separately exercised as above.
+
+Local private SDK 10.0.401 is compatible and earlier actual managed/Python results remain source-bound. Local Rust/MSVC prerequisites remain unavailable; hosted native/package validation supplies those results. Passing source/fake/hosted checks does not certify Windows 10 execution, real receiver reliability, current-machine DPAPI, audible output, firmware behavior or physical journal durability. No local production release, reserved version, MSI installation or release workflow is performed by this map's review.
