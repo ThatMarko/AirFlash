@@ -1,5 +1,11 @@
 # Build, packaging and release ownership
 
+## Later preparation supplement — 2026-10-13
+
+Code Main `892a458078930b7b25d973d773e0a93e356ef36b` strengthens qualification helpers without changing the production reservation/release sequence described below. [Predecessor helper](https://github.com/ThatMarko/AirFlash/blob/892a458078930b7b25d973d773e0a93e356ef36b/scripts/installer-test-common.ps1) validates three MSI components, uses 0.2.3 only when lower, otherwise chooses a lower isolated fixture or rejects 0.0.0; [lifecycle selection](https://github.com/ThatMarko/AirFlash/blob/892a458078930b7b25d973d773e0a93e356ef36b/scripts/test-installer.ps1) now precedes user-data/installation. Its original failing minimum-version fake-operation control and 38 passing cases are retained. Current stable stale-payload control also failed on `cf420d9`; fixed helper passes actual repeated packaging.
+
+The fork-only [integration workflow](https://github.com/ThatMarko/AirFlash/blob/892a458078930b7b25d973d773e0a93e356ef36b/.github/workflows/fork-integration-validation.yml) accepts optional exact 40-character source_commit and optional complete_ui_matrix. Checkout/initial guard/informational version/final manifest bind the requested source; workflow_sha separately identifies workflow provenance. Main pushes retain the complete matrix. Explicit standalone installer qualification skips that H-only matrix while retaining all package/MSI checks; no release reservation path is invoked. [Installer run 38360540188](https://github.com/ThatMarko/AirFlash/actions/runs/38360540188) and [full Main 38360425230](https://github.com/ThatMarko/AirFlash/actions/runs/38360425230) passed separately. [Current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) holds actual results; the earlier map remains pinned to `0623787`.
+
 ## Source and evidence boundary
 
 This map follows fork source/documentation head **`06237873dcb6394eb35e97a017c536843bd7743d`**, reviewed on 2026-10-12. Its build/runtime trees match `8989b3609dd1294f4d1d6eb1502f345cc22bc382` and qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`. Original stable `cf420d97700463c56adc31408510e8336e99e51c` is already included. Source links below pin 0623787; qualification remains bound to the commit and executable actually tested.

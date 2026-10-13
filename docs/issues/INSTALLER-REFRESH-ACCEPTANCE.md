@@ -1,5 +1,9 @@
 # Installer payload refresh acceptance
 
+## Standalone preparation update — 2026-10-13
+
+Prepared head `b6ae0955aa6b632c95adbc4ebbbc28d771cdf7e1` is integrated into code Main `892a458` and pushed. An actual current-stable cf420d9 control packaged A correctly but retained stale A bytes/size for B; standalone Rebuild passed both default/explicit hosts with preserved inputs/retained first package. New minimum-version control failed on unchanged lifecycle source; corrected predecessor/fallback selection occurs before user-data/install operations, yields a strictly lower valid MSI version or rejects 0.0.0. Local 134 Python tests, 38 predecessor cases, Ruff and selected SDK 10.0.401 passed. [Exact-source disposable run 38360540188](https://github.com/ThatMarko/AirFlash/actions/runs/38360540188) passed 202 Core, 134 Python and 49 native tests (two ignored), publish, bundle audit and embedded hello, refresh and full MSI lifecycle/hash/data preservation. Its source manifest and three downloaded file hashes are verified; optional integrated diagnostics UI was skipped on this standalone installer source. The first malformed branch-name dispatch 38360424366 rejected before builds and remains preserved, not qualification. No MSI was installed locally. [Draft index](upstream-drafts/README.md) binds final evidence separately from historical sections below.
+
 ## Current Main integration — 2026-10-12
 
 Fork Main `8989b3609dd1294f4d1d6eb1502f345cc22bc382` contains feature `codex/fix-installer-refresh`, head `a20f9dbcecea8926f8c582fa89a935332442defa`, worktree `fix-installer-refresh/AirFlash`. Stable base is `cf420d97700463c56adc31408510e8336e99e51c`. Complete public diff and all outgoing commits exclude private analysis/issues/planning. Independent review is clear; no upstream publication is authorized.

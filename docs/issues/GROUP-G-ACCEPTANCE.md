@@ -1,5 +1,9 @@
 # Group G acceptance — owned local mute recovery
 
+## Standalone preparation update — 2026-10-13
+
+Prepared head `fcded6b2a211db2bade087a17bcd46b0dfabe24d` removes an unnecessary settings persistence wait introduced by the standalone Pair readiness wrapper. A real gated app save reproduced the failure on unchanged `96b9120` production; fixed Pair reaches its fake command before save release, preserves applied settings/recovery guards, permits Stop before pin_required and never mutes. Final standalone Release build and 287 Core tests, focused 66 recovery assertions and three full WPF runs × 629 passed. Main already had immediate Pair/synchronous B intent; integration retains that path and adds the regression. Final independent review is clear; all endpoints/stores are synthetic. [Draft index](upstream-drafts/README.md) separates this proof from the earlier qualification below.
+
 ## Current Main integration — 2026-10-12
 
 Reviewed fork runtime baseline `8989b3609dd1294f4d1d6eb1502f345cc22bc382` contains this feature; desktop/native/tooling trees match qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`. The public branch is pushed to origin and its complete diff/every outgoing commit exclude private planning. [Combined acceptance](CONTINUATION-ACCEPTANCE.md) binds final 667 Core, 124 Python, 69 native, portable UI/DPI and MSI results. No upstream publication is authorized by this documentation update.

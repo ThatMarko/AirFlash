@@ -1,5 +1,11 @@
 # AirFlash completed implementation and publication plan
 
+## Standalone preparation update — 2026-10-13
+
+Current integrated code is `892a458078930b7b25d973d773e0a93e356ef36b`; later documentation-only heads retain its code trees. [Draft/branch index](upstream-drafts/README.md) records the eight independently based, clean, pushed branches, every outgoing-commit privacy check and final peer review. Original stable remains `cf420d97700463c56adc31408510e8336e99e51c`. A/scroll are already merged; B reuses issue #14 and excludes PR #19's integrated overlap. No upstream publishing/reopen/merge or release is authorized/performed.
+
+Integrated qualification is now 669 Core, 138 Python/lint, 69 native with two ignored, six exact portable UI runs ×1,064, three observed 125% DPI ×40 and disposable installer lifecycle, at [CI 38360425572](https://github.com/ThatMarko/AirFlash/actions/runs/38360425572)/[package 38360425230](https://github.com/ThatMarko/AirFlash/actions/runs/38360425230). Standalone results remain separate, including E/F/H exact-source native and installer `b6ae095` [qualification 38360540188](https://github.com/ThatMarko/AirFlash/actions/runs/38360540188). The earlier sections below retain their named source/run boundaries and are not current-tree equality claims. Native execution is hosted; no real receivers/config/credentials/endpoints or local MSI installation were used.
+
 ## Current fork Main — 2026-10-12
 
 All 17 reports in eight coherent groups are implemented, independently reviewed and integrated into reviewed fork runtime baseline `8989b3609dd1294f4d1d6eb1502f345cc22bc382`. Later documentation-only commits may advance Main without changing those runtime trees. All 10 implementation heads are ancestors of Main; complete desktop/native/scripts/installer/tests/workflow trees match qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`. Original stable is `cf420d97700463c56adc31408510e8336e99e51c`, already contained. [Backlog](README.md)/[combined acceptance](CONTINUATION-ACCEPTANCE.md) identify source, receipts, full group heads and executed limits.

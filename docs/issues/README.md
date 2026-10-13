@@ -1,8 +1,8 @@
 # AirFlash implementation backlog
 
-## Current fork Main — 2026-10-12
+## Current fork Main — 2026-10-13
 
-**All 17 reports are implemented, independently reviewed and integrated into fork Main.** Runtime baseline `8989b3609dd1294f4d1d6eb1502f345cc22bc382` was verified as local/origin Main before this documentation-only refresh. Later documentation commits may advance Main while retaining the qualified runtime trees. Desktop, native, scripts, installer, tests and workflow trees match qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`; the later Main commit changes private documentation only. All ten implementation heads below are ancestors of Main. local evidence `artifacts/main-readiness-2026-10-12/verification.json` records these checks.
+**All 17 reports are implemented, independently reviewed and integrated into fork Main.** Current code baseline `892a458078930b7b25d973d773e0a93e356ef36b` is pushed and qualified. The preparation pass added joined PIN timeout/Stop coverage, propagated the Pair persistence correction to standalone G, strengthened installer fallback-version qualification and enabled exact-source fork package validation. Main already retained synchronous B intent and immediate Pair admission. All ten feature heads below are ancestors of this code baseline. Earlier `8989b36`/`4ae1db4` qualification remains historical; current test/harness/tool/workflow trees have changed. [Prepared drafts and branches](upstream-drafts/README.md) binds eight standalone heads/results separately. Local evidence is under `artifacts/pr-preparation-2026-10-13`. Later documentation-only commits may advance Main without changing this qualified code.
 
 Original stable Main is `cf420d97700463c56adc31408510e8336e99e51c`, already contained in the fork. A and scrolling are upstream. B's [PR #15](https://github.com/Ding-Kyoma/AirFlash/pull/15) is closed without merge at frozen `11c6046`; [issue #14](https://github.com/Ding-Kyoma/AirFlash/issues/14) is open. Merged [PR #19](https://github.com/Ding-Kyoma/AirFlash/pull/19) supplies partial discovery retention/fresh-snapshot safeguards, while B retains atomic ownership, intent, admission and routing fixes. C–H and installer repairs are fork implementations, not upstream integrations.
 
@@ -12,20 +12,20 @@ Original stable Main is `cf420d97700463c56adc31408510e8336e99e51c`, already cont
 | B | 01, 02, 03, 10, 11 | `442e8d8` | [Session/receiver package](GROUP-B-ACCEPTANCE.md); PR #15 closed, issue #14 open |
 | C | 06, 07 | `5d72da3` | [Settings preservation/validation](GROUP-C-ACCEPTANCE.md); publication pending authorization |
 | D | 04 | `277efc5` | [Bounded DNS process ownership](GROUP-D-ACCEPTANCE.md); publication pending authorization |
-| E | 08, 09 | `0ebc59b` | [PIN and credential lookup](GROUP-E-ACCEPTANCE.md); publication pending authorization |
+| E | 08, 09 | `7dfcbb2` | [PIN and credential lookup](GROUP-E-ACCEPTANCE.md); publication pending authorization |
 | F | 12, 14 | `421e1ea` | [IPC errors and EQ outcomes](GROUP-F-ACCEPTANCE.md); publication pending authorization |
-| G | 13 | `96b9120` | [Owned mute recovery](GROUP-G-ACCEPTANCE.md); publication pending authorization |
+| G | 13 | `fcded6b` | [Owned mute recovery](GROUP-G-ACCEPTANCE.md); publication pending authorization |
 | H | 15, 16, 17 | `6855dfe` | [Diagnostics/padding/localization](GROUP-H-ACCEPTANCE.md); publication pending authorization |
 | Scrolling | Separate UI follow-up | `54cd18e` | [Scrolling](SETTINGS-SCROLL-ACCEPTANCE.md); PR #13 merged |
-| Installer | Separate packaging follow-up | `a20f9db` | [Payload refresh and qualification fixtures](INSTALLER-REFRESH-ACCEPTANCE.md); publication pending authorization |
+| Installer | Separate packaging follow-up | `b6ae095` | [Payload refresh and qualification fixtures](INSTALLER-REFRESH-ACCEPTANCE.md); publication pending authorization |
 
 ## Current acceptance
 
-Fresh local Main qualification passed **667 Release Core tests, 124 Python tests, lint and a Release solution build with zero warnings/errors**. Earlier exact code `4ae1db4` also passed all 667 Core tests in both Debug and Release. [Exact Main CI 38296750592](https://github.com/ThatMarko/AirFlash/actions/runs/38296750592) is successful and includes native checks, receiver-free discovery stability, bundle audit and packaged startup.
+Fresh integrated Main qualification passed **669 Release Core tests, 138 Python tests, lint and a Release solution build with zero warnings/errors**. [Code-baseline CI 38360425572](https://github.com/ThatMarko/AirFlash/actions/runs/38360425572) and [full package 38360425230](https://github.com/ThatMarko/AirFlash/actions/runs/38360425230) succeeded at `892a458`: 69 native tests (two ignored), six portable UI runs with **1,064 each**, three actual 125% DPI runs with **40 each**, and disposable MSI lifecycle. Eight standalone branches have their own independently inspected results in the draft index. Earlier exact code `4ae1db4` also passed all 667 Core tests in both Debug and Release. [Exact Main CI 38296750592](https://github.com/ThatMarko/AirFlash/actions/runs/38296750592) is successful and includes native checks, receiver-free discovery stability, bundle audit and packaged startup.
 
 [Exact-code unofficial integration 38294493405](https://github.com/ThatMarko/AirFlash/actions/runs/38294493405) passed 69 native tests, 667 Core tests, 124 Python tests/lint, six complete portable regional/catalog runs with **1,059 assertions each**, three actual 125% DPI runs with **40 each**, and disposable-runner MSI install/repair/upgrade/uninstall/data preservation. The two ignored native tests are specifically recording-device qualification and the thirty-minute localhost soak. Native tooling is verified on hosted Windows; local Rust/MSVC/Windows SDK are unavailable. Modal clipboard and MSI installation checks run only on disposable hosted fixtures.
 
-The reboot execution gate is satisfied. Documentation work does not rerun runtime tests: previous results remain bound to their actual source, run, configuration and binary. [Continuation acceptance](CONTINUATION-ACCEPTANCE.md) records final provenance, controlled failures and limitations.
+The reboot execution gate is satisfied. This preparation pass ran source-bound standalone and integrated checks; its final documentation update does not relabel prior executions. Earlier results remain bound to their actual source, run, configuration and binary. [Continuation acceptance](CONTINUATION-ACCEPTANCE.md) records final provenance, controlled failures and limitations.
 
 ## Retained reports
 
@@ -63,7 +63,7 @@ Public implementation branches exclude private analysis/issues/planning in both 
 
 The local evidence `artifacts/repository-sync-2026-10-12/run-224100/INVENTORY.md` records 28 local branches backed up to origin and 20 clean worktrees, plus the fork's remote-only Copilot branch. Six deliberately failing regression controls remain outside Main and must never be merged. No branches/worktrees were removed.
 
-There are 35 local/fork tags: 34 match exactly and `reserved/0.2.4` has a preserved conflict. Synchronization copied historical markers, including 26 reserved tags; it did not allocate a release or run a release workflow. Review inherited reservation history before a future fork release. Additional upstream reservation tags remain excluded. Ignored SDKs, logs, packages and receipts remain local; Git push does not upload them.
+There are now 45 local tags and 35 fork tags. Ten older upstream reservation tags were imported locally by the initial fetch on 2026-10-13; they were preserved and not pushed. The prior 35-tag fork set still has the preserved local/origin `reserved/0.2.4` conflict. No version was allocated and no release workflow ran. Review inherited reservation history before any future fork release. Ignored SDKs, logs, packages and receipts remain local; Git push does not upload them.
 
 ## Evidence rules and limits
 

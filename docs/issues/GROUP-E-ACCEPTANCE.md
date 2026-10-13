@@ -1,5 +1,9 @@
 # Group E acceptance — PIN input and credential lookup
 
+## Standalone preparation update — 2026-10-13
+
+Prepared head `7dfcbb27331c700846c552de28e8eef882c57cf6` is integrated into code Main `892a458` and normally pushed. New gated PIN deadline and lifetime Stop cases prove Error after joined cleanup versus Idle cancellation, without pair_pin/start/subsequent playback. The first added fixture failed because its delegate-scoped registration could be disposed before cancellation observation; retaining that registration until finally joins cleanup fixed the fixture without changing production policy. Final standalone Release build/223 Core tests and three full WPF runs × 686 passed. [Exact-source Windows validation 38359126296](https://github.com/ThatMarko/AirFlash/actions/runs/38359126296) passed 59 native tests (two ignored), Clippy/build/audit and 225 modal paste assertions. [Draft index](upstream-drafts/README.md) and ignored preparation receipts preserve exact source/hash/control evidence. Earlier results below remain source-bound.
+
 ## Current Main integration — 2026-10-12
 
 Reviewed fork runtime baseline `8989b3609dd1294f4d1d6eb1502f345cc22bc382` contains this feature; desktop/native/tooling trees match qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`. The public branch is pushed to origin and its complete diff/every outgoing commit exclude private planning. [Combined acceptance](CONTINUATION-ACCEPTANCE.md) binds final 667 Core, 124 Python, 69 native, portable UI/DPI and MSI results. No upstream publication is authorized by this documentation update.

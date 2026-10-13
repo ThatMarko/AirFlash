@@ -1,5 +1,9 @@
 # Analysis source audits
 
+## Later preparation supplement — 2026-10-13
+
+The pinned 2026-10-12 source map below remains an audit of `0623787`. Current code Main `892a458078930b7b25d973d773e0a93e356ef36b` adds E timeout/Stop regression signals, G Pair/save regression propagation, strictly lower installer fixture selection before side effects, and fork-only exact-source/optional-UI package validation. Ordinary application behavior described by the map is unchanged; test/tool/workflow tree equality with `4ae1db4` no longer applies. [Current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) and [standalone drafts/branches](../issues/upstream-drafts/README.md) bind source/results. Main CI/package now pass 669 Core, 138 Python and 69 native tests (two ignored), six portable UI runs × 1,064, three observed 125% DPI runs × 40 and disposable MSI lifecycle. Each standalone group has separate results. No source review is relabeled runtime execution and no hardware/release claim is added.
+
 ## Current implementation map — 2026-10-12
 
 This audit reviews **your fork's `main` at `06237873dcb6394eb35e97a017c536843bd7743d`**. It includes freshly verified original stable `cf420d97700463c56adc31408510e8336e99e51c` and all ten implementation heads: Groups A–H, scrolling and installer refresh. The reported fixes are integrated here; public integration, additional source limits and hardware qualification are separate.
