@@ -4,7 +4,7 @@ The source baseline is original stable main at `cf420d97700463c56adc31408510e833
 
 ## Current behavior
 
-[SettingsStore.Load](https://github.com/Ding-Kyoma/AirFlash/blob/cf420d97700463c56adc31408510e8336e99e51c/desktop/AirFlash.Core/SettingsStore.cs#L16-L56) catches a configuration read/parse failure but rereads the same path inside that catch without another guard. An exclusively locked readable path can therefore throw a second I/O exception instead of returning controlled defaults. `File.Exists` also cannot distinguish every unreadable path from genuine absence.
+[SettingsStore.Load](https://github.com/Ding-Kyoma/AirFlash/blob/cf420d97700463c56adc31408510e8336e99e51c/desktop/AirFlash.Core/SettingsStore.cs#L16-L56) catches a configuration read/parse failure but rereads the same path inside that catch without another guard. An existing file held with an exclusive lock can therefore throw a second I/O exception instead of returning controlled defaults. `File.Exists` also cannot distinguish every unreadable path from genuine absence.
 
 Recovery stores decoded text and writes a text backup later. That does not preserve the original encoding/BOM bytes. An existing backup or repeated Load/failed Save can leave insufficient information for safely replacing the source. Normal startup calls Load twice on the same store, so preservation must survive both calls and later automatic/identity saves.
 
@@ -19,14 +19,14 @@ Use temporary files and injected file operations, rather than a user's configura
 1. Hold an exclusive file handle across both Load calls. Expect controlled defaults plus a warning, and a blocked Save until the unreadable original can be captured and preserved.
 2. Load malformed readable JSON encoded with a BOM, then Save. Compare backup bytes exactly with the original, including the BOM/encoding.
 3. Precreate a different recovery backup; fail backup or replacement, change/disappear the source, and retry. No captured revision or uncaptured-original obligation may be silently lost.
-4. Load either fixture below and assert it never reaches playback/mute or an uncontrolled replacement save.
+4. Use either fixture below in the isolated WPF startup harness and publish a synthetic eligible receiver. Assert that recovery returns valid defaults without automatic startup playback/muting or an unpreserved replacement save. The temporary inputs deliberately enable automatic connection and muting:
 
 ```json
-{"schema_version":2,"manual_receivers":[null]}
+{"schema_version":2,"auto_connect_on_discover":true,"mute_while_streaming":true,"manual_receivers":[null]}
 ```
 
 ```json
-{"schema_version":2,"stream_sample_rate":"invalid"}
+{"schema_version":2,"auto_connect_on_discover":true,"mute_while_streaming":true,"stream_sample_rate":"invalid"}
 ```
 
 5. Exercise future positive integer schema tokens, oversized integer tokens, case variants and duplicate schema properties. Future-version refusal must not degrade into defaults replacement. Fractional/exponent spellings follow integer validation and controlled malformed-input recovery; they are not part of the lexical future-integer rule.
@@ -41,13 +41,13 @@ After supported migration and documented normalization, validate structure and s
 
 ## Acceptance criteria
 
-- Locked/read-failed input produces no unguarded secondary exception and cannot be overwritten by defaults.
+- Locked/read-failed input produces no unguarded secondary exception and cannot be replaced by defaults before the original is captured and preserved.
 - Rejected/migrated readable bytes, including supported BOM encodings, are preserved exactly before replacement.
 - Both startup Loads, failed backup/replacement, existing-backup collision, source disappearance and identity Save retain preservation state.
-- Future positive integer schema tokens remain fatal, including overflow-sized integers and case/duplicate variants.
+- Future positive integer schema tokens are refused, with saving blocked, including overflow-sized integers and case/duplicate variants.
 - Null manual entries and invalid/null rates produce controlled recovery before catalog/playback consumption.
 - Schema 1 migration, schema 2, supported root/equalizer unknown fields, nullable overrides/display names, valid manual rows and selected-offline adapter ids remain compatible.
-- Core temporary/injected-I/O fixtures and a separate fake-service WPF startup harness assert no rejected-input playback, endpoint mute or unpreserved replacement save. Read-only startup engine hello remains compatible.
+- Core temporary/injected-I/O fixtures and a separate fake-service WPF startup harness assert rejected input cannot trigger automatic startup playback, endpoint muting or an unpreserved replacement save. Read-only startup engine hello remains compatible.
 
 The store's lock coordinates this store; it does not claim arbitrary external-writer coordination after a valid Load. Byte preservation/file replacement does not prove physical power-loss durability. No credential format or JSONL change is required.
 
@@ -55,4 +55,4 @@ The store's lock coordinates this store; it does not claim arbitrary external-wr
 
 The prepared implementation is [codex/fix-settings-recovery](https://github.com/ThatMarko/AirFlash/tree/5d72da3b77b4ac72f858966baef04b8a4ad8b1ad), commit `5d72da3b77b4ac72f858966baef04b8a4ad8b1ad`, independently based on the original stable source above. Independent final source/regression review found no unresolved findings.
 
-Fresh standalone Release build passed with zero warnings/errors; all **300 Core tests** passed with no skips. Separate isolated WPF runs passed **633 assertions each in 3 catalog/region combinations**, covering English, Simplified Chinese and Traditional Chinese. These are this branch’s results, separate from combined-fork qualification.
+The standalone Release build passed with zero warnings/errors. A fresh prepublication Release run passed all **300 Core tests** with no skips. Recorded separate isolated WPF runs passed **633 assertions each in 3 catalog/region combinations**, covering English, Simplified Chinese and Traditional Chinese. These are this branch’s results, separate from combined-fork qualification.

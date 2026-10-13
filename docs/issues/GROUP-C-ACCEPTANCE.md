@@ -1,5 +1,11 @@
 # Group C acceptance — configuration preservation and validation
 
+## Upstream publication — 2026-10-13
+
+Explicit approval published [issue #22](https://github.com/Ding-Kyoma/AirFlash/issues/22) and ready-for-review [PR #23](https://github.com/Ding-Kyoma/AirFlash/pull/23), targeting original `main` from `ThatMarko:codex/fix-settings-recovery` at `5d72da3b77b4ac72f858966baef04b8a4ad8b1ad`. Fresh original stable remains `cf420d97700463c56adc31408510e8336e99e51c`. Open/closed issue/PR search found no duplicate configuration-recovery root cause; issue #14's delayed session authority and merged Settings scrolling work are separate. Published title/body, `Fixes #22`, nine changed files and four commits match the reviewed package. Complete diff and every outgoing commit exclude fork-only planning. Independent source/regression/evidence and final publication-text reviews are clear.
+
+Fresh prepublication Release Core verification passed **300 tests**, no failures/skips, with selected SDK 10.0.401 and locked restore. Recorded exact-head standalone Release build and three **633-assertion** WPF catalog/region runs retain their original provenance; no new GUI failure is claimed on unchanged original stable. The SettingsStore/Settings blobs match historical `41190e0`, supporting the eight controlled Core observations below. Public wording now limits automatic startup playback/mute claims, describes controlled future-schema refusal with saving blocked, permits defaults replacement only after preservation, and makes the synthetic automatic-start conditions explicit. [Upstream PR CI](https://github.com/Ding-Kyoma/AirFlash/actions/runs/38434164036) is tracked separately; an open PR is not integration into stable. No release/reservation, local installation, real configuration/endpoint/receiver access or other-group publication occurred.
+
 ## Current Main integration — 2026-10-12
 
 Reviewed fork runtime baseline is `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, with source trees equal to qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`. The feature head below is an ancestor of Main and is pushed to origin. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`. Public complete diffs and every outgoing commit exclude private planning. This is fork implementation acceptance, not upstream integration. [Combined Main acceptance](CONTINUATION-ACCEPTANCE.md) records 667 Core/124 Python/native/package/UI qualification and limits.
@@ -38,4 +44,4 @@ Historical `3055988` integrated stable `91698d8` without changing configuration 
 
 Tests use synthetic temporary files, controlled locks/I/O failures, fake services and isolated WPF output. They do not read user settings/credentials or mutate endpoints/receivers. Serialization/atomic replacement do not establish physical power-loss durability or coordination with arbitrary external writers. Native source, schema 2 and JSONL v1 remain unchanged by C.
 
-C is integrated and pushed in fork Main; it has no upstream publication. Selected Task 3 publication requires a fresh stable-base scope review and focused source/test diff.
+C is integrated and pushed in fork Main and is now published as issue #22 / PR #23 above. Original stable integration remains pending maintainer review; no merge or release is authorized by this publication.
