@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Collections.Concurrent;
 using System.Text.Json;
@@ -14,7 +15,7 @@ using AirFlash.App.Ui;
 using AirFlash.App.ViewModels;
 using AirFlash.Core;
 namespace AirFlash.App.Verification;
-// Opt-in, isolated UI verification. Never constructs real discovery, audio or autostart services.
+// Opt-in, isolated UI verification with fake DNS, engine, endpoint and autostart boundaries.
 internal static class UiSmoke
 {
     public static async Task<int> RunAsync(string[] args)
@@ -39,6 +40,17 @@ internal static class UiSmoke
         Check(startupText.Contains("Startup stage=platform", StringComparison.Ordinal)
             && startupText.Contains("Startup stage=wpf-resources ready", StringComparison.Ordinal),
             "both startup stages are recorded in isolated smoke logs", checks);
+        if (args.Contains("--ui-discovery-smoke"))
+        {
+            try
+            {
+                await UiDiscoveryLifecycle.RunAsync(checks);
+                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
+                    ui_culture = CultureInfo.CurrentUICulture.Name, note = "WPF discovery scheduling with injected DNS and simulated engine/audio services." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
         if (args.Contains("--ui-scroll-smoke"))
         {
             try
@@ -188,7 +200,7 @@ internal static class UiSmoke
             retries.Text = "5"; await Pump();
             settings.ViewModel.AddManual("书房", "127.0.0.2", 7000); await settings.ViewModel.ApplyAsync();
             Check(app.Settings.ManualReceivers.Count == 1, "manual receiver persists", checks);
-            var firstId = app.Receivers[0].Receiver.Id;
+            var firstId = app.Snapshot.Receiver?.Id ?? throw new InvalidOperationException("The mock receiver must still be streaming.");
             settings.ViewModel.Draft.Options(firstId).Hidden = true; await settings.ViewModel.ApplyAsync();
             Check(app.Receivers.All(r => r.Receiver.Id != firstId) && settings.ViewModel.Receivers.Any(r => r.Receiver.Id == firstId), "hidden receiver stays recoverable", checks);
             settings.ViewModel.Draft.Options(firstId).Hidden = false; await settings.ViewModel.ApplyAsync();
@@ -233,9 +245,11 @@ internal static class UiSmoke
             await UiRegression.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyStartupFailureAsync(checks, directory);
+            await UiDiscoveryLifecycle.RunAsync(checks);
             await UiScrolling.RunAsync(checks, directory);
             await VerifyTrayLifecycleAsync(tray, app, trayGuid, () => menuOpened, () => quitRequestedFromTray, checks);
-            App.WriteOutput(args, new { ok = true, checks, icon_environment = iconEnvironment, note = "All engine/audio/discovery/autostart services are simulated. DPI renders do not replace physical multimonitor QA." });
+            App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
+                ui_culture = CultureInfo.CurrentUICulture.Name, icon_environment = iconEnvironment, note = "DNS, engine, audio and autostart boundaries are simulated. DPI renders do not replace physical multimonitor QA." });
             return 0;
         }
         catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
@@ -315,6 +329,8 @@ internal static class UiSmoke
         tray.Dispose();
         Check(!tray.IsRegistered && !tray.TryGetRectangle(out _), "disposed tray stops registration", checks);
         Check(!TrayRectangleExists(guid, tray.Identity, window), "disposed tray is removed from shell", checks);
+        var originalLanguage = CultureInfo.CurrentUICulture.Name;
+        var originalCatalogMarker = L.Get("Settings and devices");
         var originallyChinese = L.IsChinese;
         try
         {
@@ -328,7 +344,8 @@ internal static class UiSmoke
             }
             finally { rebuilt.Dispose(); replacement.ShutdownPanel(); }
         }
-        finally { L.Initialize([originallyChinese ? "zh-CN" : "en-US"]); }
+        finally { L.Initialize([originalLanguage]); }
+        Check(L.Get("Settings and devices") == originalCatalogMarker, "tray language rebuild restores original UI catalog", checks);
     }
     [StructLayout(LayoutKind.Sequential)] private struct TrayIdentifier { public uint Size; public IntPtr Window; public uint Id; public Guid Guid; }
     private static bool TrayRectangleExists(Guid guid, TrayIdentity identity, IntPtr window)

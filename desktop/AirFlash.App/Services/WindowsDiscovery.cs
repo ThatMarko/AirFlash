@@ -337,7 +337,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
                 advertisement.NextAttempt = now + _policy.RefreshInterval;
                 _pending.Remove(owner.Name);
                 RetireLocked(owner, work);
-                if (!_records.TryGetValue(owner.Name, out var previous) || Describe(previous.Record) != Describe(record))
+                if (!_records.TryGetValue(owner.Name, out var previous) || !Equal(previous.Record, record))
                 {
                     work.Logs.Add("Discovery resolved: " + Describe(record));
                     work.Publish = true;
@@ -601,6 +601,10 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
             try { observer(value); }
             catch (Exception error) { System.Diagnostics.Trace.TraceError("Discovery {0} observer: {1}", channel, error.Message); }
     }
+
+    private static bool Equal(ServiceRecord left, ServiceRecord right) =>
+        left.Instance == right.Instance && left.ServiceType == right.ServiceType && left.Address == right.Address && left.Port == right.Port
+        && left.Txt.Count == right.Txt.Count && left.Txt.All(pair => right.Txt.TryGetValue(pair.Key, out var value) && pair.Value == value);
 
     private static string Describe(ServiceRecord record) => System.Text.Json.JsonSerializer.Serialize(new
     {

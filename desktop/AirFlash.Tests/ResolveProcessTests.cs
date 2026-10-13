@@ -57,6 +57,46 @@ public sealed class ResolveProcessTests
         Assert.Equal(0, child.Starts); Assert.True(child.Disposed);
         Assert.Equal(fixture.Baseline, ResolveProcessDnsServiceApi.ProcessOwnerCount);
     }
+    [Fact]
+    public async Task FixtureCleanupJoinsSettlementAfterFlagPrecedesChildDisposal()
+    {
+        var fixture = new Fixture(); var child = fixture.Factory.Next;
+        using var releaseDispose = new ManualResetEventSlim(); child.DisposeGate = releaseDispose;
+        var operation = fixture.Create(); var cancellation = Task.Run(operation.Cancel);
+        Task? cleanup = null;
+        try
+        {
+            await child.DisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(operation.IsSettled);
+            Assert.False(child.Disposed);
+            Assert.False(fixture.Settled.Task.IsCompleted);
+            Assert.Equal(fixture.Baseline + 1, ResolveProcessDnsServiceApi.ProcessOwnerCount);
+            cleanup = Task.Factory.StartNew(fixture.Dispose, CancellationToken.None,
+                TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            await fixture.SettlementJoinEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(cleanup.IsCompleted);
+            Assert.False(fixture.Settled.Task.IsCompleted);
+            Assert.Equal(fixture.Baseline + 1, ResolveProcessDnsServiceApi.ProcessOwnerCount);
+            releaseDispose.Set();
+            await Task.WhenAll(cancellation, cleanup).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(fixture.Settled.Task.IsCompleted);
+            Assert.True(child.Disposed);
+            Assert.Equal(1, child.Disposals);
+            Assert.Equal(1, fixture.Settlements);
+            Assert.Equal(0, child.Starts);
+            Assert.Equal(fixture.Baseline, ResolveProcessDnsServiceApi.ProcessOwnerCount);
+        }
+        finally
+        {
+            releaseDispose.Set();
+            try { await Task.WhenAll(cancellation, cleanup ?? Task.CompletedTask).WaitAsync(TimeSpan.FromSeconds(5)); }
+            finally
+            {
+                await fixture.Settled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                fixture.Dispose();
+            }
+        }
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -251,17 +291,17 @@ public sealed class ResolveProcessTests
     {
         public readonly Factory Factory = new();
         public readonly int Baseline = ResolveProcessDnsServiceApi.ProcessOwnerCount;
-        public readonly TaskCompletionSource Result = new(TaskCreationOptions.RunContinuationsAsynchronously), Settled = new(TaskCreationOptions.RunContinuationsAsynchronously), CancellationError = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly TaskCompletionSource Result = new(TaskCreationOptions.RunContinuationsAsynchronously), Settled = new(TaskCreationOptions.RunContinuationsAsynchronously), CancellationError = new(TaskCreationOptions.RunContinuationsAsynchronously), SettlementJoinEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public readonly List<string> Errors = [];
         public IDnsServiceOperation? Operation;
-        public int Results;
+        public int Results, Settlements;
         public uint Status;
         public ServiceRecord? Record;
         public IDnsServiceOperation Create()
         {
             Operation = new ResolveProcessDnsServiceApi(new NoBrowse(), Factory).CreateResolve(Name, Type, 42, (status, record) =>
             { Status = status; Record = record; Interlocked.Increment(ref Results); Result.TrySetResult(); });
-            Operation.Settled += () => Settled.TrySetResult();
+            Operation.Settled += () => { Interlocked.Increment(ref Settlements); Settled.TrySetResult(); };
             Operation.CallbackFailed += error => Errors.Add(error);
             Operation.CancellationFailed += _ => CancellationError.TrySetResult();
             return Operation;
@@ -269,7 +309,13 @@ public sealed class ResolveProcessTests
         public void Dispose()
         {
             Operation?.Cancel(); Factory.Next.StartGate?.Set(); Factory.Next.Exit.TrySetResult(); Factory.Next.Reply.TrySetResult(null);
-            if (Operation is { IsSettled: false }) Assert.True(Settled.Task.Wait(TimeSpan.FromSeconds(5)), "Synthetic worker was not joined.");
+            if (Operation is not null)
+            {
+                // The flag is published before child disposal and owner removal.
+                // Only the registered notification joins that cleanup boundary.
+                SettlementJoinEntered.TrySetResult();
+                Assert.True(Settled.Task.Wait(TimeSpan.FromSeconds(5)), "Synthetic worker was not joined.");
+            }
         }
     }
     private sealed class NoBrowse : IDnsServiceApi
@@ -326,12 +372,12 @@ public sealed class ResolveProcessTests
     }
     private sealed class Child : IResolveChild
     {
-        public readonly TaskCompletionSource StartEntered = new(TaskCreationOptions.RunContinuationsAsynchronously), KillEntered = new(TaskCreationOptions.RunContinuationsAsynchronously), Exit = new(TaskCreationOptions.RunContinuationsAsynchronously), WaitRetried = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly TaskCompletionSource StartEntered = new(TaskCreationOptions.RunContinuationsAsynchronously), KillEntered = new(TaskCreationOptions.RunContinuationsAsynchronously), Exit = new(TaskCreationOptions.RunContinuationsAsynchronously), WaitRetried = new(TaskCreationOptions.RunContinuationsAsynchronously), DisposeEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public readonly TaskCompletionSource<string?> Reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool Started { get; private set; }
         public bool Disposed, StartFailure, AssociateBeforeFailure, KillFailure, FailFirstWait;
-        public int Starts, Kills, Waits;
-        public ManualResetEventSlim? StartGate;
+        public int Starts, Kills, Waits, Disposals;
+        public ManualResetEventSlim? StartGate, DisposeGate;
         public void Start()
         {
             Starts++; StartEntered.TrySetResult();
@@ -346,6 +392,13 @@ public sealed class ResolveProcessTests
             WaitRetried.TrySetResult(); return Exit.Task;
         }
         public void Kill() { Kills++; KillEntered.TrySetResult(); if (KillFailure) throw new InvalidOperationException("Synthetic kill failure."); }
-        public void Dispose() => Disposed = true;
+        public void Dispose()
+        {
+            Interlocked.Increment(ref Disposals);
+            DisposeEntered.TrySetResult();
+            if (DisposeGate is not null && !DisposeGate.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("Synthetic child disposal gate was not released.");
+            Disposed = true;
+        }
     }
 }

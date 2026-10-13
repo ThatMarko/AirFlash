@@ -42,7 +42,9 @@ internal static class DnsResolveHelper
                     try { ResolveWire.Parse(text, request); }
                     catch { text = JsonSerializer.Serialize(new ResolveReply(1, 13, null)); }
                     Console.OutputEncoding = new UTF8Encoding(false);
-                    Console.Out.WriteLine(text); Console.Out.Flush();
+                    // The wire byte limit excludes LF. Windows' default CRLF
+                    // would add an extra counted byte to an exact-limit reply.
+                    Console.Out.Write(text); Console.Out.Write('\n'); Console.Out.Flush();
                 }
                 finally { ready.Set(); }
             }
