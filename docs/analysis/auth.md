@@ -1,108 +1,77 @@
 # Authentication
 
-## Current feature source — 2026-10-11
+Source reviewed on 2026-10-12 at own-fork `main` `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, containing original stable `cf420d97700463c56adc31408510e8336e99e51c`. This page describes that integrated fork source, not an unmerged feature checkout or original upstream runtime.
 
-Group E is implemented on `codex/fix-auth-input`, source-confirmed at `0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a` after refreshing from original stable `91698d8` to `cf420d97700463c56adc31408510e8336e99e51c`. [PairingPin](https://github.com/ThatMarko/AirFlash/blob/0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a/desktop/AirFlash.Core/PairingPin.cs) removes ASCII dashes and requires 4–8 ASCII digits, with a 16-character editing bound. [PinDialog](https://github.com/ThatMarko/AirFlash/blob/0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a/desktop/AirFlash.App/Ui/PinDialog.cs) uses that same normalizer for enablement and the value returned to `PairMembersAsync`; native strict validation and cancellation remain in place.
+Playback still chooses one authentication method per connection. Group E makes the earlier credential lookup preserve errors and makes the PIN dialog submit the same normalized representation that it validates. It does not change the HAP pairing protocol, current-user DPAPI or accessory identity checks. E is integrated into this fork's main and remains separate from original stable publication.
 
-[Credential loading and authentication selection](https://github.com/ThatMarko/AirFlash/blob/0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a/native/airflash-engine/src/session.rs) retain accessory `/info` identity and current-user DPAPI. Only genuine initial file absence permits transient setup; storage or saved-verification errors propagate without selecting another authentication method. The existing missing `/info` identity path remains unchanged. [Group E acceptance](../issues/GROUP-E-ACCEPTANCE.md) separates executed synthetic/UI/native checks from source inspection. This feature is not integrated into original stable; refreshed combined-fork qualification is separate. Earlier unimplemented labels and protocol descriptions below are dated historical evidence.
+## Playback admission and identity
 
-Continuation feature review, 2026-10-11: Group E head `fc8b919` against original stable `91698d8` normalizes permitted dashed PIN input before JSONL submission and replaces credential existence probing with error-preserving one-handle loading. Saved verification and transient setup remain mutually exclusive; only genuine initial file absence selects transient. Current-user DPAPI, accessory `/info` identity and native strict PIN validation remain unchanged. [Executed Group E evidence](../issues/GROUP-E-ACCEPTANCE.md) includes controlled UI/native failures and exact-source Windows qualification. Neither original stable nor fork main contains this feature yet; the older source trace below is historical.
+Each member connects to its supplied TCP port (default 7000), reads plaintext `GET /info`, then uses a nonempty string `deviceID` for credential lookup. [Member::connect](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/session.rs#L237) passes the result to [authenticate_with](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/session.rs#L200): loaded credentials select pair-verify once; initial file absence selects transient setup once; a lookup/read/decrypt/parse error aborts before either exchange. A verification failure never tries transient setup on that connection.
 
-Merged-main source review, 2026-10-10: the native authentication, credential loader, and PIN dialog are unchanged from pinned `41190e0` at local integration commit `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. The historical protocol trace below still applies. Group B now guards desktop pairing/lifecycle ownership in [SessionController](../../desktop/AirFlash.Core/SessionController.cs) (`PairAsync`, `PairMembersAsync`); it does not normalize dashed PINs or change credential selection. [ISSUE-08](../issues/ISSUE-08-MEDIUM-pairing-pin-format-mismatch.md) and [ISSUE-09](../issues/ISSUE-09-MEDIUM-credential-probe-errors-look-like-absence.md) remain unimplemented Group E proposals. This pass read source only; pairing and app tests are deferred until after the requested reboot.
-
-Every playback member and pairing attempt begins with plaintext `GET /info` on the supplied peer TCP port (default 7000, not a fixed port). Playback chooses saved credentials or transient setup using `/info` `deviceID`. Missing/non-string/empty playback identity skips loading and chooses transient. Once `load` sees `path.exists() == true`, metadata/read/decrypt/parse failures abort without transient fallback. An inaccessible existence probe can return false and appear absent; [Credentials and IPC](credentials-and-ipc.md) documents that distinction ([session.rs:220–251](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/session.rs#L220), [credentials.rs:105–121](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L105)). Pairing requires a string `deviceID` but does not reject an empty string before saving ([main.rs:265–297](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/main.rs#L265)). The subsequent SETUP is in [Engine](engine.md).
-
-The setup/verify messages use TLV8 bodies and `Content-Type: application/octet-stream`; `/pair-pin-start` has an empty body. `/pair-` paths use HTTP rather than RTSP. A TLV field 7 fails decoding as a pairing rejection. Repeated tags are concatenated, and truncated headers/values are rejected. The encrypted identity submessages use ChaCha20-Poly1305 and an 8-byte nonce label in the last eight bytes of a 12-byte nonce; the SRP prefix itself is plaintext ([crypto.rs:67–114](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/crypto.rs#L67), [rtsp.rs:278–283](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/rtsp.rs#L278)).
+The existing missing, non-string or empty playback `deviceID` path supplies `Ok(None)` without file lookup and therefore selects transient setup. That path is unchanged and outside the file-error classification fix. Persistent Pair requires a string `deviceID`, but still does not reject an empty string before saving. The filename key comes from `/info`, not a manual/catalog row or the authenticated HAP identity returned by M6. See [Credentials and IPC](credentials-and-ipc.md).
 
 ```mermaid
 flowchart TD
-  INFO[GET /info]
-  FILE{DPAPI file for deviceID?}
-  VERIFY[pair-verify]
-  TRANSIENT[transient pair-setup PIN 3939]
-  USER[Settings Pair: pair-setup with the typed PIN]
-  CTRL[Control connection switches to ChaCha]
-  SAVE[Write DPAPI file and close]
+  INFO[Plaintext GET /info]
+  LOOKUP{Credential lookup result}
+  VERIFY[Saved credentials: pair-verify]
+  TRANSIENT[Initial absence: transient pair-setup]
+  ERROR[Storage error: end attempt]
+  CTRL[Encrypted control connection]
   SETUP[Session SETUP]
-  INFO --> FILE
-  FILE -->|yes, on start| VERIFY --> CTRL --> SETUP
-  FILE -->|no, on start| TRANSIENT --> CTRL
-  USER --> SAVE
-  SAVE -.->|next start| VERIFY
+  INFO --> LOOKUP
+  LOOKUP -->|Some| VERIFY --> CTRL
+  LOOKUP -->|None| TRANSIENT --> CTRL
+  LOOKUP -->|Err| ERROR
+  CTRL --> SETUP
 ```
 
 ## Shared SRP prefix
 
-`srp_handshake_prompt` is the prefix of both setup paths.
+[srp_handshake_prompt](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/auth.rs#L96) implements both setup paths:
 
-1. `POST /pair-pin-start` with an empty body. Transient sends `X-Apple-HKP: 4`. Persistent sends `X-Apple-HKP: 3`.
-2. `POST /pair-setup` state 1. Transient also sends TLV `0x13 = 0x10`. Persistent omits that flag.
-3. The accessory must answer state 2. After checking that state, the engine asks for the PIN; only after PIN validation does it require the salt and public key. For persistent setup this is when `pin_required` is emitted, before SRP M3/M4.
-4. The PIN must contain 4–8 ASCII digits. Transient uses fixed PIN `3939` and does not ask the UI. Persistent waits on its internal PIN channel after notifying the desktop. The SRP salt must be nonempty and at most 64 bytes, and the server public value must be nonempty, at most 384 bytes, and nonzero modulo the SRP prime. A zero scrambling parameter is rejected.
-5. The client sends state 3 with its public value and proof, then requires state 4 and a server proof that matches in constant time.
+1. Empty `POST /pair-pin-start`; transient sends `X-Apple-HKP: 4`, persistent sends `3`.
+2. `POST /pair-setup` state 1; transient includes TLV `0x13 = 0x10`.
+3. Require state 2, request/validate the PIN, then require the salt and server public key.
+4. Require 4–8 ASCII digits; salt is nonempty and at most 64 bytes, server public value nonempty and at most 384 bytes/nonzero modulo the prime, scrambling parameter nonzero.
+5. Send state 3 client public/proof; require state 4 and a constant-time-matching server proof.
 
-The result is the SRP session key. Transient stops here; persistent continues into the identity exchange. The code uses the 3072-bit group, generator 5, SHA-512, and `Pair-Setup` as the SRP username ([auth.rs:12–24,47–91,96–138](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/auth.rs#L12)).
+The code uses the 3072-bit SRP group, generator 5, SHA-512 and username `Pair-Setup`. Transient uses fixed PIN `3939`, enables control encryption from the SRP key and writes no credential. The next absent-credential start repeats the exchange.
 
-## Transient setup, on start with no file
-
-`transient` enables the control cipher from the SRP key and returns that key. Nothing is written to disk. The accessory is not remembered. The next `start` with no file repeats this exchange.
-
-Control keys are HKDF-SHA512:
-
-| Direction | Salt | Info |
-| --- | --- | --- |
-| Engine write | `Control-Salt` | `Control-Write-Encryption-Key` |
-| Engine read | `Control-Salt` | `Control-Read-Encryption-Key` |
-
-From this point the control socket speaks HAP records. A bad incoming tag raises `WireError::Authentication`, ending the playback/member path. The parser does not set its `poisoned` flag on a receive/tag error; that flag is set when a socket write fails ([rtsp.rs:122–160,177–194](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/rtsp.rs#L122)).
+Messages use TLV8 with octet-stream bodies. Repeated tags concatenate, truncated fields fail, and TLV tag 7 means rejection. `/pair-` paths use HTTP rather than RTSP. ChaCha20-Poly1305 identity messages put their eight-byte nonce label in the last eight bytes of a twelve-byte nonce. These are verified repository wire choices, not imported protocol behavior. [TLV/identity framing](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/crypto.rs#L67) and [request framing](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/rtsp.rs#L278) own them.
 
 ## Persistent setup, the Pair button
 
-`pair_prompt` uses the persistent SRP prefix, then:
+[pair_prompt](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/auth.rs#L163) completes SRP, generates a new Ed25519 controller key and UUID, and signs derived controller-sign bytes plus controller id/public key. Those derived bytes are signed-message content, not the Ed25519 signing key. It seals M5 with `PS-Msg05`, requires M6, opens `PS-Msg06` and verifies the accessory signature.
 
-1. Draws a new Ed25519 controller key and a new UUID controller id.
-2. Derives the controller-sign bytes from the SRP key (`Pair-Setup-Controller-Sign-Salt` / `Pair-Setup-Controller-Sign-Info`), then signs `derived bytes || id || public` with the new Ed25519 private key. The HKDF bytes are part of the signed message, not the Ed25519 signing key.
-3. Seals that identity as pairing state 5 with label `PS-Msg05`.
-4. Requires state 6, opens it with label `PS-Msg06`, and checks the accessory Ed25519 signature over `accessory-sign-info || accessory id || accessory public`.
-5. Returns `Credentials`: accessory id bytes, 32-byte accessory public key, controller id bytes, and 32-byte controller secret. The authenticated accessory id from M6 is distinct from the `/info` `deviceID` used for the filename; the code does not compare the two during pairing ([auth.rs:163–235](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/auth.rs#L163)).
+The returned credential holds accessory id/public key and controller id/secret. Pairing does not compare M6 accessory id with the `/info` filename key. [the Pair worker](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/main.rs#L288) saves current-user DPAPI credentials only after that authenticated exchange, emits `paired`, and leaves the command loop alive. It does not enable playback control encryption, send SETUP or bind PTP/NTP. Desktop cleanup disposes the pairing process; a later playback process uses pair-verify.
 
-This connection does not call `enable_control` and does not send SETUP. The engine writes the DPAPI file and emits `paired`. The desktop closes that process. Playback is a later process, which loads the file and uses pair-verify.
+[PairMembersAsync](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/SessionController.cs#L561) pairs members leader first, one process per member. Successful completion of all members proceeds to playback in a fresh process. Blank/cancelled dialog results publish Idle and prevent playback. The desktop PIN token and native channel wait are each 120 seconds; native cancellation is polled every 100 ms. Token timeout can publish Error rather than the blank-result Idle path.
 
-The desktop opens one pairing process per member, leader first. A blank/cancelled dialog result publishes Idle and does not send `start`. The engine and desktop each set a 120-second PIN wait; the engine polls cancellation every 100 ms. A desktop PIN-token timeout throws through `PinDialog` and may publish Error, rather than the blank-result Idle path ([main.rs:272–291](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/main.rs#L272), [SessionController.cs:396–427](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L396)).
+## PIN representation
 
-The dialog enables Pair when the box holds 4–8 ASCII digits and every other character is a dash (text box maximum 16 characters). It sends the text unchanged. The engine requires the entire string to be 4–8 bytes and all digits, so a dash the dialog permits is rejected as `PIN must contain 4..8 digits` ([PinDialog.cs:10–36](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/PinDialog.cs#L10), [auth.rs:113–117](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/auth.rs#L113)).
+[PairingPin.Normalize](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/PairingPin.cs#L3) rejects inputs longer than 16 characters or containing anything except ASCII digits and ASCII `-`, removes dashes, then requires 4–8 digits. [PinDialog](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Ui/PinDialog.cs#L10) uses it for Pair enablement and the returned value. Thus synthetic `12-34` submits `1234`; whitespace, Unicode digits/dashes, letters and out-of-range lengths cannot submit.
+
+Typing filters characters; pasted textbox content still passes the same enable/submission check. The single-line WPF box can truncate at a newline first: a clipboard value ending `1234` plus newline becomes textbox `1234` and validly submits that prefix. This is tested separately from direct invalid-text assignment. [pair_pin submission](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/SessionController.cs#L579) forwards the normalized dialog value. Native [strict PIN validation](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/auth.rs#L113) remains unchanged. A formatted all-digit PIN being accepted locally does not prove that a real receiver accepts it.
 
 ## Pair-verify, on start with a file
 
-`verify` does not use the SRP PIN.
+[verify](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/auth.rs#L237) sends a fresh X25519 public key with `X-Apple-HKP: 3`, requires state 2 and a contributory peer key, derives the shared secret, and opens `PV-Msg02`. It requires the accessory id to equal the saved id and verifies its Ed25519 signature over peer public/id/our public. It signs our public/controller id/peer public with the saved secret, seals `PV-Msg03` and requires state 4.
 
-1. `POST /pair-verify` state 1 with a fresh X25519 public key and `X-Apple-HKP: 3`.
-2. Requires state 2, the accessory public key, and an encrypted blob.
-3. Derives the shared secret. A non-contributory X25519 key fails.
-4. Opens the blob with label `PV-Msg02` under `Pair-Verify-Encrypt-Salt` / `Pair-Verify-Encrypt-Info`.
-5. Requires the accessory id inside the blob to equal the id stored in the file, and checks the accessory signature over `peer public || accessory id || our public`.
-6. Signs `our public || controller id || peer public` with the stored controller secret, seals it as state 3 with label `PV-Msg03`, and requires state 4.
-
-The control cipher is then enabled from the X25519 shared secret, not from an SRP key. The same Control-Salt names are used. Event and audio keys are derived later from this same secret: events-read, events-write, and the RTP key, which is the events-write key. Those derivations are in [Engine](engine.md).
+Control keys use HKDF-SHA512 `Control-Salt` with `Control-Write-Encryption-Key` and `Control-Read-Encryption-Key`; this path derives them from X25519, transient from SRP. Later events/audio derivations are in [Engine](engine.md). Receive tag errors end authentication/transport; write failure additionally poisons subsequent socket writes.
 
 ## Failures
 
-A missing salt, bad state, invalid PIN, SRP proof mismatch, accessory id mismatch, or signature mismatch returns an error. During playback, `Fault::from_error` runs on the authentication exchange and rewrites its generic `protocol_error` to `authentication_failed`, keeping retryable false. A socket closure, timeout, or other I/O failure during that same exchange keeps its transport code and can be retryable. Credential-load errors occur before this authentication wrapper and are classified by the outer `setup` wrapper; a DPAPI/load failure is not guaranteed the `authentication_failed` code ([session.rs:235–251,534–546](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/session.rs#L235), [transport.rs:63–110](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/transport.rs#L63)).
+Authentication protocol/crypto errors map generic `protocol_error` to final `authentication_failed`. Transport closure/timeouts within authentication keep their transport code and may retry. Credential storage errors occur before that wrapper: the outer member setup wrapper can report `protocol_error` (final) or I/O `socket_error` (retryable). Error preservation is not a promise that every credential error has an authentication code. [authentication selection](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/session.rs#L200) and [Fault classification](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/transport.rs#L63) establish this distinction.
 
-The desktop respects explicit `retryable: false` or true. Its authentication keyword scan is used only if the flag is absent. Persistent pairing failures use `error_event`'s keyword fallback unless already a structured `Fault`; pairing is not in the desktop playback-retry loop. PIN errors such as `PIN must contain 4..8 digits` and `PIN entry timed out` can therefore appear as `engine_error` with retryable true, although the pairing workflow still stops ([main.rs:305–310](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/main.rs#L305), [SessionController.cs:388,422](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L388)).
-
-A failed pair-verify never falls back to transient setup on that connection. Transient is chosen before the exchange when no credentials were loaded, including missing/empty `/info` identity. Persistent pairing replaces the file only after authenticated M6 succeeds.
+Desktop playback honors explicit retryability. Pairing stops on failure and has no playback retry loop; raw PIN errors can use the generic worker fallback rather than an authentication code. No failed stored verification switches methods.
 
 ## Source verification and coverage
 
-Source audit of runtime baseline upstream `41190e0` in the `c077a05` documentation baseline. Existing tests are evidence of intended contracts; reading a test is not a record of executing it.
+Current [PIN tests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/PairingPinTests.cs#L27), [loader fault fixtures](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/credentials.rs#L203), [authentication selection fixtures](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/session.rs#L793), [synthetic persistent/verify tests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/auth.rs#L438) and the WPF pairing harness cover boundaries, actual fake `pair_pin` payloads, cancellation, temporary-root DPAPI and exactly-one-method/error paths. [Group E acceptance](../issues/GROUP-E-ACCEPTANCE.md) preserves the separately executed earlier 225-modal-check run and failing error-hiding control; those earlier results are not relabelled as a new run at main.
 
-| Contract | Existing evidence |
-| --- | --- |
-| Independent SRP output and invalid server public key | [auth_vector.rs:9](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/tests/auth_vector.rs#L9), `independent_srp_vector`; [auth.rs:324–325](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/auth.rs#L324) |
-| Persistent M6 signature required | [auth.rs:438–451](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/auth.rs#L438), `persistent_pair_requires_valid_accessory_signature` |
-| Pair-verify checks accessory identity, controller proof, and encrypted control | [auth.rs:454–540](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/auth.rs#L454), `persistent_verify_encrypts_control_and_rejects_identity_swap` |
-| TLV fragmentation/rejection and HAP length/sequence authentication | [crypto.rs:120–148](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/crypto.rs#L120) |
-| Blank PIN stops playback; stereo pairs pair separately | [SessionTests.cs:226–238](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L226) |
+The [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) separates executed verification from source inspection: exact-source main CI passed 667 Core, 124 Python and 69 native tests, with recording-device qualification and the thirty-minute localhost soak ignored. Complete packaged integration at `4ae1db4` passed six portable UI runs (1,059 assertions each), three actual 125% DPI runs (40 each) and disposable-runner installer checks; the runtime/package inputs at `8989b36` are identical and its final commit changes documentation only. This documentation refresh did not rerun those suites or use real endpoints, credentials, capture or receivers.
 
-These tests use synthetic localhost accessories or fake desktop connections. They do not verify current HomePod firmware policies, successful on-device pairing, PIN UI timeout/dash handling, or production credential-file replacement. No real-device pairing or probe was performed in this audit.
+## Historical audit
+
+At original `41190e0`, the dialog enabled permitted dashed text but returned it unchanged, while native validation rejected it. Credential `Path::exists` could hide lookup failure as absence. Those two gaps are resolved in fork main; crypto exchanges remain unchanged. The [previous pinned page](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/docs/analysis/auth.md) retains the full dated audit/proposal record. Its “proposal only”, “not in fork main” and pending reboot statements are historical, not current status.

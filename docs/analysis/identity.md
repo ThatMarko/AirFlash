@@ -1,26 +1,14 @@
 # Identity
 
-## Verified state — 2026-10-12
+This page describes fork `main` at **`8989b3609dd1294f4d1d6eb1502f345cc22bc382`**, reviewed on 2026-10-12. It includes original stable `cf420d97700463c56adc31408510e8336e99e51c` and final B/C selection/load fixes. [Audit](audit.md) and [current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) distinguish the current integrated source from historical observations.
 
-Stable base `cf420d97700463c56adc31408510e8336e99e51c` is integrated with pushed B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b` and C `5d72da3b77b4ac72f858966baef04b8a4ad8b1ad` in tested fork runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`. The earlier unchanged-file and unpushed/reboot statements refer to their explicitly older audits, not the final tree.
+Catalog identity, explicit selection identity and native credential identity have separate ownership. The catalog's pure normalization/migration does not authenticate a receiver. A manual row preserves its own endpoint/port/options; the accessory `GET /info deviceID` remains the current-user DPAPI credential key.
 
-[ReceiverSelection](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.Core/ReceiverSelection.cs) preserves an explicit manual row and an explicitly selected group. Discovered-member redirection needs unique live canonical/broadcast-alias ownership; address or address-plus-port alone is not a fallback in this implementation. The selected manual endpoint, port, identity and preferences therefore remain authoritative even when a discovered stereo group shares an address. Ambiguity fails before a command.
-
-Identity persistence still uses ReceiverCatalog migrations. Its asynchronous [application consumer](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.App/ViewModels/AppViewModel.cs) captures snapshot/owner/intent together before saving, accepts fresh state only for that same authority, and guards retargeting under controller serialization. Valid same-owner promotion remains possible through metrics and Pairing; changed signatures retain their applicable restart behavior. C validates loaded manual rows before this pipeline. Catalog identity never replaces accessory `/info deviceID` as the credential key.
-
-Upstream PR #19 fixes bounded discovery-retention cases, not manual routing or serialized ownership. B remains separate fork scope; PR #15 is closed without merge. B refresh passed 139 focused/304 Core checks, Release build, 764 English UI checks with Chinese regional culture and the new 28-check stability command. See [B acceptance](../issues/GROUP-B-ACCEPTANCE.md); current tests use synthetic identities and no credential store or receivers.
-
-## Historical local-main audit — 2026-10-10 (9e894ab)
-
-The detailed identity/catalog analysis below is pinned to `41190e0`. The `Receiver`, `ReceiverIdentity` and `ReceiverCatalog` production files remain byte-for-byte unchanged in local main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`, as confirmed by the source diff. The later selection stage changed: [ReceiverSelection.ResolvePlayback](../../desktop/AirFlash.Core/ReceiverSelection.cs) preserves explicit manual/group identity and routes discovered members only through canonical identity or confirmed broadcast aliases with unambiguous live ownership. Address-only stereo substitution has been removed; syntactically classifying an id as broadcast still does not authenticate a receiver.
-
-All final B/C/D changes are now integrated into local main. C's [SettingsStore.Load](../../desktop/AirFlash.Core/SettingsStore.cs) normalizes collections/aliases and validates before these catalog callers consume loaded manual rows, preserving malformed originals before replacement. B's current pushed feature is `0a2c1ac`; PR #15 remains closed without merge. C/D remain unpushed/unpublished. Historical feature/composition tests retain their own source boundaries; no application/build/test execution occurs in this merge audit, and new main testing is deferred until after reboot. See [integration acceptance](../issues/ABCD-INTEGRATION-ACCEPTANCE.md).
-
-[`ReceiverCatalog.Reconcile`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverCatalog.cs#L8) runs on every discovery list before the view model updates its known map and panel. It clones the input settings, returns rewritten records and migrations, and performs no file or network I/O. Reconciliation also runs during playback, when receiver sockets already exist. The trigger around it is in [After discovery](after-discovery.md). Credentials are not an input. See [Credentials and IPC](credentials-and-ipc.md).
+[`ReceiverCatalog.Reconcile`](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/ReceiverCatalog.cs#L8) runs on every discovery list before the view model updates its known map and panel. It clones the input settings, returns rewritten records and migrations, and performs no file or network I/O. Reconciliation also runs during playback, when receiver sockets already exist. The trigger around it is in [After discovery](after-discovery.md). Credentials are not an input. See [Credentials and IPC](credentials-and-ipc.md).
 
 ## Two kinds of id
 
-[`ReceiverIdentity`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverIdentity.cs) splits strings into broadcast identities and endpoints.
+[`ReceiverIdentity`](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/ReceiverIdentity.cs) splits strings into broadcast identities and endpoints.
 
 A broadcast identity is a nonempty normalized string that is not a `stereo:` id, not an `endpoint:` id, and not a parsed endpoint. A 12-digit hex MAC is stored lowercase with `:` and `-` removed. `AA:BB:CC:DD:EE:01` and `aabbccddee01` are synthetic examples that compare equal. Any other string is kept as trimmed, case-sensitive text. `IsBroadcast` is a syntactic classification; it does not authenticate the advertisement or require that the id actually appeared in DNS-SD.
 
@@ -78,7 +66,7 @@ Each accepted alias is recorded in the migration map as `alias -> canonical`. If
 
 The target key receives that merged record. The other keys are removed from `settings.Receivers`. `LastReceiverId` is replaced when the migration map contains it and the id is not manual.
 
-`NeedsBackup` is true when any previous preference key or the previous last-used id actually changes. The view model then copies `config.json` to `config.json.pre-receiver-identity.bak` once, on the first such save.
+`NeedsBackup` is true when a previous preference key or last-used id actually changes. The view model requests the identity-backup save; `SettingsStore.SaveReceiverIdentityAsync` preserves `config.json.pre-receiver-identity.bak` on the first requested save when that backup is absent, then uses the shared recovery/save path.
 
 ## What stays put
 
@@ -89,24 +77,24 @@ The target key receives that merged record. The other keys are removed from `set
 
 `ReceiverIdentityTests` locks the edges: transitive merge in either service order, case-sensitive `pk`, MAC-shaped settings keys, ambiguous endpoints left unmigrated, manual ids left beside an automatic row at the same address, and a failed backup leaving the original file untouched.
 
+## Explicit playback selection
+
+[ReceiverSelection.ResolvePlayback](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/ReceiverSelection.cs) immediately keeps explicit manual and group rows. Other selections resolve only through normalized canonical id or confirmed broadcast alias among online non-manual peers. More than one physical identity or group owner rejects. A standalone competing alias owner also makes group routing ambiguous. Address or address-plus-port equality is **not** a fallback; an endpoint-shaped canonical member id can match by that exact id, not by an inferred address association.
+
+[AppViewModel.ToggleAsync](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L434) rechecks discovered availability/completeness and hidden options before new playback. Pair uses the same selection resolver. Both preserve manual endpoints beside complete, incomplete or hidden groups; no new manual credential namespace is created.
+
+## Identity persistence and session authority
+
+The application captures snapshot/lifecycle owner/intent together before awaited identity saving. After a valid save, migrations remain useful even if a newer session exists, but retargeting requires the original authority after the await **and** under controller serialization. Ordinary metrics and native retries retain that owner. Same-id replacement or newer explicit intent invalidates old control work. Same-owner promotion can retain the engine when its effective signature is unchanged; promoted latency or transport changes can cause the applicable owned restart. See [After discovery](after-discovery.md) and [Session](session.md).
+
+[SettingsStore.Load](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/SettingsStore.cs) validates loaded manual structure before this consumer pipeline, while preserving raw rejected/migrated bytes and future-schema refusal. Valid nullable display names/overrides and root/equalizer extension fields remain compatible. Manual host validation does not perform DNS or impose every add-dialog syntax rule.
+
 ## Source and verification scope
 
-| Claim group | Source anchors |
-| --- | --- |
-| Normalization, endpoint syntax, broadcast classification, alias walk | [`ReceiverIdentity.cs:7–46`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverIdentity.cs#L7) |
-| Physical owners, clone, flattening and backup decision | [`ReceiverCatalog.cs:8–30`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverCatalog.cs#L8) |
-| Member candidates, canonical priority and transient endpoints | [`ReceiverCatalog.cs:32–76`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverCatalog.cs#L32) |
-| Preference merge, last id and covered members | [`ReceiverCatalog.cs:82–108`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverCatalog.cs#L82) |
-| Persistent alias filtering and backup write | [`SettingsStore.cs:43–48, 80–84`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SettingsStore.cs#L43) |
-| Separate credential key and filename | [`session.rs:231–238`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/session.rs#L231), [`credentials.rs:25–33`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L25) |
+Current [ReceiverIdentity](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/ReceiverIdentity.cs), [ReceiverCatalog](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/ReceiverCatalog.cs), [ReceiverSelectionTests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/ReceiverSelectionTests.cs), [ReceiverIdentityTests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/ReceiverIdentityTests.cs), [SessionLifecycleTests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/SessionLifecycleTests.cs) and WPF [UiSessionLifecycle](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Verification/UiSessionLifecycle.cs) cover normalization, live-owner conflicts, alias migration, backup failure, exact manual commands, delayed persistence/Pair, same-id replacement, metrics during promotion and unchanged/changed signatures. Executed results are source-bound in [B acceptance](../issues/GROUP-B-ACCEPTANCE.md) and [C acceptance](../issues/GROUP-C-ACCEPTANCE.md).
 
-[`ReceiverIdentityTests`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L16) supplies direct tests of these pure catalog paths, including alias persistence across service loss/address change (line 119), canonical versus preference priority (lines 148–175), manual/ambiguous endpoint protection (lines 178–213), stale live-owner protection (line 224), address reuse (line 233), and both backup outcomes (lines 242–272). The tests do not establish that arbitrary malformed or hand-written settings satisfy every invariant; `Load` sanitizes aliases, but manual ids and preference keys are not all normalized on load. The catalog, not the credential store, owns these migrations.
-
+Current main's build/Core/CI qualification is complete; this documentation pass audits source and evidence. No real identities, endpoints, credentials, DNS or pairing are read/run here. Catalog tests do not establish arbitrary Windows discovery/authentication behavior.
 
 ## Implemented Group B behavior
 
-The preceding baseline audit describes `41190e0`. Initial B at `342aeb77cb85ff6f3f7f850161b3db79d8637945` was integrated historically at `72dc7c7`; later production follow-up `11c6046` and verification-only fixes advanced the pushed feature to `0a2c1ac`. All are now ancestors of local main `9e894ab`. B remains unmerged upstream with PR #15 closed. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate dated test evidence.
-
-Manual selection preserves its exact host, port, id and independent options beside complete, incomplete or hidden discovered groups. An explicitly selected group stays selected. A discovered member resolves only through its canonical id or confirmed broadcast alias with one live physical owner and one group owner across online non-manual peers. A conflicting standalone owner also makes the selection ambiguous and rejects it before an engine command.
-
-Address or endpoint equality is not a routing fallback; endpoint aliases alone do not prove ownership. Catalog alias migration, permitted automatic-attempt resets, independent manual persistence and schema 2 remain intact. Credentials still use the accessory `/info deviceID` and current-user DPAPI; selection creates no new credential namespace. Pure selection tests and fake command-capture cases are recorded in the checklist.
+This heading is retained for existing cross-links. The implemented selection/persistence contracts are the current narrative above. At [historical `41190e0`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292), Toggle substituted the first stereo group by shared address. Group B removed that branch and added serialized ownership; final B `442e8d8` is integrated in current main. Original stable `cf420d9`'s [PR #19](https://github.com/Ding-Kyoma/AirFlash/pull/19) covers passive retention, not exact manual routing/atomic admission. Old [PR #15](https://github.com/Ding-Kyoma/AirFlash/pull/15) is closed without merge at its older snapshot. Earlier branch/composition results remain dated in acceptance records, not current publication or pending-reboot status.

@@ -1,81 +1,38 @@
-# [MEDIUM] Playing a manual receiver redirects to a stereo group by address alone
+# [MEDIUM] Explicit manual playback keeps its requested endpoint and identity
 
-## Verified update — 2026-10-12
+- **Status**: Implemented, pushed and integrated in fork `main` `8989b3609dd1294f4d1d6eb1502f345cc22bc382`.
+- **Group / feature**: B, `codex/fix-session-lifecycle`, `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`.
+- **Stable comparison**: `cf420d97700463c56adc31408510e8336e99e51c`/PR #19 do not fix this routing rule.
+- **Original severity**: MEDIUM explicit manual target replaced by another group/port at `41190e0`.
+- **Plan / evidence**: [ISSUE-11](IMPLEMENTATION_PLAN.md#issue-11), [B acceptance](GROUP-B-ACCEPTANCE.md), [current acceptance](CONTINUATION-ACCEPTANCE.md).
+- **Analysis**: [Identity](../analysis/identity.md), [After discovery](../analysis/after-discovery.md).
 
-- **Status**: Implemented in pushed B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`, based on stable `cf420d97700463c56adc31408510e8336e99e51c` and integrated into tested runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`; this manual-routing scope is not fixed by PR #19.
+## 1. Current behavior
 
-[ResolvePlayback](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.Core/ReceiverSelection.cs) preserves exact manual and explicitly selected group rows. Discovered members need a unique online canonical/broadcast-alias owner; this implementation has no address-only or address-plus-port ownership fallback. Shared-address/different-port manual selections retain their endpoint, identity and preferences. Ambiguous ownership fails before a command, and new playback on incomplete/hidden groups remains ineligible. Catalog identity does not replace accessory `/info deviceID` as the credential key.
+[ReceiverSelection.ResolvePlayback](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/ReceiverSelection.cs) immediately retains an explicit manual row or selected group. Manual host/port/id/preferences remain authoritative beside discovered complete, incomplete or hidden groups sharing its address.
 
-B passed 304 Core/build, 764 English UI checks with Chinese region and 28 stability checks; [acceptance](GROUP-B-ACCEPTANCE.md) includes fake command target assertions for routing, incompleteness and ambiguity. No receiver or credential store was accessed. Original routing/severity/missing-test statements below describe `41190e0`, not current stable or fork behavior.
+Discovered member selection needs unique online canonical identity or confirmed broadcast-alias ownership. Distinct physical owners, including a competing standalone alias owner, or multiple group owners reject as ambiguous before command creation. There is **no address-only or address-plus-port ownership fallback**. An endpoint-shaped canonical member id may match exactly by id, not inferred address.
 
-- **Issue ID**: ISSUE-11
-- **Implementation plan**: [Work package ISSUE-11](IMPLEMENTATION_PLAN.md#issue-11)
-- **PR group**: B — Session lifecycle
-- **Severity**: MEDIUM — an explicit manual-row selection can target a different receiver/group and port.
-- **Kind**: Defect
-- **Subsystem**: Desktop receiver selection
-- **Historical status (2026-10-10)**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
-- **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
-- **Evidence status**: The original audit inspected source without executing the proposed command-capture scenario. Subsequent isolated baseline observation reproduced manual endpoint redirection; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No real receiver was contacted.
-- **Historical implementation status (2026-10-10)**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
-- **Target file**: [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292)
-- **Analysis context**: [After discovery](../analysis/after-discovery.md), [Identity](../analysis/identity.md)
+[ToggleAsync](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L434) rechecks discovered availability/completeness and hidden options before Play. Pair shares the selection resolver but requires online/completeness, not the Play hidden gate; a hidden Settings row can still have Pair available. Credential identity remains accessory `GET /info deviceID`, not catalog/manual id.
 
-## Historical local implementation — 2026-10-10 (9e894ab)
+## 2. Historical root cause and observation
 
-`ReceiverSelection.ResolvePlayback` immediately preserves manual and explicitly selected group rows. An automatic member can resolve only by canonical id or confirmed broadcast alias among online non-manual peers, with unique physical identity and group ownership. Shared address/port alone is not an ownership fallback. Ambiguity fails before an engine command. `ToggleAsync` rechecks discovered availability and hidden options before start, while manual endpoints and credential identity remain independent.
+At [41190e0 Toggle](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L295), the first group containing a member with the clicked address replaced the selection regardless of manual status, port, id or alias. A synthetic manual `192.0.2.10:7001` could therefore send two group peers on port 7000; an incomplete group could reject an otherwise valid manual target. Catalog coexistence protections did not govern that later branch.
 
-Source audit: [AppViewModel](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs), [SessionController](../../desktop/AirFlash.Core/SessionController.cs), [ReceiverSelection](../../desktop/AirFlash.Core/ReceiverSelection.cs) and their [lifecycle](../../desktop/AirFlash.Tests/SessionLifecycleTests.cs), [selection](../../desktop/AirFlash.Tests/ReceiverSelectionTests.cs) and [WPF](../../desktop/AirFlash.App/Verification/UiSessionLifecycle.cs) assertions were read against source main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. No application/build/test execution occurs in this audit. The following original behavior/proposal/coverage statements remain pinned to `41190e0`; missing-fixture statements describe that baseline, not the current test tree.
+Original isolated fake command observations failed desired manual target assertions; B acceptance records them. The fixed resolver adopts the stricter identity-only ownership option from the original proposal. No receiver/credential/network routing incident is inferred.
 
-## 1. Original baseline behavior
+## 3. Regression coverage and acceptance
 
-The catalog deliberately preserves a manual receiver independently of a discovered device at the same endpoint. `ToggleAsync` nevertheless replaces any clicked receiver with the first known stereo group whose member has the same address. The lookup does not require a non-manual receiver, matching port, member id, or confirmed alias.
+Current [ReceiverSelectionTests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/ReceiverSelectionTests.cs) and WPF [UiSessionLifecycle](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Verification/UiSessionLifecycle.cs) assert exact manual single peer/port/id/last-used/options, complete/incomplete/hidden groups sharing an address, preserved explicit group, canonical/broadcast member routing, ambiguous groups/physical aliases and missing address fallback.
 
-A manual receiver at `192.0.2.10:7001` can therefore start a discovered pair whose member is at `192.0.2.10:7000`. The playback command then contains both pair peers and the pair becomes last-used. With an incomplete pair, the same redirection can reject an otherwise complete manual row instead. This is a selection problem before JSONL dispatch, not an engine routing or credential problem. See [After discovery](../analysis/after-discovery.md), [Identity](../analysis/identity.md), and [Settings](../analysis/settings.md).
+- Manual Play sends only its requested peer and retains its identity.
+- Explicit group starts its complete peers.
+- Confirmed member routes only to its unique owner.
+- Ambiguous or unavailable discovered selection sends no Start.
+- Manual persistence/session health remains independent of discovery.
 
-## 2. Root cause
+Current integrated **667 Core** and six complete packaged **1,059-assertion** UI runs pass; B acceptance binds narrower branch checks, decisive baseline failures and independent review. Fixtures use synthetic identities/counted fake commands without credential access.
 
-[AppViewModel.cs:295–297](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L295):
+## 4. Compatibility and publication
 
-```csharp
-var group = AllReceivers.FirstOrDefault(r => r.IsGroup
-    && r.Members.Any(m => m.Address == receiver.Address));
-if (group is not null) receiver = group;
-```
-
-The substituted receiver is passed to Session and persisted as last-used ([304–307](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L304)). Manual rows are separately constructed with `IsManual = true` ([222–227](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L222)); identity reconciliation excludes manual ids from migrations ([ReceiverCatalog.cs:10–11,35–38,66–71](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverCatalog.cs#L35)). That catalog protection does not govern this later address-only branch.
-
-## 3. Original mock reproduction plan
-
-Use the WPF dispatcher harness, in-memory settings, fake discovery/audio, and a fake engine capturing JSONL command parameters. The existing [MockFactory.Commands](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiSmoke.cs#L344) can capture `start` without opening sockets.
-
-1. Persist manual M with host `192.0.2.10`, port `7001`, and its own endpoint id. Disable auto-connect and force reconnect.
-2. Publish a complete stereo row `stereo:fixture` with members A at `192.0.2.10:7000` and B at `192.0.2.11:7000`. Both addresses are documentation-only fixtures; the fake factory must never connect to them.
-3. Wait for both the group and manual row to appear, then call `ToggleAsync` with M while the session is Idle.
-4. Source-predicted result: `Session.Snapshot.Receiver.Id` and `LastReceiverId` become `stereo:fixture`, and captured `start.params.peers` contains two peers on port 7000 instead of M's single peer on port 7001.
-5. Repeat with a one-member group. Source-predicted result: the manual click is substituted with an incomplete group and rejected by [SessionController.StartAsync](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L176).
-
-The positive comparison is explicit: choosing M should send one peer with its requested host/port and keep M's id. A separate automatic member click may intentionally resolve to its confirmed stereo owner.
-
-## 4. Original architecture proposal
-
-Never substitute a manual selection with a discovered group. Preserve its explicit host, port, id, options, and independent lifecycle. For an automatic individual-member selection, resolve the owning group by canonical member id or confirmed broadcast alias; if an endpoint fallback is required, compare normalized address and port and require one unambiguous owner. An already selected group should remain that same group.
-
-Keep manual preferences independent of discovered preference records, and do not use address equality as proof of physical identity. Native credentials remain DPAPI-encrypted and keyed by the accessory `deviceID` returned by `GET /info`; manual/catalog row ids do not create separate credential namespaces. Preserve complete-group validation for actual group starts and existing identity migration protections. This fix can stay within desktop selection; config schema 2 and JSONL v1 need no change.
-
-## 5. Acceptance criteria and verification
-
-- Clicking a manual row at a stereo member's address starts exactly its one requested endpoint, including a differing port, and retains the manual id as active/last-used.
-- The same guarantee holds when the matching discovered group is incomplete or hidden.
-- Clicking the stereo row starts its two peers normally; clicking a confirmed automatic member routes only to its own unique group.
-- Same address/different port and ambiguous group ownership cannot trigger substitution by address alone.
-- A manual stream remains exempt from ordinary discovery-loss handling; its own stop/error cleanup remains functional.
-- Existing manual and automatic preference records remain independent.
-
-The [manual identity test](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L178) and [UI identity harness](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L197) establish coexistence, not selection behavior at a shared stereo-member address. The [stereo harness](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L222) starts the group itself. A manual-click command-capture assertion and an incomplete-group negative case are missing.
-
-Safety: fake engine only; no discovery service, receiver pairing, real addresses, or credentials. Any later authorized audio probe retains gain ≤0.1 and duration ≤5 seconds. No upstream issue #6/#7 or dev relationship is claimed.
-
-## Executed implementation and fork integration
-
-The source and proposed-fixture discussion above describes the original `41190e0` audit. [Group B acceptance](GROUP-B-ACCEPTANCE.md) records reproduced original-base failures, implementation/follow-up commits and their executed Core/WPF evidence. Current pushed B `0a2c1ac` is now included in local main `9e894ab`; original upstream has merged A/scrolling, while B PR #15 remains closed without merge. [Combined acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) keeps earlier tested compositions separate from this merge's deferred main testing. No hardware incident is attributed to this defect.
+Schema 2/JSONL v1, independent manual preferences, complete new stereo groups, current-user DPAPI/accessory keys and exact local mute restoration remain compatible. The fork branch is pushed/integrated; old PR #15 remains closed and coherent B upstream publication is separate.

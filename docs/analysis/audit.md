@@ -1,184 +1,103 @@
 # Analysis source audits
 
-## Current implementation map — 2026-10-11 stable refresh
+## Current implementation map — 2026-10-12
 
-All eight groups are implemented in the fork, integrated on current code source `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1` against verified original stable `cf420d97700463c56adc31408510e8336e99e51c`. The preceding `107174a` portable composition passed its complete UI/DPI/MSI qualification; the newer change corrects only an inherited EQ fixture and a source comment. Current Core tests pass 667 cases in both configurations; exact-source normal CI and unofficial portable/UI/MSI qualification both pass. [Current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) binds actual checks to source and distinguishes local fakes, hosted native/package checks and unqualified hardware behavior. New dated implementation sections on the subsystem pages supersede earlier proposal/current-state wording; the pinned `41190e0` and subsequent audit sections remain historical evidence.
+This audit describes **your fork's `main` at `8989b3609dd1294f4d1d6eb1502f345cc22bc382`**. It includes freshly verified original stable `cf420d97700463c56adc31408510e8336e99e51c` and all ten implementation heads: Groups A–H, scrolling and installer refresh. Every report in `docs/issues` is implemented here; public integration and hardware qualification are separate.
 
-The map now includes error-preserving accessory credential reads/ASCII PIN normalization, exact process-owned IPC terminal rejection routing/truthful EQ preparation outcomes, a separate owned mute-recovery journal, optional local output-padding metrics and Monitor diagnostics access. Recording capture from current stable is preserved: the actual opened recording endpoint is excluded from all mute access, and native capture direction/identity selection remains authoritative. DNS resolve ownership is reclaimed only after helper-process exit, not merely timeout, reply or Cancel success. WPF and Rust continue to communicate only through JSONL v1.
-
-A and scrolling are upstream; PR #19 partially overlaps B, whose atomic ownership/admission/manual selection remains separate fork scope. C–H are not upstream integrations. Historical statements that E–H are unimplemented, that no durable mute journal exists, or that execution awaits reboot do not describe this current source.
-
-## Continuation on 2026-10-11
-
-The [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
-
-## Original audit — 2026-10-06
-
-All sixteen original files in `docs/analysis/` were read and checked against their implementation, callers, state transitions, and relevant test sources. The resulting pages correct the claims that were false or too broad and identify what source inspection cannot establish. This report adds provenance and a cross-cutting verification record; the dedicated subsystem pages remain the detailed map.
+The desktop/native/scripts/installer/tests/workflow trees match tested code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`; `8989b36` adds private documentation. This update rewrites the subsystem/report narratives around that current production source, rather than requiring an appended correction to reinterpret an obsolete baseline body. [Current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) binds executed evidence to actual sources/binaries.
 
 ## Pinned evidence
 
-| Item | Audited identity |
+| Identity | Purpose |
 | --- | --- |
-| Fork/documentation baseline | `c077a0577de26ad7e44b8fd50f62456e12965fb0` (`origin/main` local ref at audit start) |
-| Runtime baseline | `41190e0d13a63a714c08dffe73ababca1804875c` (`upstream/main` local ref at audit start) |
-| Excluded development comparison | `67435a4e0df6a40e5e709e2b75dc9b24a457dda6`, inspected only to verify [upstream-dev.md](upstream-dev.md) |
-| Local audit branch | `codex/audit-analysis`, created from the clean fork baseline |
-| Allowed document changes | `docs/analysis/` only |
+| `8989b3609dd1294f4d1d6eb1502f345cc22bc382` | Current fork-main source reviewed here; pushed before this docs-only update |
+| `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1` | Code-identical complete packaged integration qualification |
+| `cf420d97700463c56adc31408510e8336e99e51c` | Original stable main already contained locally |
+| `41190e0d13a63a714c08dffe73ababca1804875c` | Historical original runtime audit and original defect traces |
+| `c077a0577de26ad7e44b8fd50f62456e12965fb0` | Historical documentation checkout, runtime unchanged from 41190e0 |
+| `67435a4e0df6a40e5e709e2b75dc9b24a457dda6` | Historical excluded upstream/dev comparison, never a runtime source base |
 
-`git diff 41190e0 c077a05 -- desktop native scripts tests` is empty: the documentation commit does not change those implementation/test trees. GitHub's commit endpoint also confirmed the fork commit's identity and documentation purpose. No remote branch was refreshed or treated as a moving source of truth; no development code was merged. There were no repository `AGENTS.md` instructions in the checked workspace or parent paths.
-
-The audit followed dependencies in both directions: DNS-SD callbacks through aggregation/catalog and view-model reconciliation; session commands through native validation/authentication/RTSP; capture through resampling/EQ/packetization/timing; and native events back through desktop state, volume, diagnostics, settings, and cleanup. Existing mock tests were read as evidence of intended coverage, not counted as passing without execution. External documentation is used only where an OS/API contract needs qualification; it does not substitute for this repository's behavior.
+Current source links pin **ThatMarko/8989b36**. Stable comparisons pin **Ding-Kyoma/cf420d9**. Original defects retain **Ding-Kyoma/41190e0**. A current Git checkout, an opened PR, a proposal and a real-device measurement are not interchangeable evidence.
 
 ## Coverage of every original page
 
-| Page | Verified touchpoints and material correction |
-| --- | --- |
-| [README](README.md) | Startup call order, default settings, process boundary, JSONL payload, and peer ownership. Pins the source separately from the docs commit; distinguishes a playback worker from its command process and native two-peer validation from discovered stereo membership |
-| [Discovery](discovery.md) | DNS-SD record parsing, interface selection, epochs, cache refresh, pending tokens, native operation ownership, and aggregation. Separates failed callbacks from lost callbacks and implementation assumptions from Windows API guarantees |
-| [After discovery](after-discovery.md) | Aggregation, compatible/conflicting endpoints, stereo rows, dispatcher reconciliation, manual/offline rows, and play/pair/auto-connect gates. Aggregation is on the discovery publisher's thread; reconciliation can affect an already running session. Attempted-receiver selection can block fallback to another row |
-| [Identity](identity.md) | Canonical-id precedence, alias normalization/walk, conflict ownership, migration of options and active ids. Endpoint aliases/migrations are distinct from the persisted broadcast-only `ReceiverAliases` map |
-| [Settings](settings.md) | Schema 1/2 loading, defaults, validation, migration, atomic save, three-way Apply, endpoints, shell, and update checks. Distinguishes settings serialization compatibility, draft/live state, and runtime behavior from proposed issue fixes |
-| [Session](session.md) | Start/pair worker, generation filters, DNS resolution, retry budgets, signature restarts, standby, volume/EQ events, and cancellation. Retry exhaustion remains Error; fault/pre-fault diagnostics survive a successful retry until a fresh playback start |
-| [Engine](engine.md) | Option validation, PTP/NTP creation, auth selection, sequential member setup, event/feedback/media watches, and teardown. Corrects PIN timing, exact feedback statuses, per-operation deadlines, native stereo limits, and worker lifetime |
-| [Authentication](auth.md) | Transient M1–M4, persistent M1–M6, pair-verify, control ciphers, PIN exchange, and credential identity. PIN prompt follows M2, before SRP proof. Failures after a positive file-existence check do not fall back to transient; authentication-phase network faults can remain retryable |
-| [Failures](failures.md) | Desktop outcomes, structured/fallback classification, native watches, process EOF/kill, and retry diagnostics. Stops are asynchronous/best effort; an error event does not by itself exit the process; 501 is not a transient feedback retry |
-| [Playback coupling](playback-coupling.md) | Empty/incomplete snapshot through StopAsync, auto-connect gating, diagnostic reset, manual exemption, and mute cleanup. Removes incident-log correlation as proof of a specific network trigger or healthy native watches |
-| [Capture and clocks](capture-clocks.md) | WASAPI formats/events, resampler, queue, QPC/Instant/SystemTime, pacing recovery, RTP sync and history. Partial underrun counts are not exact silence duration; queue cap/target describe local buffering, and the history age threshold is not a retention guarantee |
-| [Control and mute](control-and-mute.md) | MTA ownership, captured mute bits, restore failure/retry, RTSP mutex, poll/confirmation order, routing and PTP receive filters. Cleanup precedes restore, mutex wait is outside feedback timing, and readable settled volume is not stereo target confirmation |
-| [Credentials and IPC](credentials-and-ipc.md) | Engine extraction, pipe encodings/writers, line parser, command/event correlation, DPAPI format/path/save/load and pairing. Limits differ by direction and units; `hello` returns a reply rather than exiting the native command loop |
-| [Equalizer](equalizer.md) | Defaults/validation, filters/headroom, preview ownership, persistence, native mailbox, DSP and crossfade tests. An acknowledgement validates command preparation for a matching stored start entry; stale sequences can be silently ignored, and no audio-application completion event exists |
-| [Source check](source-check.md) | Rechecks both accepted and rejected earlier claims with code evidence. Qualifies underrun math, mute immediacy, routing, auth retryability, IPC bounds, EQ acknowledgement, and incident inference |
-| [Upstream dev](upstream-dev.md) | Pinned local diff and referenced development files only. Removes unsupported live branch/release-publication claims, bounds negotiation/fallback assertions, and preserves exclusion from baseline behavior |
+All seventeen analysis pages and all thirty-two issue/plan/acceptance/template files are reviewed. The per-file source/evidence receipt identifies callers, consumers, tests and material corrections. Separate pages remain because they describe distinct ownership boundaries.
 
-The separate pages are retained because they describe different ownership and failure boundaries. No original analysis page was deleted or consolidated into another topic. This report is the new seventeenth page.
+| Page | Current source and important boundary |
+| --- | --- |
+| [README](README.md) | Startup, architecture, source map and current status |
+| [Discovery](discovery.md) | Visibility-scoped demand, PTR-TTL cache, deadlines/token/epoch/backoff, exact-child exit and native browse settlement |
+| [After discovery](after-discovery.md) | Atomic authority through save, truthful catalog, active controls, automatic admission and manual routing |
+| [Identity](identity.md) | Canonical/broadcast/endpoint separation, preference migration and explicit unique selection |
+| [Settings](settings.md) | Both Load calls, exact-byte preservation, loaded validation, future-schema latch, Apply and shell |
+| [Session](session.md) | Owner/intent serialization, Pair/retry/process lifetimes, signatures, endpoint recovery, metrics |
+| [Engine](engine.md) | Native auth/RTSP/capture/timing/media watches and worker/command-loop distinction |
+| [Authentication](auth.md) | ASCII PIN, error-preserving credential read, exclusive auth path and accessory identity |
+| [Failures](failures.md) | Process-owned IPC rejection, fault/retry/detail/nonfatal EQ and cleanup |
+| [Playback coupling](playback-coupling.md) | Passive retention, truthful availability, Stop accessibility and explicit/fault cleanup |
+| [Capture and clocks](capture-clocks.md) | Recording/render capture, resampling, local pre-EQ padding accounting and timing limits |
+| [Control and mute](control-and-mute.md) | Durable intent/exclusive ownership, actual device direction, conservative recovery and exact-bit restore |
+| [Credentials and IPC](credentials-and-ipc.md) | Current-user DPAPI/accessory key, JSONL limits/correlation and compatibility |
+| [Equalizer](equalizer.md) | Retained mailbox outcome, preparation versus DSP adoption, preview ownership and geometry |
+| [Source check](source-check.md) | Current supported/rejected claims and incident inference limits |
+| [Upstream dev](upstream-dev.md) | Excluded development snapshot only |
+| This audit | Recursive coverage, source qualification and historical corrections |
+
+Groups A and scrolling are already upstream. PR #19 supplies bounded passive retention/fresh-snapshot/Pairing protection, not the full B contract. Old B PR #15 remains closed at its older snapshot. C–H and installer improvements are fork-ready implementations; no new upstream publication or release is implied. All ten public feature diffs **and outgoing commits** exclude fork-only planning.
 
 ## Corrections to the continuation briefing
 
-Most architectural statements are supported, but the following formulations need the narrower wording now used in the subsystem pages.
-
-| Briefing formulation | Verified formulation |
+| Overbroad or obsolete statement | Current verified formulation |
 | --- | --- |
-| JSONL has a maximum 64 KiB per line | Native command input rejects over 65,536 bytes, including newline. Desktop event reading checks 65,536 UTF-16 characters after allocating a whole line. Neither sender enforces a corresponding output byte cap. Oversize/malformed native commands use empty correlation ids and are skipped by the desktop's matching-session reader |
-| An unrecoverable failure terminates the engine | A playback/pair worker can emit an error and return while the native JSONL command loop remains alive. Desktop disposal closes stdin, waits two seconds, then attempts to kill the process tree. EOF cancels/joins owned work; this is not a guarantee every cleanup finishes within two seconds |
-| Dropped or hung resolves leave `_pending` set | A lost/hung callback can leave the name pending. A normal failed callback removes its token, as does a rejected immediate submission. Source cannot establish that a dropped network response makes the Windows API lose its callback |
-| Engine supports one speaker or one existing stereo pair | Desktop/catalog require a complete stereo row. Native `start`/`probe` validate one or two distinct IPv4 peers and cannot establish that those peers are an existing pair. The separately parsed `pair` command lacks the same IPv4/nonzero-port validation |
-| Losing either member aborts the process | A detected fatal member fault ends both peers' playback worker. Silence/dropout alone need not cause a fatal fault; local successful UDP sends do not prove receipt. Discovery loss is a separate desktop stop policy |
-| PTP UDP 319/320 bind before TCP | True for baseline PTP-selected playback, which the desktop sends. Persistent pairing and NTP-selected native playback do not bind those ports. The NTP responder belongs to the playback attempt, not every possible command/process |
-| Previous mute bit is captured at stream start and restored immediately on stop/failure/dispose | Capture happens when `MuteAsync` runs after the engine's streaming event. Restore preserves the exact stored bit but follows cancellation/connection cleanup and runs asynchronously on the MTA worker. COM errors can defer restore; abrupt app death loses the in-memory record |
-| Feedback every two seconds measures delay from mutex contention | Next feedback is scheduled two seconds after a completed pass, and request timing begins after acquiring the mutex. Lock contention can delay a request without contributing to its recorded 4/12-second soft/hard interval |
-| Equalizer command acknowledgement confirms application | It confirms preparation/command handling for a matching stored start entry. Mailbox sequence acceptance, later audio-thread pickup, and completion of the 20 ms crossfade are separate and unacknowledged |
-
-These corrections describe the existing code. They do not implement a repair or endorse a proposed issue solution.
+| A discovery loss stops playback | Passive absence/partial data retains all owned active states; guarded complete updates may still restart on signature |
+| Receiver id/snapshot reference establishes ownership | Atomic desktop owner plus intent identifies authority; metrics/retries retain owner, same-id replacement does not |
+| Current discovery has ninety-second cached-record expiry | Cache follows capped PTR advertisement TTL, with ten seconds on restart/resume |
+| Resolve callback/Cancel success proves quiescence | Neither does; production uses bounded children, releasing started owners only after exact exit observation |
+| Invalid settings recover without preservation state | Raw bytes/uncaptured obligations persist across both Load calls and later saves |
+| Abrupt death always loses previous mute | Separate owned journal preserves durable intent, but ambiguity/user changes/power-loss limits remain |
+| EQ success means audio application finished | It truthfully reflects accepted/idempotent retained preparation; DSP adoption/crossfade are unacknowledged |
+| Padding metrics describe network loss | They count missing local output-rate frame slots before EQ and whole 352-frame pulls |
+| Tests still await manual reboot/E–H unimplemented | Reboot gate is satisfied; all reports are integrated and qualified within stated fake/hosted bounds |
 
 ## Non-negotiable invariants: implementation check
 
-| Invariant | Evidence and limit |
-| --- | --- |
-| No blocking RTSP, DNS, or capture work on the UI thread | [`SessionController.cs:190–209`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L190-L209) launches pairing/playback with `Task.Run`; [`ResolveAsync:455–459`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L455-L459) resolves hosts in that worker. Native RTSP/capture are in another process. [`AudioService.cs:16–46`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/AudioService.cs#L16-L46) owns endpoint calls on an MTA thread. WPF handlers legitimately `await` asynchronous controller/audio operations, yielding the dispatcher; the invariant should mean no synchronous blocking I/O, not no `await` syntax. A long discovery callback can still hold its own lock; this is not a proof of a latency budget |
-| Selected down adapter never becomes all interfaces | [`DiscoveryInterface.ResolveIndex`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Receiver.cs#L110-L123) distinguishes empty selection from invalid/down selection. [`WindowsDiscovery.Restart`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47-L79) pauses instead of submitting interface zero for the latter. [DiscoveryTests](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/DiscoveryTests.cs) covers selection logic; actual DNS-SD calls were not exercised here |
-| Empty discovery cannot remove/abort manual receivers | [`AppViewModel.cs:188–227`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L188-L227) guards both missing-row cleanup and active-session stop with non-manual checks. [`UiRegression.cs`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs) includes missing-adapter/manual preservation using fakes. The stop decision uses a snapshot captured before an awaited identity save; independent pairing can change the session during that await. Thus the guard is verified for the captured manual row, but source inspection does not prove atomic immunity across every concurrent transition; see [After discovery](after-discovery.md) |
-| Pair-verify and transient setup are mutually exclusive per playback connection | [`session.rs:232–252`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/session.rs#L232-L252) branches once on credential load. Failures after a positive existence check, including invalid credentials/verification, do not fall back to transient. Missing/empty `/info` id or `load` returning no credential selects transient. [`credentials.rs:107–109`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L107-L109) uses `Path::exists`, which also returns false on metadata/permission errors, so an inaccessible existence probe can be treated as absence; this API behavior is documented by [Rust](https://doc.rust-lang.org/std/path/struct.Path.html#method.exists), not reproduced here |
-| Credentials remain DPAPI-encrypted and accessory-id keyed | [`credentials.rs:18–120`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L18-L120) encrypts with current-user DPAPI and hashes normalized `/info` `deviceID`. The saved HAP accessory id is checked during pair-verify, but source does not establish equality between that id and the `/info` filename key. If `APPDATA` is absent, the directory helper falls back to a relative path |
-| Restore writes the exact captured mute bit | [`AudioService.cs:63–100`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/AudioService.cs#L63-L100) stores/restores a boolean, not unconditional unmute. The dictionary is memory-only and restoration is best effort; normal cleanup and process-crash recovery have different guarantees |
-| Probes stay within gain 0.1 and five seconds | [`ProbeOptions::validate`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/session.rs#L89-L127), native probe `gain_limit` and `set_gain` in [`main.rs`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/main.rs), and [`native_probe.py:22–23,86–93`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/native_probe.py#L86-L93) enforce the limits. The native WAV guard accepts absolute signed-16 amplitude at most 1639 (about 0.05 full scale), and finite probes disable EQ. `start` is intentionally unbounded playback with gain up to 1. No receiver probe or hardware soak was run during this audit |
-| Never add real addresses, MACs, or credentials to docs | Changes are limited to analysis Markdown and use source identifiers or symbolic paths. No runtime credential/config files were opened or added. Synthetic values already used in source/tests are not household evidence; addresses/keys from local logs are not reproduced |
+WPF and Rust share no memory/C-ABI; JSONL v1 and config schema 2 remain compatible. SDK preflight respects actual desktop/global.json selection. Blocking DNS/RTSP/capture work stays off the UI dispatcher. Selected unavailable discovery adapter never falls back to all interfaces. Manual endpoints/options persist independently; new stereo starts require complete groups.
+
+Native retries create new processes, session UUIDs, clocks and SSRCs, while desktop owner survives. Process command-loop and worker lifetimes differ. Credentials remain current-user DPAPI and accessory `/info deviceID` keyed; storage/verify errors do not silently choose transient setup.
+
+Local playback mute records the exact original bit before mutation and restores best effort after cleanup. Actual opened recording devices are excluded from all mute ownership/access. Recovery interaction occurs outside settings/audio/lifecycle locks. Capture metrics are local accounting, not acoustic/network estimates. No real household data is added to code or documentation.
 
 ## Validation actually performed
 
-| Check | Result |
+| Source/evidence | Actual result |
 | --- | --- |
-| Runtime/test tree diff between `41190e0` and `c077a05` | Empty for `desktop/`, `native/`, `scripts/`, and `tests/` |
-| `uv run --locked pytest -q -ra` | **49 passed in 11.32 seconds; no skips**. Covers probe safety/analysis and release-version reservation harness. The release tests use a fake `git` command and did not push anything |
-| `dotnet build desktop/AirFlash.sln --nologo` | **Could not build:** the available .NET host reports no installed SDK. `dotnet --list-sdks` returns no SDKs |
-| .NET tests and WPF verification harness | **Not executed:** missing SDK/build. Relevant test sources were read; mock session/catalog coverage is not a real DNS-SD, audio-endpoint, or HomePod test |
-| Rust build and tests | **Not executed:** `cargo`/`rustc` are unavailable on PATH and the checked default user toolchain location has no `cargo.exe`. Existing unit and simulated-wire test sources were inspected |
-| Final Markdown links, cited line bounds, UTF-8, whitespace and changed-path scope | **Passed:** 539 local link targets, 368 line anchors, 446 displayed line ranges, and 11 pinned development source targets resolve within their audited trees. JSON command example parses and has ten EQ gains. Code fences/link delimiters, UTF-8, documentation-only IPv4 examples, and `git diff --check` pass. All sixteen originals are modified, with this report the only new file; every changed path is under `docs/analysis/` |
-| Independent cross-page review | Catalog/audio auditors reviewed the lifecycle pages and this report/index/source check. Source-backed contradictions in ordering, signatures, API limits, and numeric bounds were corrected before the final checks |
+| Current `8989b36` local sync/readiness | SDK 10.0.401 resolution; locked Release build with zero warnings/errors; 667 Core, 124 Python, lint passed |
+| Code `4ae1db4` local validation | 667 Core in Debug and Release; warning-free Release build |
+| [Exact-main CI 38296750592](https://github.com/ThatMarko/AirFlash/actions/runs/38296750592) | Green: managed/Python/native checks, stability, bundle and packaged startup |
+| [Exact-code integration 38294493405](https://github.com/ThatMarko/AirFlash/actions/runs/38294493405) | Green: 667 Core, 124 Python/lint, 69 native; six complete portable regional/catalog runs, 1,059 assertions each; three observed 125% DPI runs, 40 each; disposable-runner MSI lifecycle |
+| Native exclusions | Recording-device qualification and thirty-minute localhost soak remain two ignored tests; not both hardware tests |
+| Earlier `dc521ae` actual-child/PIN evidence | Six synthetic real DNS helpers and 225 modal PIN checks, still bound to that earlier source; not relabeled as newly run on 8989 |
+| This documentation task | Source/caller/test/evidence audit, all-file Markdown/UTF-8/fence/JSON/relative heading/tracked-file/pinned-source checks, changed-path/whitespace review and Mermaid syntax parsing |
+| Independent documentation review | Rotated source/provenance/cross-page review; final receipt records review completion and resolved findings |
 
-No SDK/toolchain was installed, no receiver connection was opened, no mute/volume was changed, and no real credential store was read. The audit changes documentation only. Software behavior, tests, `docs/issues/`, remotes, and remote branches were not modified.
+No runtime suite is rerun solely for Markdown changes. Structural counts and per-file hashes belong to the new dated documentation receipt, not the older 8989 audit receipt. Native execution is hosted because local Rust/MSVC prerequisites remain absent. No real config/credential/receiver/endpoint operation, local MSI install, release workflow or branch deletion is performed by this documentation update.
 
 ## Remaining evidence limits
 
-The source does not establish why a particular HomePod disconnected, a Wi-Fi scan duration, an OS-specific playout tolerance, actual routing, acoustic latency, PTP clock lock, or safe buffer margins. Those require identified runtime/hardware measurements. There is no new such measurement in this audit, and the engine itself labels qualification partial and `production_ready: false` in its hello response.
+Source/fake/hosted tests establish software contracts within their boundaries. They do not establish a household dropout cause, actual routing, acoustic latency, firmware-specific jitter tolerance, PTP lock, general Windows callback delivery, current-user DPAPI on this machine, physical stereo continuity or physical power-loss recovery. Native hello's partial qualification remains separate from tests passing.
 
-Native Windows DNS-SD callback/cancellation races, lost-callback cleanup, abrupt process death during mute, actual current-user DPAPI behavior, real WASAPI device removal, and physical stereo continuity were not exercised. The documented invariants are therefore a combination of implemented source paths, existing test intent, and explicitly stated runtime limitations. A source audit must not silently turn them into hardware guarantees.
+Normal mute cleanup is best effort, not immediate. Recovery cannot infer no later user/application mute changes from a stored bit. Settings store locking does not coordinate arbitrary external writers after valid Load. Child process exit supplies a memory lifetime boundary, not a proof DNS always finds every receiver.
 
-Changes to runtime source require refreshing the corresponding dedicated page and this audit baseline. The claims rejected in [Source check](source-check.md) must remain rejected unless new source or reproducible, appropriately scoped evidence establishes them.
+## Original audit — 2026-10-06
+
+The original sixteen pages were audited against `41190e0`, while fork documentation `c077a05` left runtime/test trees unchanged. Executed Python verification was **49 passed in 11.32 seconds, no skips**. Managed/WPF execution was unavailable because no compatible SDK existed; cargo/rustc were absent. Source inspection was not counted as test execution. No receiver probe, endpoint mutation or credential access ran in that audit.
+
+The immutable [historical audit text](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/docs/analysis/audit.md#original-audit--2026-10-06) preserves the original full tables, 539-target/368-anchor checks and subsequent dated A/B/C/D integration snapshots. Those source-only/pre-reboot/unimplemented/unpushed labels are historical. Repeated continuation diaries are condensed here; detailed executed failures and receipts remain in group acceptance.
 
 ## Subsequent Group A local verification — 2026-10-07
 
-Group A's tooling fix is implemented locally on `codex/fix-build-preflight` at `de13b6d3e22a177537ed9d5977fe693a5b497fc1`, based on freshly verified original stable `main` at `41190e0`. The original audit above remains the record of that stable source. The feature branch now checks the selected SDK before release/build side effects and gives default and explicit installer hosts the same desktop resolver policy. [The build report](../issues/ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md#local-implementation-verification--2026-10-07) records the exact scope and validation limits.
-
-Initial local checks passed: 86 Python tests (37 new; no skips), Ruff, SHA512-verified local .NET SDK 10.0.401 resolution, locked restore, Release solution build with zero warnings/errors, and 163 managed tests. The original/fixed ordering comparison used fake operations; independent final review found no concrete issues. Package locks and `global.json` were preserved. These fork-only notes are kept outside the implementation diff and outgoing commit.
-
-Additional prepublication checks passed on the desktop: PowerShell 7/5.1, a real plain checkout, CI's Python 3.12 and 149 isolated English WPF smoke checks. The separate fork validation branch's [successful hosted run](https://github.com/ThatMarko/AirFlash/actions/runs/37657692237) checked out exact implementation commit `de13b6d`, then passed Python/native/managed checks, actual native compilation, ordinary isolated publish, both default and explicit-host MSI builds, and real runtime-only override rejection. No version reservation, release workflow, release publication, installer installation or hardware operation occurred; fork main was unchanged. Full local native release prerequisites remain absent, and the reservation script's original-origin guard still prevents fork release reservation. These limits and the evidence are recorded in the build report.
-
-Task 3 published [issue #10](https://github.com/Ding-Kyoma/AirFlash/issues/10) and [PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11) from `origin/codex/fix-build-preflight` at `de13b6d` against freshly reverified original stable `41190e0`. The final diff and outgoing commit were checked locally and after publication; neither contains these fork-only notes or the validation-only workflow. At publication, original-repository CI awaited maintainer approval with no jobs run; Copilot's automatic review reported a quota limit, while independent source/regression review was complete. No merge or release occurred during that publication step. As verified on 2026-10-10, PR #11 is merged and issue #10 is closed. [Current integration acceptance](../issues/ABCD-INTEGRATION-ACCEPTANCE.md) records subsequent checks separately from the original audit.
-
-Review-setting correction — **2026-10-07**: Marko subsequently identified that automatic review had been disabled. The earlier quota message is retained as observed automation output, not proof that credits were unavailable. The publication snapshot is an open PR with upstream CI `action_required` and no jobs executed. Later fork integration/build results are separate evidence and do not imply an upstream merge or completed automatic review.
-
-## Subsequent fork integration — 2026-10-07
-
-Group A was merged into local fork `main` at `ca84c7c`, then Group B at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`, preserving the fork's documentation history. During that 2026-10-07 integration, upstream stable main remained `41190e0` without these fixes. The source links in the original audit above remain pinned to that baseline; feature verification is in the [Group B checklist](../issues/GROUP-B-ACCEPTANCE.md), and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) records later hosted/downloaded evidence separately. A fork integration is not upstream acceptance, a public release or hardware qualification.
+A `de13b6d` passed isolated fake ordering and selected-host checks, was published as issue #10/PR #11 and subsequently merged upstream. [Report 05](../issues/ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md#local-implementation-verification--2026-10-07) retains original evidence. Earlier approval/quota messages describe their publication-time observation, not current CI or account credit state.
 
 ## Merged-main documentation audit — 2026-10-10
 
-The user authorized merging every local branch into local fork `main`, preserving all branches, followed by a full source/documentation audit. The integrated source is **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`**. Every one of the 17 pre-existing local branch tips is an ancestor; all original non-main tips are unchanged, and a new preservation branch retains pre-merge `877a854`. Four ordinary merge commits retain all histories. The scrolling-validation merge's four conflicts were older versions of records already preserved by the newer documentation; no implementation or evidence was discarded. Desktop/native/scripts/tests/installer trees exactly match previously verified `6fe467b`. The historical Group A workflow additionally checks out `de13b6d`; it does not validate current main.
-
-All **44 Markdown files** under `docs/analysis` and `docs/issues` were reviewed against their material implementation paths, callers/consumers, baseline Git objects, test source and retained evidence. Current-source claims identify integrated behavior separately from the original `41190e0` audit. Source review corrects facts and scope; it does not turn an unexecuted fixture into a passing test or prove a physical receiver incident.
-
-**No application, build or test was executed in this merge/audit.** The user deferred execution until after reboot. Checks here are Git ancestry/source-tree comparisons and read-only Markdown/Git-object validation. Previous results remain attached to their original source/binaries. The main merges and new documentation are local, with no push, branch deletion, issue/PR creation, release or upstream merge.
-
-The integrated state is A/B/C/D plus scrolling/installer fixes and upstream Traditional Chinese support. Nine local reports are implemented; the eight E/F/G/H reports remain proposals. Upstream A/scrolling PRs are merged, while B PR #15 is closed without merge at its frozen older snapshot. C/D are locally integrated but unpublished. Current source does not add durable mute recovery, repair terminal IPC/EQ result contracts, normalize PIN submission, classify credential lookup failures, expose the missing diagnostics action or add capture padding accounting.
-
-The complete per-file source-review receipt and original branch/merge records are retained in ignored `artifacts/all-main-integration-2026-10-10/`. Each entry names the material source paths and corrections; the table below records coverage for every requested file. All entries are source-reviewed, with current-main execution deferred.
-
-| Document | Verified scope |
-| --- | --- |
-| [analysis/README](README.md) | Startup order, defaults, process boundary and current A–D integration |
-| [after-discovery](after-discovery.md) | Aggregation, catalog reconciliation, automatic admission and active controls |
-| [audit](audit.md) | Pinned baselines, branch preservation, source coverage and evidence limits |
-| [auth](auth.md) | PIN handoff, SRP, authentication selection and credential identity |
-| [capture-clocks](capture-clocks.md) | Resampling, queue padding, local metrics, pacing and clocks |
-| [control-and-mute](control-and-mute.md) | Endpoint ownership, guarded restoration, RTSP locking and PTP routing |
-| [credentials-and-ipc](credentials-and-ipc.md) | JSONL correlation and limits, DPAPI format and accessory keys |
-| [discovery](discovery.md) | Advertisement/cache expiry, deadlines, request tokens and native ownership |
-| [engine](engine.md) | RTSP setup, transport watches and separate worker/process lifetimes |
-| [equalizer](equalizer.md) | DSP/headroom, mailbox results, preview ownership and scrolling |
-| [failures](failures.md) | Error classification, cancellation, retry, cleanup and diagnostics |
-| [identity](identity.md) | Canonical identifiers, aliases, migrations and routing boundaries |
-| [playback-coupling](playback-coupling.md) | Current passive retention versus historical discovery-driven Stop |
-| [session](session.md) | Lifecycle/intent guards, admission, restart, retry and cleanup |
-| [settings](settings.md) | Load validation, pending preservation, save limits and draft/live settings |
-| [source-check](source-check.md) | Supported/rejected claims, historical gap policy and incident inference limits |
-| [upstream-dev](upstream-dev.md) | Excluded development snapshot and unchanged native/update contracts |
-| [ABCD-INTEGRATION-ACCEPTANCE](../issues/ABCD-INTEGRATION-ACCEPTANCE.md) | All-branch merge provenance and prior composition/artifact evidence |
-| [FORK-INTEGRATION-ACCEPTANCE](../issues/FORK-INTEGRATION-ACCEPTANCE.md) | Historical fork builds, source-bound hashes and current local integration |
-| [GROUP-B-ACCEPTANCE](../issues/GROUP-B-ACCEPTANCE.md) | Implemented ownership/intent behavior and prior regional/catalog verification |
-| [GROUP-C-ACCEPTANCE](../issues/GROUP-C-ACCEPTANCE.md) | Implemented preservation/validation and exact future-schema inspection limits |
-| [GROUP-D-ACCEPTANCE](../issues/GROUP-D-ACCEPTANCE.md) | Implemented DNS ownership/deadlines, cancellation value and bounded prior probe |
-| [IMPLEMENTATION_PLAN](../issues/IMPLEMENTATION_PLAN.md) | Group contracts, implemented/proposed scope and publication boundaries |
-| [INSTALLER-REFRESH-ACCEPTANCE](../issues/INSTALLER-REFRESH-ACCEPTANCE.md) | MSI payload rebuild, prior receipts and deferred main packaging |
-| [ISSUE-01](../issues/ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md) | Implemented owner-guarded discovery reconciliation; original race retained as history |
-| [ISSUE-02](../issues/ISSUE-02-HIGH-delayed-autoconnect-replaces-new-session.md) | Implemented automatic intent/admission guards through persistence and user actions |
-| [ISSUE-03](../issues/ISSUE-03-HIGH-discovery-disconnects-active-playback.md) | Implemented owned-attempt retention and Stop access through unavailable discovery |
-| [ISSUE-04](../issues/ISSUE-04-HIGH-dns-resolve-without-deadline-stalls-discovery.md) | Implemented logical deadlines, bounded retries and safe native settlement |
-| [ISSUE-05](../issues/ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md) | Implemented selected SDK preflight; merged upstream status and historical workflow |
-| [ISSUE-06](../issues/ISSUE-06-MEDIUM-settings-recovery-reread-escapes.md) | Implemented captured-byte recovery and blocked unreadable-source replacement |
-| [ISSUE-07](../issues/ISSUE-07-MEDIUM-invalid-loaded-settings-reach-runtime.md) | Implemented loaded validation with precise manual-host and compatibility limits |
-| [ISSUE-08](../issues/ISSUE-08-MEDIUM-pairing-pin-format-mismatch.md) | Unimplemented PIN normalization proposal; actual dialog/native mismatch remains |
-| [ISSUE-09](../issues/ISSUE-09-MEDIUM-credential-probe-errors-look-like-absence.md) | Unimplemented credential lookup classification; existence errors still resemble absence |
-| [ISSUE-10](../issues/ISSUE-10-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md) | Implemented filtering of attempted candidates before ranking |
-| [ISSUE-11](../issues/ISSUE-11-MEDIUM-manual-play-redirected-to-stereo-by-address.md) | Implemented explicit manual routing and constrained discovered-member ownership |
-| [ISSUE-12](../issues/ISSUE-12-MEDIUM-uncorrelated-ipc-errors-become-timeouts.md) | Unimplemented terminal IPC routing; empty correlation is still filtered |
-| [ISSUE-13](../issues/ISSUE-13-MEDIUM-endpoint-mute-crash-recovery-gap.md) | Unimplemented durable mute recovery; guarded normal recovery is separate |
-| [ISSUE-14](../issues/ISSUE-14-LOW-equalizer-ignored-update-success-metadata.md) | Unimplemented truthful EQ results; mailbox outcome remains unreported |
-| [ISSUE-15](../issues/ISSUE-15-LOW-unbound-copy-diagnostics-command.md) | Unimplemented diagnostics action; command exists without a Monitor binding |
-| [ISSUE-16](../issues/ISSUE-16-LOW-capture-padding-metrics-lack-frame-accounting.md) | Unimplemented frame/whole-packet padding accounting; current units verified |
-| [ISSUE-17](../issues/ISSUE-17-LOW-orphaned-translation-keys-cleanup.md) | Unimplemented cleanup; ten candidate keys checked in both Chinese catalogs |
-| [ISSUE_TEMPLATE](../issues/ISSUE_TEMPLATE.md) | Actual revision, evidence/status fields and correct verification commands |
-| [issues/README](../issues/README.md) | Nine locally implemented reports, eight proposals and publication state |
-| [SETTINGS-SCROLL-ACCEPTANCE](../issues/SETTINGS-SCROLL-ACCEPTANCE.md) | Wheel routing, layout assertions and distinct measured/pointer evidence |
-
-Independent cross-review resolved the remaining identity-save preservation qualifier, historical gap-policy wording and current non-documentation workflow scope. No actionable documentation finding remains. Structural validation checks every UTF-8 document, relative target/heading anchor, pinned Git source/line bound, JSON example, code fence and conflict marker. The final counts are recorded with the sealed document hashes in `document-structure-receipt.json`. These checks do not run application tests.
+The old `9e894ab` all-branch integration was source-only while execution awaited reboot. It contained A–D and scrolling/installer, with E–H still proposals at that time. Its immutable record and [historical combined acceptance](../issues/ABCD-INTEGRATION-ACCEPTANCE.md) remain evidence of that stage; they do not describe current readiness or publication.

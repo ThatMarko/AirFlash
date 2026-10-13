@@ -1,67 +1,32 @@
-# [MEDIUM] Credential existence errors can select transient authentication
+# [MEDIUM] Credential lookup error preservation — resolved in fork main
 
-## Implementation update — 2026-10-11
+**Status:** Implemented and integrated in own-fork main `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, reviewed 2026-10-12. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`; this implementation is not yet integrated there. Severity is the original triage priority, not an unqualified current hardware failure.
 
-Implemented on refreshed Group E at `0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a`, based on original stable `cf420d97700463c56adc31408510e8336e99e51c`. [The loader](https://github.com/ThatMarko/AirFlash/blob/0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a/native/airflash-engine/src/credentials.rs) reads one opened handle, with only initial open `NotFound` treated as absence. Read-stage errors, permissions, DPAPI, format and identity failures propagate; `authenticate_with` does not switch methods after storage or verification failure. Accessory `/info` keys, current-user encryption and file format remain intact. [Group E acceptance](GROUP-E-ACCEPTANCE.md) records isolated synthetic Windows fixtures and the failing error-hiding mutation. No user store or real receiver was inspected. This supersedes earlier unimplemented labels; upstream integration is still absent and the original audit/proposal below is historical.
+**Group:** E — Authentication inputs. **Feature head:** `0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a`. [Plan](IMPLEMENTATION_PLAN.md#issue-09), [acceptance](GROUP-E-ACCEPTANCE.md), [credentials/IPC](../analysis/credentials-and-ipc.md), [authentication](../analysis/auth.md).
 
-Continuation update, 2026-10-11: implemented and independently reviewed on `codex/fix-auth-input` at `fc8b91942bf93e320b04ec74d5ad0e433e092f69`, based on original stable `91698d8`. One opened handle establishes absence only on initial `NotFound`; storage/decryption/parsing/identity/verification failures remain errors and select no alternate authentication. Exact-source hosted Windows native tests passed, and a separately preserved error-hiding mutation failed the decisive classification assertion. [Group E acceptance](GROUP-E-ACCEPTANCE.md) records synthetic temporary-root DPAPI tests and executed checks. This is feature-branch implementation, not a fix integrated into original stable; the historical trace below remains dated evidence.
+## Current behavior and source trace
 
-- **Issue ID**: ISSUE-09
-- **Implementation plan**: [Work package ISSUE-09](IMPLEMENTATION_PLAN.md#issue-09)
-- **PR group**: E — Authentication inputs
-- **Severity**: MEDIUM
-- **Kind**: Defect — credential error classification
-- **Status**: Open; proposal only, not implemented
-- **Evidence status**: Source and standard-library contract verified; fault-injection reproduction is specified but not executed
-- **Implementation status**: Proposal only; no runtime change applied
-- **Merged-main review (2026-10-10)**: Still unimplemented at local source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. [credentials::load](../../native/airflash-engine/src/credentials.rs) (line 105) and saved-versus-transient selection in [Member::connect](../../native/airflash-engine/src/session.rs) are unchanged from `41190e0`; the [Rust existence-probe contract](https://doc.rust-lang.org/std/path/struct.Path.html#method.exists) was rechecked. No filesystem fault injection, credential access, or authentication exchange was executed.
-- **Runtime baseline**: `41190e0`; documentation baseline `c077a05` with the audited [credentials/IPC](../analysis/credentials-and-ipc.md) and [authentication](../analysis/auth.md) pages
-- **Target files**: [credentials.rs:105–121](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L105-L121), [session.rs:232–251](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/session.rs#L232-L251)
-- **Analysis context**: [Credentials and IPC](../analysis/credentials-and-ipc.md), [Authentication](../analysis/auth.md)
+[load/load_with](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/credentials.rs#L106) opens the accessory-keyed file once and maps **only initial open NotFound** to absence. It reads the opened object with a 16 KiB+1 bound; later NotFound/read/permission/I/O, oversize, magic, DPAPI, JSON and empty-identity failures remain errors.
 
-## 1. Current behavior and impact
+[authenticate_with](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/session.rs#L200) propagates storage errors before either auth exchange. Loaded credentials select verify once; genuine absence selects transient once. Failed verify never selects transient. Current-user DPAPI, W2AP version-1 format, accessory /info hash normalization, atomic replacement and zeroization remain.
 
-`credentials::load` returns `Ok(None)` whenever `target.exists()` is false. Playback interprets `None` as no saved credential and chooses transient pair-setup using PIN `3939`. The two authentication paths remain mutually exclusive, but the choice can be based on an unsuccessful existence probe rather than established file absence.
+Missing/non-string/empty playback /info deviceID still skips file lookup and uses the inherited transient path. That separate identity policy was not expanded by this fix. File I/O can retain setup/socket_error/retryable classification; preservation does not promise authentication_failed for every storage failure.
 
-Rust documents that [Path::exists](https://doc.rust-lang.org/std/path/struct.Path.html#method.exists) returns false when file metadata cannot be accessed, including permission errors. Thus an inaccessible credential path can be classified as absent. Errors from later metadata/read/DPAPI/JSON checks do propagate when the initial probe succeeds. This report does not claim that every unreadable file takes the transient branch or that HomePods accept that branch under those conditions.
+## Acceptance and evidence
 
-The concrete defect is loss of the storage error and selection of a different authentication method under uncertain credential presence. Hardware acceptance, user-visible error text, and frequency are unmeasured.
+- Initial absence differs from PermissionDenied/other error and read-stage disappearance.
+- Valid saved credential selects verify exactly once; absent selects transient exactly once.
+- Failed storage/decrypt/parse/identity/verify initiates no alternate auth method.
+- Normalized accessory key, replacement, opened-object read after path removal and bounded data are verified using synthetic temporary roots.
 
-## 2. Source trace
+[loader fixtures](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/credentials.rs#L203) and [selection fixtures](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/session.rs#L793) check result plus method calls/classified serialized faults. Acceptance preserves the failing error-hiding mutation separately from healthy execution. No real credential store was inspected.
 
-| Step | Evidence |
-| --- | --- |
-| Filename hashes normalized accessory `/info` id | [credentials.rs:25–32](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L25-L32) |
-| False existence probe returns no credential | [credentials.rs:105–109](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L105-L109) |
-| Metadata/read/decrypt validation follows only a true probe | [credentials.rs:110–121](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L110-L121) |
-| Nonempty `/info` identity calls this loader; `Some` verifies and `None` uses transient setup | [session.rs:232–251](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/session.rs#L232-L251) |
+Exact-main CI passed 667 Core, 124 Python and 69 native tests (recording-device qualification and thirty-minute localhost soak ignored). Packaged integration at `4ae1db4` passed six 1,059-assertion UI runs, three actual 125% DPI runs with 40 each and disposable MSI lifecycle; current runtime/package inputs are identical, with main's last commit documentation only. This refresh reviewed sources/records; it did not rerun suites or use real user data/devices.
 
-There is no fallback after an actual pair-verify failure. This issue concerns the earlier absence decision. It does not change credential encryption, accessory identity checks, or pairing protocols.
+## Remaining work
 
-## 3. Deterministic reproduction to implement
+Upstream publication and real-device qualification are separate. No plaintext backup, catalog-key migration or verify-to-transient fallback was introduced.
 
-Use synthetic identities and an injected filesystem result; do not inspect or change `%APPDATA%` credential files.
+## Historical finding
 
-1. Exercise the loader's first filesystem operation with an injected metadata error such as `PermissionDenied`.
-2. Model the present `Path::exists` behavior, which converts that error to false.
-3. Feed the resulting `Ok(None)` into the same saved-versus-transient selection used by playback.
-4. The source-derived current result is the transient branch, with the metadata error unavailable to the caller. The intended result is a storage error before either authentication exchange begins.
-5. Separately exercise verified `NotFound`, a valid saved credential, and a decrypt/parse failure after successful metadata lookup.
-
-This is a proposed fault-injection fixture, not a completed integration test or a claim about a particular Windows ACL configuration. An optional temporary-directory ACL test needs independent cleanup and must use synthetic encrypted test data only.
-
-## 4. Proposed architectural fix
-
-Replace the Boolean precheck with an error-preserving operation. For example, use one metadata/open operation and map only the chosen genuine-absence error (`NotFound`) to `None`; propagate other errors. Keep later read/decrypt/identity validation errors as errors. Define how a file disappearing between lookup and read is handled rather than silently changing authentication paths.
-
-The loader already returns `Result<Option<Credentials>>`, so this can be corrected without changing JSONL v1, `config.json` schema 2, DPAPI format, filename normalization, or the single-method-per-connection invariant. Do not add plaintext backups, migrate credentials by desktop aliases, or retry transient setup after verification fails.
-
-## 5. Acceptance criteria and coverage
-
-- A verified missing file can return `None`; a permission/metadata error returns an error with no authentication exchange initiated.
-- A successfully loaded file selects pair-verify exactly once; absence selects transient exactly once.
-- Read/decrypt/parse failures and a failed pair-verify never become transient fallback.
-- Synthetic tests distinguish `NotFound`, `PermissionDenied`, other I/O failures, disappearance during read, and valid/tampered payloads without logging secrets.
-- Existing DPAPI magic, current-user encryption, normalized accessory filename key, and atomic replacement remain unchanged.
-
-[credentials.rs:127–134](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/credentials.rs#L127-L134) tests protect/unprotect and tamper rejection, not loader absence/error classification. [auth.rs:454–540](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/auth.rs#L454-L540) covers synthetic pair-verify identity/proof handling. Neither is evidence of an executed filesystem fault test here. A later implementation should run the Rust suite; it was unavailable during the preceding audit. No receiver probe is needed. If later hardware qualification is authorized, finite probes remain gain at most 0.1 and duration at most five seconds.
+Original `41190e0` used `Path::exists()`, which could hide metadata/access failure as false and select transient. Later errors after a true probe already propagated. Original analysis predicted the uncertain-presence path without claiming a particular ACL/HomePod reproduction. The [archival report at the prior documentation commit](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/docs/issues/ISSUE-09-MEDIUM-credential-probe-errors-look-like-absence.md) retains the original `41190e0` source links, source-derived reproduction/proposal and separately dated implementation updates. Its open/proposal-only/pending-reboot labels are historical; current acceptance is above.

@@ -1,60 +1,29 @@
-# [MEDIUM] Pairing dialog accepts dashed PINs that the engine rejects
+# [MEDIUM] Pairing PIN formatting — resolved in fork main
 
-## Implementation update — 2026-10-11
+**Status:** Implemented and integrated in own-fork main `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, reviewed 2026-10-12. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`; this implementation is not yet integrated there. Severity is the original triage priority, not an unqualified current hardware failure.
 
-Implemented on refreshed Group E `codex/fix-auth-input`, source-confirmed at `0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a` against original stable `cf420d97700463c56adc31408510e8336e99e51c`. [PairingPin.Normalize](https://github.com/ThatMarko/AirFlash/blob/0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a/desktop/AirFlash.Core/PairingPin.cs) removes permitted ASCII dashes, then requires 4–8 ASCII digits. The dialog uses it for enablement and submission, so the actual `pair_pin` payload is normalized; native validation/cancellation remain unchanged. [Group E acceptance](GROUP-E-ACCEPTANCE.md) records controlled payload, typing and disposable-runner paste checks. No real pairing is claimed, and original stable has not integrated this fix. This update supersedes the unimplemented labels below; earlier audit, proposal and validation text remains historical.
+**Group:** E — Authentication inputs. **Feature head:** `0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a`. [Plan](IMPLEMENTATION_PLAN.md#issue-08), [group acceptance](GROUP-E-ACCEPTANCE.md), [authentication map](../analysis/auth.md).
 
-Continuation update, 2026-10-11: implemented and independently reviewed on `codex/fix-auth-input` at `fc8b91942bf93e320b04ec74d5ad0e433e092f69`, based on original stable `91698d8`. The shared ASCII normalizer governs both enablement and submission; real fake `pair_pin` payloads and disposable-runner paste are asserted. Exact-source hosted run `38164451047` passed 218 Core cases, 57 native cases and 225 modal checks. [Group E acceptance](GROUP-E-ACCEPTANCE.md) distinguishes baseline failure, synthetic fixtures, startup-isolation correction and remaining hardware limitations. This is feature-branch implementation, not a fix integrated into original stable; the historical trace below remains dated evidence.
+## Current behavior and source trace
 
-- **Issue ID**: ISSUE-08
-- **Implementation plan**: [Work package ISSUE-08](IMPLEMENTATION_PLAN.md#issue-08)
-- **PR group**: E — Authentication inputs
-- **Severity**: MEDIUM; an enabled pairing action can send a predictably rejected PIN
-- **Kind**: Defect
-- **Subsystem**: Desktop App / native authentication across JSONL v1
-- **Status**: Open — source-confirmed validation mismatch
-- **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
-- **Evidence status**: Source verified and synthetic `12-34` predicates evaluated; no WPF/native pairing exchange or real receiver run performed
-- **Implementation status**: Proposal only
-- **Merged-main review (2026-10-10)**: Still unimplemented at local source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. [PinDialog](../../desktop/AirFlash.App/Ui/PinDialog.cs) still returns permitted dashed text unchanged; [SessionController.PairMembersAsync](../../desktop/AirFlash.Core/SessionController.cs) forwards it, and [auth.rs](../../native/airflash-engine/src/auth.rs) retains strict ASCII-digit validation. Group B's ownership guards do not correct this Group E mismatch. This review read source only; no new UI/pairing test was run.
-- **Target files**: [PinDialog.cs:18–36](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/PinDialog.cs#L18), [SessionController.cs:412–422](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L412), [auth.rs:111–117](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/auth.rs#L111)
-- **Analysis context**: [Authentication](../analysis/auth.md), [Session pairing](../analysis/session.md), [Credentials and IPC](../analysis/credentials-and-ipc.md)
+[PairingPin.Normalize](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/PairingPin.cs#L3) removes permitted ASCII dashes, requires 4–8 ASCII digits and enforces the 16-character editing bound. [PinDialog](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Ui/PinDialog.cs#L10) uses it for both button enablement and returned submission; typing filters characters and paste cannot bypass submission validation.
 
-## Current behavior and effect
+[PairMembersAsync](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/SessionController.cs#L561) forwards that value through actual `pair_pin`. [Pair worker](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/main.rs#L288) receives it; [native strict validation](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/auth.rs#L113) remains 4–8 digit bytes. Synthetic `12-34` therefore submits `1234`, while letters, whitespace, Unicode characters/digits and invalid normalized lengths reject. Single-line WPF paste can truncate a newline suffix before normalization; acceptance records the resulting textbox prefix separately from direct invalid-text replacement. Cancel/token timeout retain their existing distinct cleanup outcomes.
 
-The PIN dialog permits digits and dashes while typing at [PinDialog.cs:18](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/PinDialog.cs#L18). Its Pair button enables when the text contains four through eight ASCII digits and every other character is a dash, at [line 22](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/PinDialog.cs#L22). The box permits up to sixteen total characters. Submission returns the text unchanged at [line 34](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/PinDialog.cs#L34).
+## Acceptance and evidence
 
-For example, `12-34` enables Pair: it contains four digits and one permitted dash. The native validator rejects it because every byte must be an ASCII digit. The Settings command has therefore accepted a representation that cannot complete native pairing. This does not mean an all-digit PIN succeeds with a particular receiver; receiver authentication is a separate condition.
+- Shared enable/submission predicate; every enabled payload contains exactly 4–8 ASCII digits.
+- Actual fake pairing payload, editing/paste boundaries, native strict validation, cancel/timeout and no following playback/save on cancellation are covered.
+- Credential identity/format, JSONL v1, config schema 2 and authentication selection remain unchanged.
 
-## Code path and root cause
+Current [Core normalization cases](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/PairingPinTests.cs#L27) and [modal WPF fixture](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Verification/UiPairingInputs.cs) assert observable behavior. Group E acceptance separately pins earlier hosted source/run with 225 modal assertions, including disposable-runner paste that restores clipboard in finally, and the decisive baseline failure. Those results are not relabelled as a fresh main run.
 
-[SessionController.cs:412–418](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L412) awaits the dialog and forwards its returned text directly in `pair_pin`. [main.rs:228–235](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/main.rs#L228) sends that string to the pairing worker. After setup M2, [auth.rs:113–117](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/auth.rs#L113) requires byte length 4–8 and `pin.bytes().all(is_ascii_digit)`, otherwise returning `PIN must contain 4..8 digits`. No layer strips separators.
+Exact-main CI passed 667 Core, 124 Python and 69 native tests (recording-device qualification and thirty-minute localhost soak ignored). Packaged integration at `4ae1db4` passed six 1,059-assertion UI runs, three actual 125% DPI runs with 40 each and disposable MSI lifecycle; current runtime/package inputs are identical, with main's last commit documentation only. This refresh reviewed sources/records; it did not rerun suites or use real user data/devices.
 
-The failure occurs before native SRP M3/proof generation for that supplied PIN, but after the pairing connection and M2 exchange have begun. The command-loop worker emits an error at [main.rs:305–310](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/main.rs#L305); [SessionController.cs:422](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L422) exits pairing, so the following playback start is not sent. Persistent credential save is after successful authentication at [main.rs:293–297](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/main.rs#L293), and is not reached for this validation rejection. Pair-verify/transient playback selection is not the cause.
+## Remaining work
 
-## Minimal deterministic reproduction
+Upstream publication remains separately authorized. Real receiver PIN policy/success is unqualified; normalizing a valid representation does not guarantee authentication.
 
-The audited predicates were evaluated using synthetic string `12-34`: desktop enable predicate **true**, native-equivalent byte/digit predicate **false**. This is a predicate reproduction, not an executed UI/accessory protocol test.
+## Historical finding
 
-A future fixture should show the actual path without hardware:
-
-1. In the WPF STA harness, set the PIN textbox to `12-34` and verify Pair currently enables.
-2. Use a mocked PIN request/pairing connection or localhost synthetic pairing M2 response; capture the submitted text.
-3. Assert the current unchanged string fails the native validator and playback/credential save does not follow.
-4. Test typing and paste with four/eight digits, permitted dashed forms, too few/many digits, letters, whitespace, Unicode digits, and cancel. Preserve cancellation/timeouts separately.
-
-Do not record or expose a real accessory PIN; synthetic values suffice.
-
-## Proposed implementation and acceptance
-
-Normalize permitted dash separators before both enable validation and submission, then require four through eight ASCII digits in the normalized value. Alternatively remove separator support consistently from typing, paste validation, and enabling. Normalization is the proposed default because the existing UI intentionally allows dashes; the native strict digit-only contract should remain unchanged.
-
-- Every enabled submission sends exactly 4–8 ASCII digits; `12-34` sends `1234` under the normalization proposal.
-- Paste cannot bypass validation, Unicode digits/letters are rejected, and empty/cancelled results retain existing cancellation behavior.
-- Too many separators/characters cannot produce an enabled action with an invalid normalized PIN.
-- Engine PIN validation remains strict; no downgrade/fallback authentication or credential format change is introduced.
-- UI and protocol fixtures verify the transmitted string and the rejected-input path without real pairing or playback.
-
-## Existing and missing tests
-
-[SessionTests.cs:226–238](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L226) tests blank cancellation and pairing two members using already valid digit strings, not dialog separators. [auth.rs:438–451](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/auth.rs#L438) tests authenticated persistent setup/signature rejection using `1234`, not UI formatting. No existing test was found for dashed PIN normalization or agreement between the dialog and native validator. JSONL v1 and schema 2 need no change. No verified causal mapping to upstream issue numbers is claimed.
+At original `41190e0`, the dialog accepted digits/dashes but returned the text unchanged, while native validation rejected any dash before SRP M3. The audited synthetic predicates for `12-34` were desktop true/native false; this was not a real receiver reproduction. The [archival report at the prior documentation commit](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/docs/issues/ISSUE-08-MEDIUM-pairing-pin-format-mismatch.md) retains the original `41190e0` source links, source-derived reproduction/proposal and separately dated implementation updates. Its open/proposal-only/pending-reboot labels are historical; current acceptance is above.

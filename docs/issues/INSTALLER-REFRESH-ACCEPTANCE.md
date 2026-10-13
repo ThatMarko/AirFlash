@@ -1,48 +1,43 @@
-# Repeated installer packaging acceptance
+# Installer payload refresh acceptance
 
-## Current stable refresh and installer fixture repair — 2026-10-11
+## Current Main integration — 2026-10-12
 
-Current feature `a20f9dbcecea8926f8c582fa89a935332442defa` is pushed against original stable `cf420d9`. The earlier same-version payload cache fix is preserved. Own-fork integration run `38186854508` passed compilation/native/Core and package/embedded-hello checks after the bundle-audit hash binding repair, but failed installer upgrade with exit 1603: its actual MSI log rejects installing unofficial 0.3.1 over newly released 0.4.0. This was a predecessor-fixture error, not proof that the downgrade protection failed.
+Fork Main `8989b3609dd1294f4d1d6eb1502f345cc22bc382` contains feature `codex/fix-installer-refresh`, head `a20f9dbcecea8926f8c582fa89a935332442defa`, worktree `fix-installer-refresh/AirFlash`. Stable base is `cf420d97700463c56adc31408510e8336e99e51c`. Complete public diff and all outgoing commits exclude private analysis/issues/planning. Independent review is clear; no upstream publication is authorized.
 
-The fixture now derives the actual MSI version from its published EXE, selects the numerically nearest strictly lower canonical stable release, and retains the existing lower-version synthetic WiX fixture if none exists. Disposable-runner restrictions, hashes, data/registration preservation, repair and uninstall checks remain intact. Pure selection covers newer/equal/missing/malformed releases, numeric sorting, caller capture state and StrictMode; all 120 Python tests and lint pass. Independent review findings around malformed arrays, inherited regex captures, empty selection and final newlines are fixed. Current disposable installer qualification is recorded in continuation acceptance; no local MSI was installed or production release workflow dispatched.
+Current [installer helper](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/scripts/build-installer.ps1) validates the actual selected SDK in desktop resolver context before output creation, then invokes WiX `-t:Rebuild` with absolute current `AppExe`. [Refresh fixture](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/scripts/test-installer-refresh.ps1) compares actual embedded bytes/size without executing synthetic payloads. [Predecessor selection](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/scripts/installer-test-common.ps1) is separately qualified below.
 
-## Earlier payload-refresh qualification
-
-During the user-authorized A+B+Settings scrolling validation on 2026-10-07, local MSI builds returned success while containing the earlier A+B executable. The clean GitHub build contained the correct scrolling executable. This additional fix addresses a pre-existing packaging defect and does not activate another A–H backlog group.
+[Current combined acceptance](CONTINUATION-ACCEPTANCE.md) binds Main source trees to final `4ae1db4` package run 38294493405, where repeated payload refresh and full disposable MSI lifecycle passed. Fresh Main 124 Python/lint includes installer fixture coverage. Native/package/MSI checks are hosted; no current local MSI was installed.
 
 ## Reproduction and correction
 
-Original upstream source `41190e0d13a63a714c08dffe73ababca1804875c` passed `AppExe` to WiX through preprocessor constants while reusing `installer/obj/Release`. WiX SDK 6.0.2's `CoreCompile` incremental inputs read the preceding binding tracking file. Changing the source path without changing its numeric version could therefore reuse an earlier package when the old inputs remained unchanged. A successful process exit and matching MSI version did not establish current payload bytes.
+Original `41190e0` helper used WiX SDK 6.0.2 incremental `build` and cached `installer/obj/Release`. Distinct executables with equal numeric version and changed source path could retain prior binding-tracking inputs, yielding a successful package containing stale bytes. Process success/version matching did not prove current payload.
 
-The separate `codex/fix-installer-refresh` branch starts directly from that original source. Its production change requests `Rebuild` when packaging, forcing WiX to bind the current executable. Group A's selected-SDK validation remains before output creation after integration; Groups A and B and the scrolling feature retain their separate branch heads.
+Separate original-base feature changes packaging to `Rebuild`. Isolated PowerShell 7 fixture uses a path with spaces and two backdated synthetic PE copies with the same file version and shared intermediates. Read-only MSI extraction/File-table inspection checks checksum/size, both default and explicit SDK hosts, preserved first package and unchanged input/MSI bytes. Synthetic PE copies are neither installed nor executed.
 
-The regression check uses PowerShell 7 on Windows and copies the installer project to an isolated path containing spaces. Two distinct, backdated synthetic PE copies retain the same file version, share the same project intermediates, and build using the default and explicit SDK selections. Read-only MSI inspection and extraction compare the contained executable's full checksum and File-table size with the intended input. The synthetic copies are never installed or executed.
-
-| Check | Original helper | Fixed helper |
+| Observable check | Original helper | Fixed helper |
 | --- | --- | --- |
-| First package contains payload A | Passed | Passed |
-| Second package contains payload B | Failed: contained A's bytes and size | Passed |
-| Same executable version, different input bytes | Verified | Verified |
-| First package survives second packaging unchanged | Passed | Passed |
-| Published input and synthetic copies remain unchanged | Passed | Passed |
-| MSI files unchanged by inspection/extraction | Passed | Passed |
+| First payload A | Pass | Pass |
+| Second equal-version payload B | Fail: still A bytes/size | Pass |
+| Equal versions/distinct bytes | Verified | Verified |
+| Earlier package/input unchanged | Pass | Pass |
+| Read-only extraction/inspection | Verified | Verified |
 
-Both fixed builds completed with zero warnings/errors using SDK 10.0.401 and WiX 6.0.2. Ignored reports retain the original failing and corrected runs. The fork integration workflow repeats this payload regression and preserves its JSON/build/extraction logs alongside the disposable-runner installation checks when it is triggered in `ThatMarko/AirFlash`.
+Historical fixed SDK 10.0.401/WiX 6.0.2 builds had zero warnings/errors. Failed/corrected receipts remain in ignored local artifacts and historical integration below.
+
+## Current stable refresh and installer fixture repair — 2026-10-11
+
+Earlier run 38186854508 passed compilation/native/Core and audited publish but MSI upgrade failed 1603: unofficial 0.3.1 was installed over newly published actual 0.4.0. Downgrade protection was correct; the qualification fixture selected the wrong predecessor.
+
+The fixture now reads actual published EXE numeric version, selects the nearest strictly lower canonical stable release and falls back to a lower synthetic WiX fixture when none exists. No downgrade/release guard is bypassed. Twenty-four pure cases cover equal/newer/missing/malformed releases, numeric ordering, arrays/scalar booleans, captured regex state, StrictMode and empty selection. Independent findings are resolved. Final package 38294493405 passes repair/upgrade/uninstall/filehash/user-data checks on disposable Windows.
 
 ## Final A+B+scrolling build — 2026-10-07
 
-Feature `c15a37dad4655700100b202e908e531c2fa41aec` merged separately into the user's fork main at `c552529546b51fb0a242492d4c114c85444df077`. The only conflict joined Group A's SDK instructions with the new installer verification instructions, retaining both. The integrated SDK preflight suite passed all 37 tests, and the real repeated-payload regression passed again after integration.
+Historical feature `c15a37d` merged separately at `c552529`, retaining A SDK preflight. Historical exact `1303a09127760912c1cdf6a47bdb14e45904fd62` passed [CI 37711905828](https://github.com/ThatMarko/AirFlash/actions/runs/37711905828) and [integration 37711905836](https://github.com/ThatMarko/AirFlash/actions/runs/37711905836): 37 SDK preflight, repeated payload refresh and disposable MSI lifecycle.
 
-The final source `1303a09127760912c1cdf6a47bdb14e45904fd62` passed [CI](https://github.com/ThatMarko/AirFlash/actions/runs/37711905828) and [fork packaging validation](https://github.com/ThatMarko/AirFlash/actions/runs/37711905836). The hosted repeated-payload report confirms both intended checksums, File-table sizes, unchanged inputs and preservation of the first package. Fresh install, repair, preceding stable upgrade, upgrade repair and uninstall also passed on the disposable runner with installed-file hash and user-data checks.
-
-The [final build acceptance](SETTINGS-SCROLL-ACCEPTANCE.md#final-abscrolling-build) records artifact provenance, binary hashes and exact downloaded desktop results. The local managed EXE matches that downloaded EXE byte for byte. Read-only extraction confirms both local default/explicit-host MSIs and the downloaded MSI contain that exact EXE, SHA-256 `89982600d059a39875acfd5351b77796cc0023959d6c84f1112d6b18899e4bd7`, version `0.3.1.0`, size 77,187,230 bytes. Each package, the first local MSI and source EXE remain unchanged. The earlier stale local packages are rejected and retained only as diagnostic evidence.
-
-The subsequent [native pointer follow-up](SETTINGS-SCROLL-ACCEPTANCE.md#final-downloaded-build-native-pointer-follow-up) passed in that desktop session; it does not change the installer payload results. Other monitor scales/touchpads and accessory/audio reliability remain outside these mock UI checks. No local MSI installation or official release publication occurred. Group A/B branch heads and the scrolling implementation are unchanged by this fix. Fork-only acceptance documents and workflow changes are excluded from the three-file installer feature diff.
+Default/explicit local MSIs and downloaded MSI contained exact EXE `89982600d059a39875acfd5351b77796cc0023959d6c84f1112d6b18899e4bd7`, version 0.3.1.0, 77,187,230 bytes. Input/first package remained unchanged. Prior stale cached packages are rejected diagnostic evidence. [Historical scrolling acceptance](SETTINGS-SCROLL-ACCEPTANCE.md#final-abscrolling-build) preserves full archive/run/binary mapping and specific pointer follow-up.
 
 ## All-local-branch integration — 2026-10-10
 
-The current local `main` source is `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`; every retained local branch was merged without deleting a branch. Source inspection confirms [build-installer.ps1](../../scripts/build-installer.ps1) still validates the selected host under `desktop/global.json` before creating installer output and invokes `build -t:Rebuild` with the intended absolute `AppExe`. [test-installer-refresh.ps1](../../scripts/test-installer-refresh.ps1) still creates distinct backdated same-version PE copies in an isolated checkout with spaces, inspects MSIs read-only, and verifies embedded SHA-256, File-table size and unchanged inputs/prior package. It never executes or installs those synthetic payloads.
+Historical `9e894ab` contained the helper/fixture but was source-reviewed before then-required reboot; it was not freshly built in that audit. Prior `6fe467b` payload `d14cb80ad5a8ab13dbeeb3be7e4af814bf015c9ca2554b5d1f1fcd8f0d32d117`,0.3.1.0/77,230,639 bytes, passed both SDK-host paths/refresh. Historical public `d70f30d` passed separate hosted installer checks. None is relabeled current Main binary.
 
-The latest prior local A/B/C/D build, source `6fe467b`, verified both real-payload SDK paths and the two-stage synthetic refresh with executable SHA-256 `d14cb80ad5a8ab13dbeeb3be7e4af814bf015c9ca2554b5d1f1fcd8f0d32d117`, File-table version `0.3.1.0` and 77,230,639 bytes. Its sealed packaging receipt is summarized in [A/B/C/D acceptance](ABCD-INTEGRATION-ACCEPTANCE.md). Separately, hosted A/B-only source `d70f30d` passed packaging and disposable-runner lifecycle checks. Those source/binary identities differ from the historical `1303a09` build above and current merged `main`; none is relabeled as a tested `9e894ab` build.
-
-No new build, MSI extraction/installation, workflow dispatch, test or application execution was performed for this all-branch source review. The user deferred execution until after reboot; no release version was reserved or published.
+Current Main and exact final packaged payload are qualified as above. Reboot deferral/unpushed wording is obsolete, not current pending work. This separate installer package is ready for selected publication after upstream recheck. Future production release still needs separately authorized version/reservation/release-note review; no release workflow was dispatched for these checks.

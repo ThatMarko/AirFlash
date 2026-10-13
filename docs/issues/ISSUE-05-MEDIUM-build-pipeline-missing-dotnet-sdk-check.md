@@ -1,105 +1,50 @@
-# [MEDIUM] Validate the selected .NET SDK before release reservation and native build
+# [MEDIUM] Selected SDK preflight precedes avoidable build and release side effects
 
-## Verified update — 2026-10-12
+- **Status**: Implemented in fork `main` `8989b3609dd1294f4d1d6eb1502f345cc22bc382` and **already resolved upstream**.
+- **Group / feature**: A, `codex/fix-build-preflight`, `de13b6d3e22a177537ed9d5977fe693a5b497fc1`.
+- **Upstream**: [PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11) merged, [issue #10](https://github.com/Ding-Kyoma/AirFlash/issues/10) closed; stable `cf420d97700463c56adc31408510e8336e99e51c` contains A. No original Group A implementation scope remains.
+- **Original severity**: MEDIUM avoidable release/build effects before prerequisite failure at `41190e0`.
+- **Plan / evidence**: [ISSUE-05](IMPLEMENTATION_PLAN.md#issue-05), [current acceptance](CONTINUATION-ACCEPTANCE.md), [installer acceptance](INSTALLER-REFRESH-ACCEPTANCE.md).
+- **Analysis**: [Audit](../analysis/audit.md).
 
-- **Status**: Resolved upstream. Stable `cf420d97700463c56adc31408510e8336e99e51c` contains A `de13b6d3e22a177537ed9d5977fe693a5b497fc1` through merged PR #11; no original Group A implementation scope remains.
+## 1. Current behavior
 
-[Shared host context/preflight](https://github.com/Ding-Kyoma/AirFlash/blob/cf420d97700463c56adc31408510e8336e99e51c/scripts/dotnet-common.ps1) resolves the same chosen executable under `desktop/global.json` (`10.0.100/latestFeature`) from the intended desktop directory, retains deliberate host precedence, and reports a shadowing runtime-only/incompatible installation. [Build](https://github.com/Ding-Kyoma/AirFlash/blob/cf420d97700463c56adc31408510e8336e99e51c/scripts/build.ps1) validates before reservation, cleanup or native work; the [release workflow](https://github.com/Ding-Kyoma/AirFlash/blob/cf420d97700463c56adc31408510e8336e99e51c/.github/workflows/release.yml) prepares/checks SDK before reservation. Installer overrides use that same explicit context. Informational runtime commands, forwarding and exit propagation remain compatible.
+[dotnet-common.ps1](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/scripts/dotnet-common.ps1) resolves one executable/context for preflight and later invocation. Deliberate precedence remains explicit override, checkout-local artifacts/dotnet, integration-checkout artifacts/dotnet, then PATH. A preferred runtime-only/incompatible host is rejected with its path, resolver directory/policy, original output and actionable replacement/install advice; it is not silently substituted.
 
-Tested fork runtime/source `dc521ae4236479cf21f9881b2d053f51a0fea7ee` passed 120 Python fixtures and normal/package CI; these are not release dispatches or version reservations. The later fork `fc1b718` release-helper changes are separate from that evidence. Earlier severity, call-order defect, unavailable-tooling and pending-reboot statements below are historical. The installer payload-refresh package remains separately recorded, not new A scope.
+The selected host runs `--version` from **desktop**, letting [global.json](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/global.json) resolve `10.0.100` with `latestFeature`. Compatible feature-band roll-forward is accepted; exact-version or major-prefix regex is not substituted. Later invocation uses the same executable/cwd. [dotnet.ps1](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/scripts/dotnet.ps1) preserves runtime informational commands, argument forwarding and native exit propagation without forcing SDK preflight onto every diagnostic.
 
-- **Issue ID**: ISSUE-05
-- **Implementation plan**: [Work package ISSUE-05](IMPLEMENTATION_PLAN.md#issue-05)
-- **PR group**: A — Build readiness
-- **Severity**: MEDIUM; build prerequisites fail after avoidable build/release side effects
-- **Kind**: Defect — tooling
-- **Subsystem**: Build & Tests
-- **Historical status (2026-10-10)**: Implemented; [PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11) merged upstream on 2026-10-09 and [issue #10](https://github.com/Ding-Kyoma/AirFlash/issues/10) closed; integrated into local fork `main`
-- **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
-- **Evidence status**: Original audit was source-only; subsequent isolated implementation checks are recorded below
-- **Historical implementation status (2026-10-10)**: `origin/codex/fix-build-preflight`, commit `de13b6d3e22a177537ed9d5977fe693a5b497fc1`
-- **Target files**: [dotnet.ps1:5–24](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/dotnet.ps1#L5), [build.ps1:17–33](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/build.ps1#L17), [build-installer.ps1:39–45](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/build-installer.ps1#L39), [global.json:1](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/global.json#L1)
-- **Analysis context**: [Audit/toolchain verification limits](../analysis/audit.md)
+[build.ps1](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/scripts/build.ps1) checks before release output/lock/reservation, cleanup, cargo or publishing. [Release workflow](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/.github/workflows/release.yml) installs/checks the SDK before reservation. [build-installer.ps1](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/scripts/build-installer.ps1) gives default and -DotnetPath hosts the same desktop resolver/cwd before output creation; unrelated existing EXE/version inspection can precede preflight.
+
+Main also contains separate installer payload-Rebuild and fork release-helper improvements. They are not new original A scope; [installer acceptance](INSTALLER-REFRESH-ACCEPTANCE.md) and current acceptance identify them separately. A release workflow with publish:false still reserves a version and is not a harmless prerequisite test.
+
+## 2. Historical root cause and bounded reproduction
+
+At [41190e0 build.ps1](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/build.ps1#L17), reservation/cleanup/native work preceded the .NET wrapper. The wrapper selected executable existence, not actual SDK resolution, and installer override used a different root cwd. Conditional release guards could fail sooner; no guard was bypassed to reproduce the ordering.
+
+Temporary fake hosts/operations recorded baseline reservation, cleanup, cargo and publish before SDK failure, while fixed preflight recorded **zero** such operations. Existing reservation tests are controls, not proof of this ordering. No real reservation/deletion/release dispatch was needed.
+
+## 3. Regression coverage
+
+[test_dotnet_preflight.py](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/tests/test_dotnet_preflight.py) copies scripts to isolated fixtures and covers selection precedence, no host, runtime-only/incompatible shadowing, compatible roll-forward, desktop cwd/restoration, explicit installer override, contextual diagnostics, forwarding/exit codes, informational commands and early zero-operation failure. Reservation behavior remains independently tested.
 
 ## Local implementation verification — 2026-10-07
 
-Original stable `main` was freshly confirmed at `41190e0d13a63a714c08dffe73ababca1804875c` on that date. The implementation branch starts there and contains only public tooling, regression tests and build documentation. Its final diff and sole outgoing commit exclude the fork's analysis/issues/planning files. The source audit below describes that original baseline, before upstream accepted the fix.
-
-The shared helper resolves the selected host once and checks `--version` from `desktop`, leaving the actual `global.json` resolver in charge. Build preflight now precedes the release lock, reservation, cleanup and native work; publish and installer reuse the selected host. Explicit installer hosts adopt the desktop policy. The release workflow sets up and checks the SDK before reservation; the wrapper preserves native argument/output/exit forwarding and runtime-only informational commands. Independent final source/test review reported no concrete findings.
-
-Implementation source at `de13b6d`: [selected-host helper](https://github.com/ThatMarko/AirFlash/blob/de13b6d3e22a177537ed9d5977fe693a5b497fc1/scripts/dotnet-common.ps1), [standalone preflight](https://github.com/ThatMarko/AirFlash/blob/de13b6d3e22a177537ed9d5977fe693a5b497fc1/scripts/check-dotnet.ps1), and [ordering/compatibility regression tests](https://github.com/ThatMarko/AirFlash/blob/de13b6d3e22a177537ed9d5977fe693a5b497fc1/tests/test_dotnet_preflight.py). The source-audit links below remain pinned to the earlier `41190e0` behavior.
-
-Executed checks: **86 Python tests passed with no skips**, including 37 new preflight/ordering tests; Ruff lint and new-test formatting passed. A separate temporary comparison using the original base scripts recorded fake reservation, cleanup, native and publish operations before SDK failure, while the fixed scripts rejected before all four. The SHA512-verified repository-local SDK **10.0.401** resolved the unchanged `10.0.100`/`latestFeature` policy; the actual runtime-only system host was rejected with contextual diagnostics. Locked solution restore, Release solution build (**zero warnings/errors**) and **163 managed tests** passed; package lockfiles and `global.json` remain unchanged. Restore used an explicit ignored NuGet configuration with the official package source because the isolated CLI home initially had no sources.
-
-Initial implementation checks exercised release/build orchestration and installer behavior using copied scripts, fake operations and temporary outputs. A separate validation branch was subsequently pushed to the fork for the additional checks below. Task 3 later published the implementation branch and upstream issue/PR as recorded in the publication handoff.
+Original A at de13b6d passed **86 Python tests** (37 new), Ruff, SHA512-verified local SDK 10.0.401 resolution, locked restore, Release build with zero warnings/errors and 163 managed tests. Additional PowerShell 7 / 5.1 / plain-checkout checks and 149 isolated English UI assertions passed. [Hosted run 37657692237](https://github.com/ThatMarko/AirFlash/actions/runs/37657692237) checked exact de13b6d and passed native/managed checks, ordinary isolated publish, default/override MSI builds and runtime-only override rejection. Those results are historical source-bound evidence, not current-main release execution.
 
 ### Additional desktop and fork verification
 
-Prepublication verification tested the unchanged implementation commit on both the desktop and a fresh GitHub-hosted `windows-2025` runner. Desktop checks passed under PowerShell 7 and Windows PowerShell 5.1, in a real clean clone with its own Git directory, with 86 Python tests under CI's Python 3.12, 163 managed tests and 149 isolated English WPF smoke checks. PowerShell 7 retains fuller native failure diagnostics than 5.1. All WPF engine/audio/discovery/autostart services were simulated; no receivers or production endpoint settings were used.
-
-The fork-only `codex/verify-build-preflight` branch contains a read-only validation workflow at `c004d88a4f3a8aacbf126eaea4fee628f8ffcf6d`. [Hosted run 37657692237](https://github.com/ThatMarko/AirFlash/actions/runs/37657692237) checked out the exact implementation commit `de13b6d` and passed actual SDK resolution, 86 Python tests, icons, 47 native tests (one existing soak ignored), native lint/build/static-CRT checks, the managed solution build and 163 managed tests. It also completed a real isolated publish, default and explicit-host MSI builds, and runtime-only override rejection before output creation. This used ordinary publish/installer commands, without calling the version-reserving release build or dispatching the Release workflow. No issue/PR, release, reservation tag or installer installation was created; fork `main` was unchanged.
-
-Remaining platform boundaries: the desktop lacks Rust/MSVC/Windows SDK prerequisites for a full native release build. The existing reservation script intentionally rejects a fork `origin`; the fork's earlier [Release run](https://github.com/ThatMarko/AirFlash/actions/runs/37525792456) demonstrates that guard. GitHub account permissions do not change that repository policy. Group A preserves it while improving SDK failure ordering.
+Current `8989b36` sync/readiness passes SDK 10.0.401, warning-free Release build, 667 Core, 124 Python and lint. [Exact-main CI 38296750592](https://github.com/ThatMarko/AirFlash/actions/runs/38296750592) is green. Code-identical `4ae1db4` complete portable/UI/DPI/disposable-MSI qualification is in current acceptance. Native compilation is hosted; local Rust/MSVC prerequisites remain absent.
 
 ### Publication handoff — 2026-10-07
 
-Published [issue #10](https://github.com/Ding-Kyoma/AirFlash/issues/10) and [PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11), targeting original `main` at verified `41190e0` from `ThatMarko:codex/fix-build-preflight` at `de13b6d`. No existing issue/PR covered the verified scope. Public bodies were independently reviewed and re-read after publication; GitHub recognizes the PR's `Fixes #10` relationship. The published nine-file diff and sole outgoing commit exclude all fork-only analysis/issues/planning files and the validation-only workflow. The PR is registered with this chat.
+Issue #10 / PR #11 were created from the focused public feature and later merged upstream. Initial action_required/Copilot quota messages were publication-time observations; the user later identified automatic review settings. They are not current account/CI status. The archived [original detailed report](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/docs/issues/ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md) retains those dated snapshots. No release or upstream publication occurs in this documentation update.
 
-At publication, the exact-source fork validation was green. Original-repository [CI run 37660774239](https://github.com/Ding-Kyoma/AirFlash/actions/runs/37660774239) reported `action_required`, with no jobs, and awaited maintainer approval for the fork PR. Copilot's automatic review reported a quota limit; it performed no code review. Independent source/regression review found no concrete issues. Maintainer approval and review were outstanding at that time. No merge, release workflow, reservation or release was performed during that publication step. The later accepted state is recorded below.
+## 4. Acceptance criteria and compatibility
 
-Review-setting correction — **2026-10-07**: Marko subsequently identified that automatic review had been disabled. The quota message above records the observed automation output; it did not establish that the account lacked credits. The dated publication snapshot was an open upstream PR with `action_required` CI and no executed CI jobs, independently of that review setting. Fork integration and subsequent build evidence are recorded separately below.
+- Check same selected executable/cwd/policy used later.
+- Failure precedes reservation/cleanup/cargo/publish, with explicit zero-operation assertions.
+- Compatible roll-forward passes; informational commands/forwarding/exit behavior remain intact.
+- Installer override and workflow ordering share the policy.
+- JSONL/schema/runtime frameworks remain compatible.
 
-### Fork integration — 2026-10-07
-
-Group A's tested feature commit was merged into local fork `main` at `ca84c7c`, followed by Group B at `72dc7c7df6649a95271e0a86ae62f371397b2ca4`. This does not merge upstream PR #11 or alter its feature branch. [Combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) records hosted packaging and tests of the downloaded binaries separately from the original standalone checks above. No public release or version reservation is implied.
-
-## Accepted fix and historical local integration — 2026-10-10
-
-PR #11 merged on 2026-10-09 at upstream merge `347cb24`; its earlier approval gate is historical, and upstream run `37660774239` subsequently succeeded. Stable upstream `d4aa0686fc411de6655aac313243f0f6bf71e439` includes this fix. The feature branch remains at `de13b6d`.
-
-All retained local branches are now merged into local `main`, source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. A source-only review confirms selected-host preflight precedes release output creation, locking/reservation, cleanup and Rust work; the same context supplies publish and installer invocation, and the release workflow checks before reservation. The installer also includes the separately audited payload-refresh `Rebuild` fix. No build, test, application launch, push or release dispatch was performed for this all-branch merge; post-reboot execution is deferred. Earlier [A/B/C/D acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) belongs to its pinned source, not to a newly tested `main` binary.
-
-The merged `.github/workflows/group-a-validation.yml` is a retained historical workflow: only a push to `codex/verify-build-preflight` triggers it, and it deliberately checks out `de13b6d`. Its presence on `main` does not validate current integrated source. The fork integration workflow instead checks out the triggering `${{ github.sha }}`; it has not run for this local-only merge.
-
-## Original baseline behavior and scope
-
-[dotnet.ps1:8–14](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/dotnet.ps1#L8) chooses the first existing executable from the checkout's `artifacts/dotnet/dotnet.exe`, the integration checkout's equivalent, then `dotnet` on PATH. It checks executable existence, not whether that selected installation can resolve the repository SDK. A runtime-only or stale local host can take precedence over a suitable system installation. With no executable, the wrapper already throws `Install the .NET 10 SDK.`; the gap concerns an executable that exists but cannot supply the required SDK.
-
-[desktop/global.json:1](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/global.json#L1) requests SDK `10.0.100` with `rollForward: latestFeature`. [AirFlash.App.csproj:6](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/AirFlash.App.csproj#L6) targets `net10.0-windows`, and [AirFlash.Core.csproj:4](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/AirFlash.Core.csproj#L4) targets `net10.0`. Those framework monikers alone do not describe SDK selection. `latestFeature` selects an installed compatible 10.0 patch/feature band at or above the specified SDK; finding any `10.` line in `--list-sdks` is not a complete resolution check. SDK selection also depends on working directory. [Microsoft global.json documentation](https://learn.microsoft.com/en-us/dotnet/core/tools/global-json) explains both rules.
-
-The wrapper runs from `desktop` at [dotnet.ps1:22–23](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/dotnet.ps1#L22), so that `global.json` applies. Installer `-DotnetPath` bypasses the wrapper and executes from the repository root at [build-installer.ps1:8–9,39–43](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/build-installer.ps1#L39). Preflight must check the same executable and working-directory policy as the subsequent command, not an unrelated PATH host.
-
-## Root cause and material effect
-
-The build entry obtains a release lock, calls `Reserve-ReleaseVersion`, removes old build/dist directories, and builds Rust before invoking the .NET wrapper ([build.ps1:17–33](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/build.ps1#L17)). When reservation preconditions succeed, that function creates a remote reservation tag at [release-version.ps1:59–64](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/release-version.ps1#L59). A missing compatible SDK can then fail publishing after that version was consumed and native work/cleanup performed.
-
-This is a conditional call-order defect, not an actual reservation/deletion performed by this audit. The personal-fork remote/clean-branch prerequisites may stop a real build earlier; they must not be bypassed to reproduce it. The CLI may already print a useful SDK-resolution error, so the original blanket claim of "cryptic MSBuild errors" is withdrawn.
-
-Both workflows install `10.0.x` before .NET checks ([CI:16–18](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/.github/workflows/ci.yml#L16), [Release:43–45](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/.github/workflows/release.yml#L43)). That limits the usual CI case but does not validate arbitrary local candidate hosts. The release workflow itself reserves before SDK setup at [Release:33–45](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/.github/workflows/release.yml#L33).
-
-## Original deterministic reproduction plan
-
-Use disposable fixtures/fake commands, with no real build or network:
-
-1. Supply a selected repository-local host whose SDK query fails or returns no SDK, alongside a compatible PATH host.
-2. Exercise a factored selection/preflight function and record which executable/cwd it checks.
-3. Stub reservation, cleanup, Rust build, and publish; record orchestration calls.
-4. Original `41190e0` predicts no SDK check before reservation/cleanup/native build. Desired behavior rejects the unsuitable selected SDK before those calls.
-5. Cover no host, runtime-only host, unsupported SDK, compatible 10.0 host, and installer `-DotnetPath` separately.
-
-These steps were the original proposal. The implemented [preflight regression fixture](../../tests/test_dotnet_preflight.py) now copies entry points into temporary paths, substitutes hosts and release/native operations, and spies on cleanup; earlier execution evidence appears above. Do not invoke real `scripts/build.ps1` as a prerequisite test or run any checks before the deferred reboot.
-
-## Original proposed implementation and acceptance
-
-Factor resolution/preflight so callers share the selected host and explicit cwd. Run an SDK-resolving command such as `--version` under the intended `global.json` policy, check exit/result, and report selected path, required policy, and an actionable [SDK installation link](https://dotnet.microsoft.com/download/dotnet/10.0). Do not replace resolution with a blanket `^10\.` filter or block diagnostic commands such as `--info`/`--list-sdks` on runtime-only installations.
-
-- Local prerequisite failure occurs before reservation, cleanup, or native build. If the workflow is included in the fix, its SDK preparation/checks precede reservation too.
-- Preflight checks the host later used, including explicit installer paths, with no hidden change between check/build.
-- Compatible 10.0 roll-forward installations pass without requiring exactly `10.0.100`.
-- Diagnostics distinguish missing host, unresolved SDK, and later genuine build failure.
-- Fixture tests assert zero real pushes, output deletions, or compiler invocations.
-- Runtime frameworks, JSONL v1, and configuration schema 2 remain compatible; this is tooling only.
-
-## Original test gap and implemented coverage
-
-[test_release_version.py](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/tests/test_release_version.py) covers reservation with fake git, not selected-host resolution/build order. [Lines 133–153](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/tests/test_release_version.py#L133) cover reservation conflict/pre-reserved handling, which must remain intact. No dedicated test existed at `41190e0` for local runtime-only precedence, preflight, or preventing reservation on SDK failure. Current [test_dotnet_preflight.py](../../tests/test_dotnet_preflight.py) covers those gaps, host precedence, working-directory restoration, forwarding, explicit installer selection and workflow ordering. The original analysis audit's unavailable SDK was a toolchain observation, not an executed release-build reproduction. No audio/receiver failure or hardware root cause is asserted.
+This issue is resolved in current main and original stable. Current scripts preserve release repository/version guards; authorization to edit docs or run isolated checks is not authorization to dispatch a production release.

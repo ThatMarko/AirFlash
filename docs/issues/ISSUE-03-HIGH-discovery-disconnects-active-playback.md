@@ -1,86 +1,37 @@
-# [HIGH] A transient discovery snapshot stops active discovered playback
+# [HIGH] Passive discovery loss preserves owned playback and its Stop controls
 
-## Verified update — 2026-10-12
+- **Status**: Implemented and integrated in fork `main` `8989b3609dd1294f4d1d6eb1502f345cc22bc382`.
+- **Group / feature**: B, pushed `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`.
+- **Upstream status**: Original passive-Stop scope is already fixed in stable `cf420d97700463c56adc31408510e8336e99e51c`/merged [PR #19](https://github.com/Ding-Kyoma/AirFlash/pull/19); do not propose it again as absent.
+- **Original severity**: HIGH interruption defect at `41190e0`, not proof of an unresolved current device failure.
+- **Plan / evidence**: [ISSUE-03](IMPLEMENTATION_PLAN.md#issue-03), [B acceptance](GROUP-B-ACCEPTANCE.md), [current acceptance](CONTINUATION-ACCEPTANCE.md).
 
-- **Status**: Original passive-discovery Stop scope is already fixed in stable `cf420d97700463c56adc31408510e8336e99e51c`, including merged [PR #19](https://github.com/Ding-Kyoma/AirFlash/pull/19). It must not be proposed again as an unimplemented upstream fix.
+## 1. Current behavior
 
-Fork B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`, integrated into tested runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`, retains stronger [ownership/control assertions](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.App/Verification/UiSessionLifecycle.cs): Connecting/Pairing/Streaming/Standby survive empty/partial/repeated publication; active complete transport remains separate from truthful availability, hidden/offline rows retain Stop, and reappearance retargets only the original atomic owner/intent. Explicit Stop, PIN cancellation, terminal faults and cleanup remain effective. Selected-interface no-fallback is unchanged.
+[Reconciliation](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L301) retains Connecting, Pairing, Streaming and Standby through empty, partial, overfull, offline or repeated discovery. An already complete transport remains distinct from truthful catalog availability. A complete online reappearance may retarget only the original atomic owner/intent under controller serialization; applicable signature changes can restart playback.
 
-B's 764-check UI and 28-check stability runs passed, with 304 Core/build. Integrated runtime passed 666 Core and six 1059-check synthetic UI pairs. See [acceptance](GROUP-B-ACCEPTANCE.md). The historical severity, discovery-driven cancellation and original missing-fixture discussion below describe `41190e0`; they do not establish a current hardware-disconnection cause.
+[RefreshReceivers](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L371) overlays an owned active card even when hidden/offline/removed from the selected-interface catalog. Its toggle remains Stop. New Play/automatic starts still reject hidden/offline/incomplete candidates; explicit Pair checks availability/completeness and may intentionally be offered on a hidden Settings row. Manual rows persist independently.
 
-- **Issue ID**: ISSUE-03
-- **Implementation plan**: [Work package ISSUE-03](IMPLEMENTATION_PLAN.md#issue-03)
-- **PR group**: B — Session lifecycle
-- **Severity**: HIGH — a passive discovery refresh can interrupt an otherwise running stream; no data loss or security failure is established.
-- **Kind**: Defect
-- **Subsystem**: Desktop discovery/catalog/session orchestration
-- **Historical status (2026-10-10)**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
-- **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
-- **Evidence status**: The original audit inspected source and existing mock-harness assertions without executing the proposed reproduction. Subsequent isolated baseline observations reproduced empty/partial-discovery interruption; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No real-device dropout or network trigger was reproduced.
-- **Historical implementation status (2026-10-10)**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
-- **Target files**: [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166), [WindowsDiscovery.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47)
-- **Analysis context**: [Playback coupling](../analysis/playback-coupling.md), [Discovery](../analysis/discovery.md), [After discovery](../analysis/after-discovery.md)
+Adapter change deliberately retains owned playback while discovery obeys the selected interface, with no unavailable-adapter fallback. Explicit Stop, PIN cancellation, shutdown and terminal faults still cancel/clean up/retry according to policy. Exact playback mute restoration remains best effort after cleanup; recording endpoints are excluded. See [Playback coupling](../analysis/playback-coupling.md).
 
-## Historical local implementation — 2026-10-10 (9e894ab)
+## 2. Historical root cause and observation
 
-`ReconcileDiscoveryAsync` retains owned Connecting, Pairing, Streaming and Standby through missing/offline/incomplete snapshots. A complete online reappearance can still retarget through guarded ownership and restart when the effective signature changes. `RefreshReceivers` overlays an active row excluded by the ordinary online/hidden filter; the row's bound toggle remains Stop. Catalog availability is separate from transport health; explicit stop, PIN cancellation, engine faults and shutdown retain cleanup.
+At [41190e0 AppViewModel](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L211), absent/incomplete discovered rows called Stop without inspecting native transport health. Baseline Restart published empty before new browse, so it could interrupt an otherwise healthy fake connection. Later new Start reset diagnostics; zero reconnects did not prove the cause. Current Restart/cache scheduling differs as documented in [Discovery](../analysis/discovery.md).
 
-Source audit: [AppViewModel](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs), [SessionController](../../desktop/AirFlash.Core/SessionController.cs), [ReceiverSelection](../../desktop/AirFlash.Core/ReceiverSelection.cs) and their [lifecycle](../../desktop/AirFlash.Tests/SessionLifecycleTests.cs), [selection](../../desktop/AirFlash.Tests/ReceiverSelectionTests.cs) and [WPF](../../desktop/AirFlash.App/Verification/UiSessionLifecycle.cs) assertions were read against source main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. No application/build/test execution occurs in this audit. The following original behavior/proposal/coverage statements remain pinned to `41190e0`; missing-fixture statements describe that baseline, not the current test tree.
+Original isolated fake observations reproduced empty/partial interruption. No Wi-Fi scan duration, OS-specific tolerance, HomePod chime, author's intent, packet-loss cause or relationship to upstream issues #6/#7 is established. Fixed tests replace the old baseline assertion that member disappearance must stop playback.
 
-## 1. Original baseline behavior and impact
+## 3. Regression coverage and acceptance
 
-The desktop stops an active non-manual session when an applied discovery snapshot lacks its receiver or contains a stereo row whose member count is not exactly two. This decision does not inspect the active engine's transport health. A normal discovery `Restart` clears its cache and publishes an empty list before starting the new browse, so that intermediate empty result can stop playback even when the current connection remains usable.
+Current WPF [UiSessionLifecycle](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Verification/UiSessionLifecycle.cs), [SessionTests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/SessionTests.cs) and [SessionLifecycleTests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/SessionLifecycleTests.cs) cover every retained state, empty/partial/repeated publications, reappearance, selected adapter, active controls, manual persistence, explicit Stop, terminal faults/retry and both original mute bits through fakes.
 
-With all interfaces selected, missing discovered receivers remain in `_known` as offline; with a selected NIC, they are removed. The panel filters both out. Discovery does not set the user's auto-connect suppress flag, but playback resumes only through a permitted automatic attempt or an explicit user action. A new playback begins with fresh diagnostics; zero reconnects alone do not diagnose its cause. See [Playback coupling](../analysis/playback-coupling.md), [Discovery](../analysis/discovery.md), and [After discovery](../analysis/after-discovery.md).
+- Passive loss sends no Stop/new Start/disposal/restore for the retained healthy attempt.
+- New incomplete/offline playback remains rejected.
+- Retained controls provide accessible Stop; modal Pair fixtures respect PIN accessibility.
+- Terminal faults and explicit cancellation preserve cleanup/diagnostics, with exact fake restoration.
+- Complete reappearance respects owner/intent and transport signature.
 
-The old report's CRITICAL rating, hypothetical 10–30-second absence, HomePod chime, author's intent, nonexistent `_receivers` removal snippet, periodic full-cache flush every 20 seconds, and RTP/RTCP acknowledgement claims are removed. The ordinary 20-second timer prunes expired records and refreshes known names; it restarts only on selected-interface index changes or its adapter-query error path. Feedback is TCP RTSP, not a universal acknowledgement of UDP audio delivery.
+These checks participate in current **667 Core** and six full packaged **1,059-assertion** UI runs. B/current acceptance retains narrower branch results, baseline failures and review. No new receiver/DNS/audio operation runs in this documentation task.
 
-## 2. Bounded root cause
+## 4. Publication boundary
 
-| Step | Exact evidence |
-| --- | --- |
-| Restart clears the cache and publishes before opening the replacement browse | [WindowsDiscovery.cs:47–80](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47) |
-| Network-address and availability handlers invoke Restart without identifying the changed NIC | [WindowsDiscovery.cs:45–46](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L45) |
-| Missing/incomplete non-manual snapshot calls `Session.StopAsync` | [AppViewModel.cs:211–218](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L211) |
-| Known-map policy and panel filtering remove usable controls from the panel | [AppViewModel.cs:196–210](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L196), [234–245](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L234) |
-| Cancellation stops the worker; a new Start resets diagnostics | [SessionController.cs:190–224](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L190), [372–393](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L372) |
-
-The discovery/session decision follows any required identity save. If that save fails, this transaction exits before applying the stop. The captured session can also become stale during an asynchronous save; that separate race is [ISSUE-01](ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md).
-
-## 3. Original mock reproduction plan
-
-Use the WPF dispatcher harness with `MockDiscovery`, in-memory settings, fake audio, and a fake engine that reports Streaming and keeps its event stream alive. All addresses can be documentation-only literals, such as `192.0.2.10`; the fake engine must never open a socket.
-
-1. Set auto-connect and force reconnect off. Publish one complete discovered receiver A and start it through `ToggleAsync`; wait for the simulated Streaming snapshot.
-2. Keep that fake engine healthy and publish an empty discovery list.
-3. Pump the dispatcher until reconciliation finishes. Source-predicted result: A becomes offline or is removed according to interface mode; its panel row disappears; Session reaches Idle and the fake connection is disposed.
-4. Publish A again. Source-predicted result: its row returns, but playback remains stopped with auto-connect disabled.
-5. Repeat with a persisted manual receiver as the captured active receiver. It should skip the discovery-driven stop branch. Repeat separately with a complete stereo group becoming `1/2` to cover the current intentional coupling.
-
-This tests the desktop policy directly. It does not require packet loss, Wi-Fi roaming, a network reset, or a HomePod, and does not establish that Windows will deliver any particular browse-removal event.
-
-## 4. Original architecture proposal
-
-Separate discovery presence from ownership/health of an already owned active attempt, including Connecting, Pairing, Streaming and Standby. Passive absence or temporary group incompleteness should update discoverability without cancelling that attempt; an existing handshake/PIN workflow remains governed by its failure, timeout and explicit-cancellation policy. Retain the active receiver snapshot and its explicit stop controls while showing that discovery is currently unavailable. Continue to reject new starts for incomplete/offline discovered rows. Do not replace the active complete transport snapshot with an offline/incomplete catalog row or restart it on that partial data.
-
-Let terminal native transport/capture errors end or retry playback under the existing session policy. Do not introduce continuous UI-thread DNS/RTSP polling, and do not treat a local UDP send or a successful feedback response as proof of audible output. Explicit user stop and shutdown must remain responsive while initiating cancellation and awaiting asynchronous cleanup; acquiring the lifecycle semaphore and restoring mute after cleanup are not an immediate-completion guarantee. The proposed adapter-change policy retains the owned attempt through browse restart while discovery follows the selected interface; a selected unavailable adapter must remain paused without fallback to all interfaces.
-
-Keep JSONL v1 and config schema 2 unchanged. Session ownership guards from ISSUE-01 are needed for any delayed discovery action. Apply the same last-known active snapshot policy to stereo without inventing RTP resume or accepting an incomplete group for a new handshake.
-
-## 5. Acceptance criteria and verification
-
-- A fake Streaming receiver survives an empty passive discovery publication with no new `start`, `stop`, process disposal, or mute restore.
-- Connecting and Pairing attempts also survive passive disappearance; explicit Stop/PIN cancellation and actual handshake failures still end them under existing policy.
-- A complete active stereo session survives an intermediate `1/2` snapshot; a new start on that incomplete row remains rejected.
-- The active row retains working stop controls and shows its discovery status; inactive missing rows still follow the selected-interface catalog policy.
-- Manual receivers remain independent of empty discovery publications.
-- A terminal fake engine fault still ends playback, preserves its diagnostic fault, restores the exact saved mute bit through the audio abstraction, and retries only under current retry settings.
-- Explicit stop, shutdown, and selected-adapter no-fallback behavior remain covered. No schema or IPC change is needed.
-
-Existing coverage: the [stereo identity regression](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L222) currently asserts that member disappearance stops playback; that assertion would intentionally change under this proposal. [SessionTests](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L126) covers cancellation and [incomplete-group rejection](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L220). A dedicated healthy-stream/empty-snapshot retention assertion and active-row rendering assertion are missing.
-
-Safety: perform these checks with mocks only. Hardware qualification is separate authorized work; any later audio probe must remain at gain ≤0.1 and duration ≤5 seconds. No correspondence to upstream issues #6/#7 or `upstream/dev` is claimed.
-
-## Executed implementation and fork integration
-
-The source and proposed-fixture discussion above describes the original `41190e0` audit. [Group B acceptance](GROUP-B-ACCEPTANCE.md) records reproduced original-base failures, implementation/follow-up commits and their executed Core/WPF evidence. Current pushed B `0a2c1ac` is now included in local main `9e894ab`; original upstream has merged A/scrolling, while B PR #15 remains closed without merge. [Combined acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) keeps earlier tested compositions separate from this merge's deferred main testing. No hardware incident is attributed to this defect.
+Original passive-Stop scope is upstream; additional atomic ownership/admission/hidden-control/manual-selection work remains fork B scope. Old PR #15 stays closed at its older snapshot. Current local integration is not an upstream merge, release or hardware qualification.

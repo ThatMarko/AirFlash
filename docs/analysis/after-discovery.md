@@ -1,185 +1,90 @@
 # After discovery: catalog, session updates, and auto-connect
 
-## Verified state — 2026-10-12
+This page describes fork `main` at **`8989b3609dd1294f4d1d6eb1502f345cc22bc382`**, reviewed on 2026-10-12. Original stable `cf420d97700463c56adc31408510e8336e99e51c` is already included. All Group B changes are pushed and integrated in this main; their upstream publication status remains separate. [Audit](audit.md) and [current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) define the source and verification boundaries.
 
-Stable `cf420d97700463c56adc31408510e8336e99e51c` and pushed B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b` are integrated into tested fork runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`. Older baseline/continuation sections below remain historical, including their pending-reboot and incomplete E–H status.
-
-Upstream [PR #19](https://github.com/Ding-Kyoma/AirFlash/pull/19) is merged. Its [stable consumer](https://github.com/Ding-Kyoma/AirFlash/blob/cf420d97700463c56adc31408510e8336e99e51c/desktop/AirFlash.App/ViewModels/AppViewModel.cs) retains active discovery targets, rereads the session after persistence, skips passive updates during Pairing and uses live state for retained controls. This removes already-fixed passive-retention scope; it does not establish atomic owner/intent admission, candidate fallback, exact manual routing or hidden active controls.
-
-The [fork consumer](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.App/ViewModels/AppViewModel.cs) captures snapshot/owner/intent atomically before identity saving. Afterward a fresh capture must match the original owner and intent; serialized retargeting checks again. Complete online reappearance may promote identity or cause an applicable signature restart. Missing/partial data remains catalog availability rather than transport revocation. The active overlay retains Stop even when hidden/offline; manual rows persist independently and selected-adapter no-fallback remains intact.
-
-Automatic start uses separate admission from click Toggle: intent is captured before persistence, eligibility/options are rechecked under the settings gate, and the controller requires the original owner/intent plus inactivity. Pair/Stop/new explicit work invalidate older intent immediately. Attempted candidates are filtered before ranking, and only admitted attempts change attempted/last-used state. Rejected work preserves valid saves and newer suppression. [ReceiverSelection](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.Core/ReceiverSelection.cs) preserves exact manual/group selections and rejects ambiguous member ownership.
-
-B refresh passed 139 focused/304 Core checks, build, 764 English UI checks with Chinese region and the new 28-check stability command. Integrated runtime passed 666 Core and six 1059-check mock UI pairs; current normal/native/package CI is complete. These results do not establish a hardware disconnection cause. See [B acceptance](../issues/GROUP-B-ACCEPTANCE.md), [Settings](settings.md) and [Discovery](discovery.md).
-
-## Earlier continuation snapshot — 2026-10-11 (437 Core)
-
-The [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
-
-## Historical local-main audit — 2026-10-10 (9e894ab)
-
-Source audit on 2026-10-10: local `main` at `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7` includes final B `0a2c1ac`, C `c3a1d5e`, D `48e7ab62`, scrolling and updated upstream. The sections from the pipeline through the original source/verification table describe pinned **`41190e0`**, including its discovery-driven Stop, address-only routing and delayed automatic-admission defects. They are historical behavior, not the behavior of this merged main.
-
-In current [AppViewModel](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs), `ReconcileDiscoveryAsync` captures snapshot/owner/intent, persists identity changes, updates the truthful catalog, then sends only complete online replacements to `Session.TryUpdateReceiverAsync`. Absence and incompleteness do not issue Stop. `RefreshReceivers` overlays an active control even when the ordinary catalog filter excludes it; `ReceiverViewModel.Active` keeps its bound Stop available. [ReceiverSelection](../../desktop/AirFlash.Core/ReceiverSelection.cs) preserves manual/group selections, requires unique confirmed ownership for members, and excludes attempted candidates before ranking. `TryAutoConnectAsync` rechecks identity/options after persistence and holds `_settingsGate` through serialized owner/inactive/intent admission. C's preservation failure exits the save path before automatic admission; D bounds logical DNS requests before this publication pipeline. See [Settings](settings.md) and [Discovery](discovery.md).
-
-The earlier branch and portable test results below belong to their recorded source hashes. This merge/audit runs no build, test, app, DNS or audio operation; testing local main is deferred until after reboot. A/scrolling are merged upstream, B PR #15 is closed without merge, and C/D remain unpushed/unpublished despite now being included in local main. [Integration acceptance](../issues/ABCD-INTEGRATION-ACCEPTANCE.md) keeps those boundaries separate.
-
-A discovery publication aggregates cached service records into receiver rows on the caller's thread. The view model queues those rows on the WPF dispatcher; catalog reconciliation then takes the asynchronous settings gate. Before playback starts, this pipeline does not contact a receiver beyond DNS-SD. During an active session, reconciliation can stop playback or start a replacement engine. Normal app startup also opens a short-lived engine for `hello` before discovery starts. The playback and pairing entry points are specified in [Session](session.md).
-
-The pipeline is:
+A publication aggregates service records on the discovery publisher's thread and queues reconciliation on the WPF dispatcher. Reconciliation takes the asynchronous settings gate; ordinary persistence can yield the dispatcher while Settings Pair and worker events proceed. Controller serialization supplies the final session authority check. Startup's engine `hello` is a separate initialization operation, not a playback start. Discovery demand and DNS operation ownership are described in [Discovery](discovery.md).
 
 ```mermaid
 flowchart TD
-  PUB[WindowsDiscovery.Publish]
-  AGG[ReceiverAggregator.Build]
-  UIQ[Dispatcher queue]
-  REC[ReceiverCatalog.Reconcile]
-  SAVE[Save config.json when aliases or preferences moved]
-  MAP[Update the known-device map]
-  DRAW[Refresh the panel when the full catalog changed]
-  LIVE[Stop or retarget a session that is already playing]
-  ARM[Restart the 900 ms auto-connect timer]
-  PUB --> AGG --> UIQ --> REC --> SAVE --> MAP --> DRAW --> LIVE --> ARM
+  PUB[WindowsDiscovery publishes cached records]
+  AGG[ReceiverAggregator builds rows]
+  UIQ[Dispatcher queues reconciliation]
+  CAP[Capture snapshot, lifecycle owner and intent together]
+  REC[ReceiverCatalog reconciles identities and options]
+  SAVE[Persist migration when required]
+  MAP[Update truthful catalog and active controls]
+  LIVE[Guard complete online retarget under controller serialization]
+  ARM[Schedule automatic admission]
+  PUB --> AGG --> UIQ --> CAP --> REC --> SAVE --> MAP --> LIVE --> ARM
 ```
-
-`Changed` is raised on the thread calling `Publish`: a DNS callback, refresh timer, or a synchronous restart caller such as startup or Settings Apply. The view model queues `OnDiscovered` with `Dispatcher.BeginInvoke`. Reconciliations take `_settingsGate`, so a save finishes before the next queued result is applied. `await` yields the UI thread; the gate serializes transactions rather than blocking the dispatcher for network work.
 
 ## Merging advertisements
 
-[`ReceiverAggregator.Build`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Receiver.cs) runs on every publish, including a publish whose records did not change.
+[ReceiverAggregator.Build](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/Receiver.cs) orders AirPlay first, then instance, address and port. It merges equal normalized identities even when model, stereo id or public key conflicts. That is catalog grouping, not authentication.
 
-Services are ordered AirPlay first, then by instance name, address, and port. They collapse in one pass:
+Shared `address:port` records merge only when exactly one existing group is compatible: nonempty `model`, `tsid` and `pk` must not disagree. Model comparison ignores case; stereo id and public key are ordinal. Multiple compatible candidates prevent the endpoint merge. An incompatible candidate logs a conflict but does not veto a unique compatible candidate. A later record may bridge one identity group and one compatible endpoint group; this remains a single-pass algorithm rather than unrestricted graph closure.
 
-- Records with the same normalized identity join, even if their model, stereo id, or public key conflicts. The endpoint compatibility check is not an authentication check or a veto on identity matches. `AA:BB:CC:DD:EE:01`, `AA-BB-CC-DD-EE-01`, and `aabbccddee01` are synthetic examples of one id. A RAOP name such as `AABBCCDDEE01@Cinema._raop._tcp.local` uses `aabbccddee01` when `deviceid` is empty, and `Cinema` as the display name.
-- Records that share `address:port` can also join. They join only when exactly one existing group is compatible. Compatible means `model`, `tsid`, and `pk` do not disagree. An empty field agrees with any value. `pk` is case-sensitive, so `AbCd==` and `abcd==` stay apart.
-- More than one compatible endpoint candidate prevents an endpoint merge. An incompatible candidate also logs `Discovery identity conflict`, naming the disagreeing fields (`model`, `tsid`, `pk`), but does not veto a merge with exactly one other compatible candidate. The incompatible group stays separate. `ambiguous_endpoint` is true when more than one compatible group was found. Model comparison ignores case; `tsid` and `pk` comparisons are ordinal and case-sensitive.
-- A record can merge its existing identity group with exactly one compatible endpoint group, so an AirPlay record and a RAOP record can meet through a third record sharing an identity with one and an endpoint with the other. This one-pass algorithm is not an unrestricted graph closure: the multiple-compatible-candidate rule still prevents ambiguous endpoint merges.
-
-Each physical group becomes one `Receiver`. The id is the normalized device id, or `host:port` when no id exists. Two unidentified services that would share that endpoint id receive distinct ids, `endpoint:{host:port}#{16 hex chars}` of the service type and instance. The display name and address come from the first record after AirPlay-first ordering. Codecs are the comma-separated `cn` bytes from the RAOP record only. `tsid`, `gpn`, and `igl` are copied onto the device.
-
-A merge of more than one service is logged as `Discovery merged:` with the reason `normalized_identity` when all normalized identities in the final group are equal, otherwise `compatible_endpoint`. `Publish` logs messages absent from the immediately previous diagnostic set. A message that disappears and later reappears is logged again, even if other messages remained; changing an unrelated message alone does not cause an unchanged message to repeat.
+A physical row uses normalized device identity, otherwise an endpoint fallback. Distinct unidentified services sharing an endpoint receive distinct `endpoint:{host:port}#{hash}` ids. AirPlay-first ordering determines the display address/name; codecs come from RAOP `cn`. Merge diagnostics are logged only when absent from the immediately preceding diagnostic set; a disappearing and returning message can be logged again.
 
 ### Stereo rows
 
-Devices with an empty `tsid` stay as their own rows. Devices that share a `tsid` become one row:
+Devices with `tsid` group into `stereo:{tsid}`, leader first then member id. A group is complete only with exactly two members. Its name uses `gpn` or the leader name; member aliases/options remain on members while the group has separate options. A leader change can change the group's transport signature without changing its group id.
 
-| Property | Value |
-| --- | --- |
-| Id | `stereo:{tsid}` |
-| Name | `gpn` when it is non-empty, otherwise the leader's name |
-| Member order | Leader (`igl=1`) first, then member id |
-| Complete | Exactly two members |
-| Detail | `HomePod stereo · {n}/2` |
-
-A single visible member is still a stereo row. It is `1/2` and its play command stays disabled when it is inactive. A group with more than two members is also incomplete. Switching which member has `igl=1` changes the row address and leaves the id on `stereo:{tsid}`. The group row's `Aliases` array is empty. Member aliases stay on the members. The individual members are not shown beside the pair in the main window. `ReceiverCatalog.IsCoveredMember` removes a member id from the known map while an online group contains that online member; it does not require the group to be complete. `ToggleAsync` rewrites a clicked row onto the first stereo group with a member at the same address. This lookup compares neither port nor identity, so even a manual row at that address can be redirected to the group. Session start then requires a complete group.
-
-Member preferences stay on the member ids. Hiding one member does not hide the `stereo:` row. The pair has its own saved options.
+A one-member or overfull group remains an incomplete catalog row. New playback/pairing requires completeness. An already owned complete session retains its original transport through partial/offline data. Selecting a manual row keeps its endpoint, port, identity and options. Selecting a group keeps that group. An individual discovered member can redirect only to a unique online canonical/broadcast-alias owner; there is no address-only or address-plus-port fallback. Ambiguity rejects before an engine command. See [Identity](identity.md) and [ReceiverSelection](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/ReceiverSelection.cs).
 
 ## Stable identity
 
-[`ReceiverCatalog.Reconcile`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/ReceiverCatalog.cs) rewrites each discovered device onto one canonical id before the panel updates. The walk, the alias rules, and the preference merge are in [Identity](identity.md). The outcome that this stage depends on is:
+[ReceiverCatalog.Reconcile](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/ReceiverCatalog.cs) clones settings, canonicalizes physical identities and returns migrations without I/O. Manual ids never migrate. Only unique currently advertised endpoints may migrate endpoint preferences; durable `ReceiverAliases` contains broadcast identities, not endpoint associations.
 
-- Advertised MAC-shaped ids and RAOP prefixes can become one canonical broadcast id. Saved `host:port` preferences migrate only when that endpoint is uniquely advertised by this device and is not a manual id. Without a broadcast identity the endpoint remains a fallback id.
-- Manual ids are not rewritten and are not alias targets.
-- Hidden is OR-merged. An explicit auto-connect `false` wins. Volume, latency, custom buffer, and standby come from the highest-priority old record.
-- `LastReceiverId` follows the migration. Endpoint aliases are not a durable identity. `Load` drops any alias whose key or value is not a broadcast id. See [Settings](settings.md).
+Hidden options OR-merge; explicit automatic false wins; other nullable options use active-id, last-used-id and ordinal priority. Last-used follows valid migration. An identity backup is requested only when an existing preference key or last-used id moved, not for a new self-alias alone. [Settings](settings.md) describes exact-byte recovery and the separate identity backup.
 
-If the resulting settings differ from memory, the view model writes `%APPDATA%\AirFlash\config.json`. The previous file is copied to `config.json.pre-receiver-identity.bak` once only when `NeedsBackup` is true: an existing preference key or last-used id actually moved. Adding a broadcast alias alone does not request this backup. A failed save exits reconciliation before replacing the known map, migrating the active receiver, or stopping its session; independent session events can still occur. `Receiver identity migrated:` is logged only when the migration moved a saved preference key or the snapshot's active id, not for every alias-only save.
+[AppViewModel.ReconcileDiscoveryAsync](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L301) captures snapshot, owner and intent before saving. A save failure exits before this transaction replaces its catalog or retargets its session; unrelated worker events can still happen. A successful save merges concurrent panel edits rather than discarding them. Draft Settings receives migrations in both draft and baseline, preserving unrelated unsaved edits.
 
-When Settings rebuilds its catalog, it applies the current migration map to the draft and baseline and copies the new broadcast alias map into both, preserving unrelated unsaved edits. Apply also migrates both before its merge. An equal receiver list does not redraw the panel. The absence of a catalog redraw does not guarantee the engine is untouched: a settings change produced by reconciliation can still change session latency and trigger an update.
-
-When a previous row's id changes and the new id is in this result, the view model logs `Receiver identity upgraded:`. The reason is `confirmed_broadcast_alias` for a device id, or `unique_endpoint` for a `host:port` id that uniquely matched.
+After persistence, a fresh capture must retain the original owner and intent. Only a complete online discovered replacement reaches `TryUpdateReceiverAsync`, which rechecks authority under controller serialization. Metrics and native retries retain desktop ownership; same-id replacement changes it. Valid same-owner promotion remains possible, including Pairing metadata without a pairing restart. Signature changes retain their applicable playback restart. A newer Pair/Play/Stop prevents stale discovery work from controlling its worker, settings or diagnostics.
 
 ## The known-device map
 
-After reconciliation the view model updates `_known`:
+Reconciliation replaces discovered rows, removes migrated-away ids and covered online members, and migrates attempted ids. Missing non-manual rows become offline with all interfaces selected, or leave the map with a selected adapter. Saved preferences persist in either case. A new row, prior offline row, or incomplete-to-complete transition can clear that id's attempt mark; identical online/complete publications do not reset it. Manual rows are reinserted from settings and remain independent of discovery.
 
-- Each discovered id replaces the previous entry.
-- An id that migrated away, and a member covered by an online pair, is removed.
-- Auto-connect attempt marks follow an id when it migrates.
-- A device missing from this result stays in the map with `Online = false` when discovery is set to all interfaces. With a specific adapter selected, it is removed.
-- A device that was offline or incomplete, and is now online and complete, has its auto-connect attempt cleared. A later timer run may start it.
-- Manual receivers from settings are written back over the map. They are always online. Discovery cannot add or delete them.
+`AllReceivers` includes hidden/offline catalog rows. Full equality includes aliases, codecs and members; only a catalog change raises `CatalogChanged`. Settings builds from that full catalog and may synthesize saved offline history with its draft's all-interface choice. The applied interface controls actual browsing.
 
-`RefreshReceivers` builds the main panel from rows that are online and not hidden, ordered by name. The same id updates the existing row in place. A new id is inserted. A vanished id is removed. During discovery, `CatalogChanged` fires when `AllReceivers` differs, including aliases, codec lists, members, and offline or hidden rows; it is not limited to the visible panel. The Settings receiver page then rebuilds from the full catalog.
+[RefreshReceivers](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L371) ordinarily displays online, non-hidden rows, ordered by current-culture name. It also overlays an owned active row excluded by those filters. The overlay may use an offline/incomplete catalog row for truthful availability, but `Session.Snapshot.Receiver` retains the complete owned transport. `ReceiverViewModel.Active` keeps Stop enabled even when new Play is unavailable. Once ownership ends, a card retained only for that ownership disappears.
 
-The panel's empty card says "Searching for receivers" whenever the filtered list is empty. That covers a browse still in progress, a paused adapter, every device hidden, and every device offline. The paused-adapter sentence appears in Settings → Network and, through `Failed`, in the panel notice. The notice does not itself remove rows. The empty publish does.
+| Condition | Panel/control outcome |
+| --- | --- |
+| Inactive online complete non-hidden row | Play available when engine initialization and mute recovery permit it |
+| Inactive incomplete group | Waiting for the other member; no new Play |
+| Inactive offline or hidden row | Ordinary panel row filtered; settings/preferences can remain |
+| Active Connecting/Pairing/Streaming/Standby | Retained control; toggle means Stop, including offline/incomplete/hidden availability |
 
-An offline flag hides the row from the control panel in both adapter modes, because `RefreshReceivers` requires `Online`. The two modes differ in the map and in Settings:
-
-| Discovery interface | Missing from this snapshot | Control panel | Settings list |
-| --- | --- | --- | --- |
-| All interfaces | `Online = false`. The entry stays in `_known` | Row removed | Known offline rows remain; saved option ids absent from the map can also be synthesized as offline history unless covered by an online stereo group |
-| A selected NIC | `_known.Remove`. Saved options in `config.json` stay | Row removed | Row removed. The preference record remains in the file |
-
-A manual receiver is never removed by this loop. The consequences for a stream that is already playing are in [Playback coupling](playback-coupling.md).
-
-On a row, before any connection:
-
-| Condition | State text | Play |
-| --- | --- | --- |
-| Online and complete | `Disconnected` (stereo adds ` · 2/2`) | Enabled |
-| Inactive stereo with any member count other than two | `Waiting for the other member · {n}/2` | Disabled |
-| Offline | Hidden from the panel. Settings shows `Offline` when all interfaces are selected | Disabled |
-
-The device-volume slider stays disabled. Its reading arrives only after a stream reports `device_volume`. Pairing is a Settings command on that receiver. Discovery does not ask for a PIN.
-
-The Settings list is wider than the panel. It includes hidden devices and known offline rows. When the draft selects all interfaces, catalog refresh also synthesizes offline history rows for saved ids that are not covered stereo members. The draft's selected interface controls this history rule; the applied interface controls browse behavior. Additions, removals, and device options are written when the user applies Settings. Pairing starts immediately with live app settings and does not wait for Apply.
+The empty-panel title follows actual browse/search demand and its ten-second search timer; it is not universally “Searching” whenever no rows are visible. A paused selected adapter remains a pause and never becomes all-interface browsing.
 
 ## A session that is already playing
 
-This step can stop the current process or schedule a replacement process that opens new receiver sockets. It is not confined to a preconnection phase.
+Passive empty, partial, repeated or unavailable discovery does not call Stop. Adapter browse restart likewise retains the owned attempt. Explicit Stop, PIN cancellation, shutdown and terminal native/capture faults govern termination and cleanup. The session can still restart on a guarded complete online update whose peer address/port/group leader flags, effective capture endpoint, effective latency or sample rate changed. Codec/name/model-only changes do not change that signature; the running engine keeps its last-start codec list.
 
-For a playing receiver that came from discovery:
-
-- The playing id is translated through the migration map.
-- If that id is absent, or the stereo row is no longer 2/2, an active session is stopped. A `1/2` row remains on screen.
-- If the receiver or the settings object changed, `UpdateReceiverAsync` runs. An active non-pairing session is restarted when the transport signature changes. That signature sorts peers by address and port, then includes `address:port:isGroup && isLeader` for each, plus the capture endpoint, effective latency, and sample rate. An identity promotion with the same transport and effective settings updates the session object and leaves the process running. A promoted preference that changes effective latency can restart it.
-- A codec-only, name-only, or model-only change does not change the signature, so playback continues on the codec list captured at the last `start`.
-
-A manual receiver that is playing is left alone by this step. Its session ends from the engine, from stop, or from a settings change that alters the same signature.
-
-An empty publish on the normal `Restart` path is a discovery result. On all interfaces the known speakers become offline; on a selected NIC they are removed. Reconciliation stops an active discovered session if its receiver is absent, provided any required identity save succeeded. When the browse fills back in, the rows return. Auto-connect or a subsequent user action can start playback again. The new start resets diagnostics and begins with reconnect count zero; later failures can increment it. The desktop retry loop described in [Session](session.md) is a different path and also opens a new engine process for every attempt.
+Manual sessions are not retargeted from discovery. Settings and default-loopback endpoint notifications can still trigger their applicable owned restart. [Playback coupling](playback-coupling.md) distinguishes availability from transport, while [Session](session.md) describes fresh-process retries and cleanup.
 
 ## The auto-connect timer
 
-Every discovery result, including an identical one, restarts a 900 ms timer. Before entering the awaited start path, `TryAutoConnectAsync` checks the following:
+Every accepted discovery reconciliation restarts the 900 ms automatic timer. [SelectAutoConnect](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/ReceiverSelection.cs#L25) filters online, complete, non-hidden, opted-in **unattempted** candidates before last-used/name/id ranking. Per-receiver false overrides global true; a true override permits admission with global automatic connection off. Automatic connection defaults off.
 
-- The user has not pressed stop since the last play. Stop sets a suppress flag.
-- No session is active at timer entry. Active includes connecting, streaming, standby, and pairing.
-- Global auto-connect is on, or this receiver's own override is on. Both default off. A per-receiver `false` overrides a global `true`.
-- The receiver is online, complete, and not hidden.
-- The preferred eligible receiver's id has not already been attempted. The check occurs after selecting that receiver, not while filtering the candidate list.
+[TryAutoConnectAsync](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L488) captures authority before awaited persistence. Afterward, under the settings gate, it resolves the current canonical candidate and rechecks availability, visibility, current options, attempts, readiness, suppression and closing. The gate remains held through `TryStartAutomaticAsync`; controller serialization requires the original owner/intent and inactivity, including eligible Error. Authority is rechecked after old-worker cleanup.
 
-If several receivers qualify, the last-used id wins. Otherwise the first name in the current list wins. If that preferred id is already attempted, the timer does nothing; it does not try the next eligible receiver. One receiver is started through the same `ToggleAsync` path as a click, which can perform the address-based stereo redirection described above. An attempt is marked before session start, so a failure counts. Repeating the same discovery result does not clear it. A new row, an offline-to-online cycle, or an incomplete-to-complete transition clears the id's attempt mark.
-
-These are entry checks, not atomic auto-start admission. `ToggleAsync` awaits a dirty settings flush and the settings gate before clearing suppression and calling unconditional `Session.StartAsync`. Direct Settings Pair bypasses that gate and can start while the automatic action waits; the delayed start can then cancel/replace that pairing session. A user Stop during the wait can likewise set suppression before the delayed Toggle clears it. The lifecycle semaphore serializes these actions but does not reject the stale automatic intent. See [`AppViewModel.cs:298–323`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L298-L323) and [`SessionController.cs:176–224`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L176-L224). These interleavings are source-derived; no concurrent fixture was executed in this review.
-
-Turning global auto-connect from off to on clears the suppress flag and the attempt set, then schedules the timer.
-
-On an initial discovery with no active session, the timer or an explicit play/Pair action is needed to contact the receiver through the engine. A startup `hello` engine is separate from playback, and discovery updates during an active session can already trigger a replacement.
+Automatic admission is separate from click Toggle. Play, Pair, Stop and shutdown invalidate older intent synchronously before their awaits. Pair does not wait behind the settings gate or hold that gate across a PIN prompt. A rejected automatic request sends no Start/Stop, does not mark an attempt or last-used, and cannot clear newer Stop suppression. Valid persistence still completes. An admitted attempt updates attempted/last-used even if its subsequent connection fails. Multiple queued automatic requests admit at most one eligible current lifecycle. Turning global auto-connect on clears suppression and attempt marks as the intended reset.
 
 ## Source and verification scope
 
-| Claim group | Source anchors |
-| --- | --- |
-| Aggregation order, compatible endpoints, logging, stereo | [`Receiver.cs:29–107`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Receiver.cs#L29), [`WindowsDiscovery.cs:164–175`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L164) |
-| Dispatcher boundary and reconciliation transaction | [`AppViewModel.cs:88, 151–220`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L151) |
-| Known/manual map, full equality, panel filtering | [`AppViewModel.cs:185–249`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L185) |
-| Draft catalog, history, pairing | [`SettingsViewModel.cs:188–221`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L188), [`SettingsWindow.xaml.cs:20–24`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs#L20) |
-| Redirect, suppress flag and candidate-before-attempt check | [`AppViewModel.cs:292–324`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292) |
-| Signature and active update rules | [`Receiver.cs:20`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Receiver.cs#L20), [`SessionController.cs:175, 246–260`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L246) |
-| Startup engine hello | [`App.xaml.cs:55–65, 125–134`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/App.xaml.cs#L55) |
+Current [SessionLifecycleTests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/SessionLifecycleTests.cs), [ReceiverSelectionTests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/ReceiverSelectionTests.cs), [ReceiverIdentityTests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/ReceiverIdentityTests.cs), and separate WPF [UiSessionLifecycle](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Verification/UiSessionLifecycle.cs) cover caller races, save failure, metrics during delay, same-id replacement, manual command targets, automatic fallback, all retained states and accessible Stop without assuming access through a modal PIN dialog. Core does not reference WPF; UI coverage comes from the separate fake-service harness.
 
-[`DiscoveryTests`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/DiscoveryTests.cs#L9) and [`ReceiverIdentityTests`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/ReceiverIdentityTests.cs#L22) cover pure interface selection, aggregation, stereo counting, endpoint conflicts, and migrations. [`SessionTests.cs:91–123`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L91) covers identity updates retaining transport, changed effective latency restarting once, and renamed/reordered stereo members retaining transport. These xUnit tests do not instantiate `AppViewModel`. The separate WPF [`UiRegression` harness](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L163), invoked by `--ui-smoke`, covers failed identity-save coupling, open drafts, automatic-attempt migration/offline recovery, and stopping playback when a stereo member disappears. The attempted-preferred-receiver fallback edge, manual-row address redirection, and delayed automatic admission race lack dedicated assertions there. All of that harness uses mock discovery/audio/engine services, not live receivers.
+Current main's 667 Core/124 Python and hosted native checks, plus the code-identical packaged six 1,059-assertion regional/catalog runs, are recorded in [current acceptance](../issues/CONTINUATION-ACCEPTANCE.md). This document update performs source/evidence review, not fresh playback or hardware qualification.
 
+## Historical baseline and implementation
+
+At [original `41190e0`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166), missing/incomplete discovery called unconditional Stop after an awaited save; automatic connection reused Toggle with pre-await-only admission and post-ranking attempted filtering; manual selection redirected by shared address. Those are historical defects documented by reports 01/02/03/10/11 and decisive fake baseline failures in [B acceptance](../issues/GROUP-B-ACCEPTANCE.md).
+
+Original stable `cf420d9` includes [PR #19](https://github.com/Ding-Kyoma/AirFlash/pull/19)'s passive retention/fresh snapshot/Pairing exclusions. It does not supply the full atomic ownership/admission/manual-selection contract. Fork B `442e8d8` is integrated in current main; old [PR #15](https://github.com/Ding-Kyoma/AirFlash/pull/15) remains closed at its older snapshot. Earlier 437/666-test compositions and the Oct10 pre-reboot source-only audit retain their own evidence dates in acceptance records; they are not current status.
 
 ## Earlier Group B implementation (through 9e894ab)
 
-The preceding baseline audit describes `41190e0`. Initial B at `342aeb77cb85ff6f3f7f850161b3db79d8637945` was integrated historically at `72dc7c7`; later production follow-up `11c6046` and verification-only fixes advanced the pushed feature to `0a2c1ac`. All are now ancestors of local main `9e894ab`. B remains unmerged upstream with PR #15 closed. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for the separate dated test evidence.
-
-Reconciliation captures the session snapshot and lifecycle owner atomically before persistence. A complete, online discovered replacement is applied only if the serialized controller still owns that lifecycle. Metrics do not invalidate the owner. Empty or incomplete discovery preserves the owned handshake/transport and leaves availability in the catalog; the active card retains Stop.
-
-Automatic connection keeps the existing global/per-receiver opt-ins, visibility, completeness, alias migration, permitted attempt resets, and Stop suppression. Attempted ids are excluded before last-used/name ranking. After persistence, canonical identity and eligibility are rechecked under the settings gate through serialized owner/inactive/intent admission. Explicit Play, Pair, Stop and shutdown invalidate older intent before awaiting. Only admitted attempts change attempted/last-used state; admitted connection failures still count. Rejection preserves valid saves and newer Stop suppression.
-
-Initial verification at `342aeb7` passed 218 Core tests, 273 English and 273 Chinese WPF checks, and Debug/Release builds with zero warnings/errors. Seven isolated original-base observations failed the desired assertions, confirming the baseline defects. Independent review found no actionable issue at that audit; the later B follow-up found additional gaps and corrected them. These historical mock results are not new main execution; the checklist records current feature evidence and limits.
+The initial/follow-up branch observations are retained in [Group B acceptance](../issues/GROUP-B-ACCEPTANCE.md) and [historical combined acceptance](../issues/ABCD-INTEGRATION-ACCEPTANCE.md). This historical heading is kept for existing links; current behavior is the production narrative above.

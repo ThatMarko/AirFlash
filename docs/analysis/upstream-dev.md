@@ -1,14 +1,28 @@
 # Excluded upstream development snapshot
 
-The runtime baseline for these notes is `41190e0d13a63a714c08dffe73ababca1804875c`. Documentation commit `c077a0577de26ad7e44b8fd50f62456e12965fb0` is the audited fork baseline; it changes no runtime source. The separate development commit `67435a4e0df6a40e5e709e2b75dc9b24a457dda6` is one commit after `41190e0`, **not** after `c077a05`, and is not merged into this checkout. These are local commit identities, not claims that remote branch tips still point there.
+## Current fork Main — 2026-10-12
 
-This page checks the previously documented differences using the pinned development commit and `git diff 41190e0 67435a4`. It does not import them into the main workflow or qualify that development build for hardware use. The earlier claim that a particular version was already published as a draft prerelease is not established by source: publication state is external, and a draft is not a published release. The pinned [release workflow](https://github.com/Ding-Kyoma/AirFlash/blob/67435a4e0df6a40e5e709e2b75dc9b24a457dda6/.github/workflows/release.yml) preserves preview artifacts for maintainer publication. Baseline [`UpdateService.cs:10–27`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/UpdateService.cs#L10-L27) queries the stable latest endpoint and explicitly ignores draft/prerelease responses; it does not subscribe to `dev`.
+These notes describe **excluded development** `67435a4e0df6a40e5e709e2b75dc9b24a457dda6`, not current runtime behavior. Current fork Main is `8989b3609dd1294f4d1d6eb1502f345cc22bc382`; original stable is `cf420d97700463c56adc31408510e8336e99e51c`. Git ancestry verifies the development commit is not merged into Main. Implemented A–H, recording capture, scrolling and installer changes arrived through original stable and separate reviewed feature histories; they do not import the development transport/clock negotiation.
 
-The all-local-branch integration on **2026-10-10**, source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`, does not include `67435a4` in its ancestry. The complete native tree and `UpdateService.cs` remain identical to `41190e0`. A/B/C/D, installer and scrolling fixes and stable Traditional Chinese localization have separate accepted or local implementation histories; their integration does not import the transport/timing negotiation described here. This page was rechecked against both pinned commits without compiling or running either application. The user deferred current-main execution until after reboot.
+The original comparison is `git diff 41190e0 67435a4`; development is one commit after original runtime `41190e0d13a63a714c08dffe73ababca1804875c`, not after fork documentation `c077a0577de26ad7e44b8fd50f62456e12965fb0`. The full historical table below preserves that source boundary. Current native source is **not** identical to the old baseline: stable recording capture and E/F/H authentication, controls and padding changes are implemented. Historical assertions about unchanged native trees apply only to their then-recorded composition.
 
-## What the pinned comparison establishes
+## What Main actually retains
 
-| Area | Difference in `67435a4`, excluded from the baseline |
+| Area | Current Main contract; see the dedicated map for full trace |
+| --- | --- |
+| Updates | [UpdateService](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/UpdateService.cs) still queries original stable latest, rejects draft/prerelease and uses validated tags. It does not subscribe to dev or the fork's releases |
+| Start command | [SessionController](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/SessionController.cs) uses existing peers, `timing="ptp"`, chosen capture endpoint and supported sample rate. It does not send dev `transport`/`compatibility_buffer_ms` negotiation |
+| Settings | Current custom buffers clamp/validate to 0–2000ms, with 120/200/500ms preset semantics. Dev's per-receiver 10,000ms extension is excluded |
+| Restart | Current endpoint/peer/latency/rate signature plus desktop ownership guards remain; no dev advertised-negotiation signature fields are imported |
+| Discovery | Current bounded helper-process resolve ownership and passive-retention coupling differ from both old baseline and unchanged dev discovery |
+| Engine | Current recording/loopback capture, E/F authentication/JSONL/EQ outcome and H padding changes do not imply dev buffered TCP/type103, NTP selection or capability fallback |
+| Diagnostics | Optional padding/transport diagnostics remain source-defined. Dev negotiated-format/buffer/fallback events do not establish current runtime negotiation or acoustic measurements |
+
+Current maps are [discovery](discovery.md), [session](session.md), [settings](settings.md), [auth](auth.md), [engine](engine.md), [capture/clocks](capture-clocks.md), [equalizer](equalizer.md) and [source limits](source-check.md). The reboot gate is satisfied and current Main is qualified separately in [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md). No dev binary was built or run for this documentation review.
+
+## Historical 41190e0-to-67435a4 comparison
+
+| Area | Difference in excluded `67435a4` relative to original `41190e0` |
 | --- | --- |
 | Discovery | `WindowsDiscovery.cs` is unchanged: browse, resolve, ninety-second record expiry, pending-token handling, and adapter filtering retain the baseline behavior. There is no new discovery-loss grace period |
 | Identity | `ReceiverIdentity.cs` is unchanged. `ReceiverCatalog` additionally merges per-receiver transport/timing options, but retains the canonical-id walk |

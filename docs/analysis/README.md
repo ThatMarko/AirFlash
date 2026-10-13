@@ -1,137 +1,143 @@
-# AirFlash receiver workflow
+# AirFlash on the fork's main branch
 
-## Current implementation map — 2026-10-11 stable refresh
+## Current source and verification
 
-All eight groups are implemented in the fork, integrated on current code source `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1` against verified original stable `cf420d97700463c56adc31408510e8336e99e51c`. The preceding `107174a` portable composition passed its complete UI/DPI/MSI qualification; the newer change corrects only an inherited EQ fixture and a source comment. Current Core tests pass 667 cases in both configurations; exact-source normal CI and unofficial portable/UI/MSI qualification both pass. [Current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) binds actual checks to source and distinguishes local fakes, hosted native/package checks and unqualified hardware behavior. New dated implementation sections on the subsystem pages supersede earlier proposal/current-state wording; the pinned `41190e0` and subsequent audit sections remain historical evidence.
+This map describes integrated fork runtime **`8989b3609dd1294f4d1d6eb1502f345cc22bc382`**, verified on **2026-10-12**. Its desktop, native engine, scripts, installer, tests and workflow trees match qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`. Subsequent documentation-only commits do not change that runtime baseline.
 
-The map now includes error-preserving accessory credential reads/ASCII PIN normalization, exact process-owned IPC terminal rejection routing/truthful EQ preparation outcomes, a separate owned mute-recovery journal, optional local output-padding metrics and Monitor diagnostics access. Recording capture from current stable is preserved: the actual opened recording endpoint is excluded from all mute access, and native capture direction/identity selection remains authoritative. DNS resolve ownership is reclaimed only after helper-process exit, not merely timeout, reply or Cancel success. WPF and Rust continue to communicate only through JSONL v1.
+Original stable `cf420d97700463c56adc31408510e8336e99e51c` is included. All eight groups, Settings scrolling and installer repairs are integrated in the fork. A and scrolling are also upstream; merged PR #19 supplies only part of B. B PR #15 remains closed without merge. C–H and the installer follow-up remain fork implementations.
 
-A and scrolling are upstream; PR #19 partially overlaps B, whose atomic ownership/admission/manual selection remains separate fork scope. C–H are not upstream integrations. Historical statements that E–H are unimplemented, that no durable mute journal exists, or that execution awaits reboot do not describe this current source.
+Current source links pin the fork runtime. Historical sections retain the original `41190e0` audit and earlier evidence. [Upstream dev](upstream-dev.md) is excluded, not an implementation source. [Issue status and publication plan](../issues/README.md) separates completed code from pending upstream actions.
 
-## Continuation on 2026-10-11
-
-The [continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
-
-The [2026-10-11 fork synchronization](../issues/README.md#fork-synchronization--2026-10-11) pushed and verified all 18 retained branches, including C/D, to the user's own repository. The source audits below retain their pinned revisions; this push does not add new runtime test results or submit C/D upstream.
-
-This set describes the path from a HomePod advertisement to a live AirPlay 2 stream in the runtime source at `41190e0d13a63a714c08dffe73ababca1804875c`. The documentation baseline is `c077a0577de26ad7e44b8fd50f62456e12965fb0`, which adds `docs/analysis/` and `docs/issues/` without changing runtime source. These are pinned snapshots, not a promise about a moving remote branch.
-
-Source links in the original audit are pinned to that runtime commit, including its line anchors. Later implementation sections identify their own feature commit and verification separately; merging changes into the fork does not change the historical source evidence.
-
-Every original page was audited against source on **2026-10-06**. [Audit results](audit.md) records coverage, material corrections, invariant checks, tests, and limitations. Source inspection establishes implemented behavior; it does not establish actual HomePod compatibility, measured acoustic latency, or a cause for a particular disconnect. `docs/issues/` contains hypotheses and proposed changes, not independent proof. [Upstream dev](upstream-dev.md) is an explicitly excluded development snapshot.
-
-Read the table from top to bottom. The later pages describe mechanisms that cut across those stages, followed by a check of earlier investigation claims against this tree.
-
-Group B's initial session/receiver implementation was verified on `codex/fix-session-lifecycle` at `342aeb7`, based directly on original stable `41190e0`. Group A and then initial B merged into the local fork at `72dc7c7`; upstream remained `41190e0` during that validation. [Feature acceptance and actual checks](../issues/GROUP-B-ACCEPTANCE.md) distinguish subsequent tested heads from this index's original source audit. As verified on 2026-10-10, A and scrolling are merged upstream at main `d4aa068`, while B PR #15 remains closed without merge; corrected B `0a2c1ac` is pushed and tested. Affected pages retain baseline descriptions and bounded implementation sections. [Combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) and [A/B/C/D acceptance](../issues/ABCD-INTEGRATION-ACCEPTANCE.md) record historical and final local/hosted/downloaded evidence separately.
-
-Groups C and D were implemented one at a time on separate original-base local branches. [Group C acceptance](../issues/GROUP-C-ACCEPTANCE.md) covers settings preservation/validation; [Group D acceptance](../issues/GROUP-D-ACCEPTANCE.md) covers DNS deadlines and native ownership. Both now belong to the local fork's merged `main`, while their feature branches remain unpushed and unpublished. Their earlier branch verification remains separate from the current source audit.
-
-## Current local main — 2026-10-10
-
-Local source **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`** contains every pre-existing local branch, including A/B/C/D, scrolling, installer payload refresh, the cross-group verification fixture and actual upstream `d4aa068`. Every original branch tip was preserved. The desktop/native/scripts/tests/installer trees match previously verified composition `6fe467b`; the additional Group A workflow is historical validation pinned to `de13b6d`, not a current-main test. The merges were local; remote main and the upstream PR states were not changed.
-
-| Current boundary | Source behavior |
+| Evidence | Actual scope and result |
 | --- | --- |
-| Startup and settings | [App startup](../../desktop/AirFlash.App/App.xaml.cs) still loads configuration twice through one [SettingsStore](../../desktop/AirFlash.Core/SettingsStore.cs). Recovery retains exact bytes/preservation obligations, validates loaded values and rejects future positive integer schema tokens before runtime use. The store's own lock and the view model's asynchronous settings gate have different responsibilities |
-| Discovery and selection | [WindowsDiscovery](../../desktop/AirFlash.App/Services/WindowsDiscovery.cs) separates advertisements, resolved-cache expiry, logical request deadlines and native ownership. [AppViewModel](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs) reconciles catalog/settings and automatic eligibility; selected-offline adapters still do not fall back to all interfaces |
-| Owned attempts | [SessionController](../../desktop/AirFlash.Core/SessionController.cs) captures lifecycle owner and automatic intent atomically. Delayed work must still own the attempt; passive disappearance/incompleteness retains active transport and Stop controls, while explicit Stop, cancellation and native terminal faults still govern cleanup/retry |
-| Process, audio and credentials | JSONL v1 still connects WPF to the separate Rust command loop/worker. [Native command handling](../../native/airflash-engine/src/main.rs), credential authentication and capture/DSP/transport are unchanged by A–D. Exact prior endpoint mute restoration remains best effort; no durable crash-recovery journal exists |
-| Remaining work | E/F/G/H are still source-confirmed proposals. Local integration does not implement PIN/credential lookup repairs, terminal IPC/EQ-result repairs, durable mute recovery or the remaining diagnostics/accounting/catalog cleanup |
+| Local checks | `4ae1db4`: 667 Core tests in Debug and Release; Release build zero warnings/errors. Later `8989b36`: fresh Release 667, build zero warnings/errors, 124 Python tests and lint passed |
+| [Exact-main CI](https://github.com/ThatMarko/AirFlash/actions/runs/38296750592) | `8989b36`: successful managed/native/Python checks, discovery stability, bundle audit and packaged startup/compatibility |
+| [Packaged integration](https://github.com/ThatMarko/AirFlash/actions/runs/38294493405) | `4ae1db4`: 69 native passes, recording-device qualification and the 30-minute localhost soak ignored; 667 Core; six full portable UI pairs of 1,059 assertions each; three observed 125% DPI cases of 40 each; disposable-runner MSI lifecycle |
+| Earlier narrow checks | The 225 modal PIN assertions and six actual synthetic DNS-helper checks belong to their stated earlier source, not new executions on `8989b36` |
+| Remaining limits | Real receiver reliability, acoustic/network measurements and physical power-loss durability are unqualified |
 
-The [full audit](audit.md#merged-main-documentation-audit--2026-10-10) records all 44 Markdown files and the source/structure checks. **No application, build or test was run on this new main during this audit: testing is deferred until after the user's reboot.** Historical pass counts remain tied to their recorded commits and binaries.
+[Continuation acceptance](../issues/CONTINUATION-ACCEPTANCE.md) binds failures, controls and passes to their actual source/binary. [Audit](audit.md) records all-file source/document review. These references do not claim another hardware or application run.
 
-| Document | What it covers |
+## Reading the subsystem maps
+
+| Document | Current responsibility |
 | --- | --- |
-| [Discovery](discovery.md) | Windows DNS-SD browse and resolve, the record cache, and adapter filtering |
-| [After discovery](after-discovery.md) | How advertisements become rows, reconcile active sessions, and gate play, pairing, and auto-connect |
-| [Identity](identity.md) | The canonical-id walk, alias map, and preference merge |
-| [Settings](settings.md) | `config.json`, schema migration, Apply, and the desktop shell |
-| [Session](session.md) | The desktop state machine that opens, watches, and replaces an engine process |
-| [Engine](engine.md) | RTSP setup, PTP, WASAPI capture, RTP, and the watches that keep one session alive |
-| [Equalizer](equalizer.md) | The ten-band filter, automatic headroom, and live preview |
-| [Authentication](auth.md) | Transient setup, persistent pairing, and pair-verify |
-| [Failures](failures.md) | Every path that ends or replaces a session, and what the panel shows |
-| [Playback coupling](playback-coupling.md) | Why a discovery snapshot can stop a live stream, hide the row, restore local mute, and leave the reconnect counter at zero |
-| [Capture and clocks](capture-clocks.md) | The loopback queue, what an underrun packet counts, and the three clocks the sender actually uses |
-| [Control and mute](control-and-mute.md) | Local mute restore, the shared RTSP lock, and how PTP sockets are bound |
-| [Credentials and IPC](credentials-and-ipc.md) | The JSONL process boundary and the DPAPI pairing files |
-| [Source check](source-check.md) | Which earlier investigation claims match this tree, and which do not |
-| [Upstream dev](upstream-dev.md) | Verified differences in excluded commit `67435a4`; no behavior imported into the baseline |
-| [Audit results](audit.md) | Source baseline, all-page coverage, corrected briefing claims, and validation limits |
+| [Discovery](discovery.md) | Visibility-scoped DNS-SD, selected interface, advertisement/cache TTL, logical deadlines and helper ownership |
+| [After discovery](after-discovery.md) | Catalog reconciliation, active rows, manual routing and automatic admission after persistence |
+| [Identity](identity.md) | Canonical ids, aliases and preferences; separate accessory credential identity |
+| [Settings](settings.md) | Schema 2, migration, preservation, loaded validation, Apply and startup |
+| [Session](session.md) | Atomic snapshot/owner/intent, serialized lifecycle changes, engine attempts and controls |
+| [Engine](engine.md) | Command process/worker, authentication, RTSP, PTP, capture and RTP |
+| [Equalizer](equalizer.md) | Filter/headroom preparation, preview ownership, sequence outcomes and adoption |
+| [Authentication](auth.md) | ASCII PIN, transient setup, persistent pairing, pair-verify and credential errors |
+| [Failures](failures.md) | Classification, IPC rejection, cleanup/retry, notices and pre-fault diagnostics |
+| [Playback coupling](playback-coupling.md) | Catalog availability versus owned transport, with stale-work rejection |
+| [Capture and clocks](capture-clocks.md) | Loopback/recording capture, output padding, underruns and clocks |
+| [Control and mute](control-and-mute.md) | Exact-bit restore, journal/lease/review, RTSP serialization and PTP binding |
+| [Credentials and IPC](credentials-and-ipc.md) | JSONL v1 limits/events and accessory-keyed DPAPI files |
+| [Source check](source-check.md) | Supported claims and limits of source/mocks |
+| [Upstream dev](upstream-dev.md) | Excluded-development comparison |
+| [Audit](audit.md) | Coverage, provenance, independent review and verification limits |
 
 ## Two processes
 
-The workflow below is the pinned **`41190e0` baseline**, including its former discovery-stop policy. Current implementation differences are identified above and in each affected page's integration addendum.
+The principal programs are the WPF desktop and Rust engine. They share no memory and expose no C-ABI; playback/pairing uses JSONL v1 over stdin/stdout. The desktop also starts bounded, short-lived DNS resolve helpers using its own executable. Helpers dispatch before WPF, platform logging or application-data initialization.
 
-The WPF app finds devices and decides whether a session should exist. The Rust engine, `airflash-engine.exe`, speaks AirPlay. The discovery service browses DNS-SD; it does not open RTSP or audio connections. Discovery results can nevertheless cause the desktop session controller to stop or restart playback. The engine never browses DNS-SD. The boundary is JSONL v1 over redirected stdin/stdout, with no C-ABI or shared memory; [Credentials and IPC](credentials-and-ipc.md) explains the limits in each direction.
+WPF owns discovery, rows, preferences and user intent. Rust owns authentication and transport. DNS availability does not prove pairing/playback readiness. Passive absence does not stop an owned Connecting, Pairing, Streaming or Standby attempt. Explicit Stop, cancellation, handshake failures and native terminal faults still govern it.
 
 ```mermaid
 flowchart TD
-  subgraph desktop [WPF process]
-    NIC[Selected adapter index]
-    DNS[Browse _airplay and _raop]
-    AGG[Merge records and build stereo groups]
-    CAT[Reconcile aliases into settings]
-    UI[Receiver list]
-    GATE[Play, auto-connect, or pair]
-    SESS[SessionController]
+  subgraph desktop [WPF desktop]
+    NIC[Selected adapter]
+    DNS[Visibility-scoped DNS-SD browse]
+    CAT[Catalog and manual rows]
+    GATE[Explicit intent or guarded automatic admission]
+    SESS[SessionController owner and transport snapshot]
+    REC[Separate mute recovery journal and review]
   end
-  subgraph engine [One engine process per attempt]
-    CMD[JSONL command loop and worker]
-    RTSP[RTSP setup and feedback]
-    PTP[PTP master on UDP 319 and 320]
-    RTP[Encrypted RTP to each member]
-    CAP[WASAPI loopback]
+  subgraph helpers [Bounded DNS helpers]
+    RES[Resolve advertised service]
   end
-  NIC --> DNS --> AGG --> CAT --> UI --> GATE --> SESS
-  SESS -->|JSONL start or pair| CMD
-  CMD --> RTSP
-  CMD -->|PTP playback only| PTP
-  CAP --> RTP
-  PTP -. shared clock .-> RTP
+  subgraph engine [Rust command process and owned worker]
+    CMD[JSONL command loop]
+    WORK[Playback or pairing worker]
+    RTSP[Authentication and RTSP]
+    CAP[Loopback or recording capture]
+    EQ[Output padding and EQ]
+    RTP[Encrypted RTP per member]
+    PTP[PTP clock]
+  end
+  NIC --> DNS --> RES --> CAT --> GATE --> SESS
+  REC --> GATE
+  SESS -->|JSONL commands| CMD
+  CMD --> WORK --> RTSP
+  CAP --> EQ --> RTP
+  PTP -. timing .-> RTP
   RTSP --> RTP
 ```
 
-Startup order in [`App.OnStartup`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/App.xaml.cs):
+A reply, timeout or successful-looking cancellation does not prove child exit. Started helper ownership settles only after successfully observing the exact child exiting. Logical requests, cache state and process ownership are separate; see [Discovery](discovery.md).
 
-1. Load `config.json`, apply theme and language, and construct `AudioService`.
-2. Extract the engine to `%LOCALAPPDATA%\AirFlash\engine\<sha256>\airflash-engine.exe` and construct the process factory, then construct `WindowsDiscovery` and the view model without starting discovery. Run `hello` in a separate process. The reply includes `engine_version`, `qualification: partial`, and `production_ready: false`; the desktop disposes that check process after the reply. It does not use the receiver list. The rest of the shell, including the single-instance pipe and the check flags, is in [Settings](settings.md).
-3. Construct the panel and tray, start the single-instance listener, then call the view model's `Start`, which launches asynchronous initialization. `StartAsync` obtains the default endpoint, applies autostart, awaits capture-endpoint migration, then calls `discovery.Start`, draws manual rows, and arms auto-connect. The app shows the panel after calling `Start` unless `--startup` was passed; it does not wait for that initialization to finish.
-4. The first discovery publish is the empty cache from `Restart`. Resolved speakers arrive after that.
+## Startup and readiness
 
-A second instance only signals the running one and exits. `--discovery-check` browses for eight seconds and does not open the engine.
+Production callers are [Program](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Program.cs), [App startup](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/App.xaml.cs) and [AppViewModel](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/AppViewModel.cs).
+
+1. Helper modes return before normal desktop initialization. Supported diagnostics select isolated output/data before logging and WPF; ordinary startup keeps its normal data location.
+2. Normal startup checks the Windows baseline and initializes WPF/localization. The single-instance owner continues; another instance signals it and exits.
+3. One stateful `SettingsStore` loads for theme/language and again in the view model. Preservation obligations survive both reads. Startup constructs audio, deferred engine readiness, discovery, view model, panel and tray.
+4. The shell starts asynchronous view-model initialization and displays the panel unless `--startup` was passed. Engine initialization is awaited after shell readiness. Its failure leaves the shell available with diagnostics/retry; new starts require readiness.
+5. View-model initialization handles mute recovery before app settings/lifecycle locks, then load warnings, default endpoint, autostart and endpoint migration. Audio operations use the service's MTA thread and surface failures.
+6. Discovery demand comes from panel visibility, Receivers-page visibility or the ten-second startup window when automatic connection is configured. Otherwise browsing pauses. A selected missing/offline adapter pauses without an all-interface fallback.
+
+Current startup does not guarantee an empty first publication: retained cache/advertisement state and asynchronous results determine it. Availability is not authority to cancel a newer session.
 
 ## Five stages
 
-1. **Browse.** `WindowsDiscovery` keeps long-lived browses for `_airplay._tcp.local` and `_raop._tcp.local` on the selected IPv4 interface. Each instance is resolved to one IPv4 address, a port, and TXT records. See [Discovery](discovery.md).
+1. **Discover.** Browse `_airplay._tcp.local` and `_raop._tcp.local` on the chosen IPv4 interface. Resolve advertised names to IPv4/port/TXT with TTL-based expiry, deadlines/backoff and bounded owners.
+2. **Identify.** Aggregate advertisements and confirmed stereo relationships. Reconcile aliases/settings. Manual rows persist independently and keep explicit host/port/options.
+3. **Admit.** Play/Pair/Stop/shutdown invalidate older automatic intent before awaits. Automatic work captures controller authority before persistence, then revalidates canonical candidate/options/online/completeness/visibility under the settings gate and serialized admission. Only admitted attempts update attempted/last-used state.
+4. **Connect.** Resolve members to IPv4 and launch the engine. New stereo attempts require completeness. Pairing uses its PIN flow and exclusive authentication method. Delayed retargeting must retain desktop owner/intent even if a row id is reused.
+5. **Retain and clean up.** Passive loss keeps the owned transport and controls. Compatible identity promotion can update it under guards. Explicit Stop and terminal faults still clean up. Retries create a new process, session UUID, PTP clock and SSRCs rather than resuming RTP.
 
-2. **Name the device.** `ReceiverAggregator` merges the AirPlay and RAOP advertisements for one speaker, then folds speakers that share a `tsid` into one `stereo:{tsid}` row. `ReceiverCatalog` rewrites ids so saved settings follow the speaker across address changes. See [After discovery](after-discovery.md).
-
-3. **Decide.** The UI shows online, visible rows. Settings may also show hidden and offline history. The HomePod has only answered mDNS. A connection starts when the user presses play or Pair, or when the 900 ms auto-connect timer fires. Auto-connect is off unless a setting turns it on. See [After discovery](after-discovery.md).
-
-4. **Open a process.** `SessionController` resolves each member to IPv4, leader first. Play opens one process and sends `start`, followed by the current equalizer update; other controls use the same pipe later. Pairing opens one process per member for `pair`, then a playback process for `start`. See [Session](session.md).
-
-5. **Hold the session.** The engine authenticates, completes SETUP, then sends the same PCM to every member under one PTP clock. Feedback, the event channel, and the media watchdog can end its playback worker; the desktop then disposes the process. A replacement session is a new process and a new handshake. See [Engine](engine.md).
+Attempted candidates are filtered before ranking. An attempted preferred row does not block an eligible unattempted row. `Error` remains an inactive state eligible for admitted automatic work.
 
 ## What crosses the process boundary
 
-The `start` command carries each member's IPv4 address, port, and RAOP codec list (`cn`), plus capture endpoint, latency, sample rate, master gain, equalizer settings, `source: loopback`, `timing: ptp`, and `duration_ms: 0`. Master gain is `MasterVolume / 100`, or 0 while the panel mute is on. The saved per-receiver volume is not that gain. It does not carry the discovery id, the stereo id, the display name, or a group UUID. Native options also accept `group_id`, `timing: ntp`, `handshake_only`, and `record_mic_path`; the desktop playback path sends none of those overrides. `scripts/e2e_stream.py` drives a finite probe and defaults its latency argument to 150 ms. That default is not one of the four desktop latency modes. Probe safety is enforced separately from unbounded playback; see [Audit results](audit.md).
+[SessionController](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/SessionController.cs) sends member IPv4/port/codec information, capture endpoint, latency, output sample rate, master gain and EQ. Catalog/display identities are not credential keys. Native endpoint direction determines recording input versus playback loopback flags.
 
-Credentials live in the engine, under `%APPDATA%\AirFlash\native-credentials\`, keyed by the `deviceID` from `GET /info`. The desktop catalog id and that credential id are separate. An alias migration in `config.json` does not move a pairing file.
+The desktop uses `source: loopback`, `timing: ptp` and unbounded normal playback duration; a selected recording endpoint is handled by its actual native direction. Master gain derives from master volume and panel mute, not the saved per-row volume field.
+
+Protocol version remains 1. Native stdin byte accounting includes the newline and differs from desktop stdout validation. The exact defined empty-correlated terminal IPC rejection is recognized before ordinary session filtering, with original detail and nonretryable classification. Ordinary stale events remain filtered; nonfatal EQ rejection remains nonfatal. See [Credentials and IPC](credentials-and-ipc.md).
+
+Credentials use current-user DPAPI and accessory `/info deviceID`. Catalog alias/manual identity changes do not migrate files. Genuine initial credential-file absence permits transient authentication; storage/decrypt/parse/verification errors remain errors. The inherited missing/empty `deviceID` path is separately bounded in [Authentication](auth.md).
+
+The separate mute journal records actual endpoint identity, exact prior bit and exclusive ownership before mutation. Pending/ambiguous recovery requires conservative review. Normal restoration remains best effort; actual recording endpoints receive no mute read/write.
 
 ## Defaults that shape the workflow
 
-| Setting | Default | Effect |
+| Setting | Default | Meaning |
 | --- | --- | --- |
-| Discovery interface | All interfaces | A chosen NIC pauses discovery when that NIC is down |
-| Auto-connect | Off | A new row waits for play |
-| Force reconnect | Off | The first engine failure stays on the error screen |
-| Reconnect attempts | 5 | Used only when force reconnect is on. Allowed range is 1–20 |
-| Mute while streaming | On | The local endpoint is muted after the engine reports `streaming` |
-| Latency | `normal` (200 ms) | Realtime is 120 ms, buffered is 500 ms, custom is 0–2000 ms |
-| Sample rate | 44100 | The other accepted rate is 48000 |
-| Standby | Off | When on, the label changes after 10 seconds of local silence. The stream continues |
+| Discovery interface | All interfaces | Explicit unavailable selection pauses without fallback |
+| Auto-connect | Off | New automatic starts require an enabled eligible candidate |
+| Force reconnect | Off | Enabled retries still require a retryable fault |
+| Reconnect attempts | 5 | Range 1–20 |
+| Mute while streaming | On | Admission with muting enabled requires recovery readiness; recording endpoints are excluded from mute access |
+| Latency | `normal`, 200 ms | Realtime 120 ms; buffered 500 ms; custom 0–2000 ms |
+| Output sample rate | 44100 | Also 48000 |
+| Standby | Off | Configured local silence changes the label; the stream continues |
+
+Defaults come from [AppSettings](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/Settings.cs); normalization/validation is in [Settings](settings.md).
 
 ## Scope of one session
 
-The desktop accepts one receiver row or a complete two-member stereo row. Native `start`/`probe` validation accepts one or two distinct IPv4 peers; it does not independently prove that they are an existing stereo pair. Persistent pairing has a separate parser. Both playback peers share a capture queue, an RTP timestamp origin, and a PTP clock. Each has its own RTSP connection, event channel, feedback loop, RTP sequence, SSRC, and keys. A detected fatal fault in either member ends the playback worker for both; a missing advertisement alone is handled by the desktop, and a successful UDP send does not prove the receiver is alive. The command process remains available until stdin closes or another command changes its owned work. The desktop disposes that process and opens a fresh one for each retry.
+One attempt owns a receiver or complete stereo transport snapshot. Native peers share capture pulls, RTP timestamp origin and PTP clock; per-peer RTSP, sequence/SSRC/keys and watches remain separate. A fatal member fault ends the group's worker. The command loop has a distinct lifetime and may remain alive after that worker stops.
+
+Output-padding counters count local substituted output-rate slots before EQ, once per shared pull; fully padded packets count wholly missing 352-frame pulls. Captured silence, zero gain and EQ tails do not redefine padding. These counters and successful UDP sends do not establish network/acoustic behavior.
+
+Attempts reset live counters. Absent/invalid optional metrics remain unavailable, while pre-fault snapshots survive cleanup/retry. Monitor's localized copy action reuses the existing serializer/error surface.
+
+## Historical audit boundary
+
+The original audit described upstream runtime `41190e0d13a63a714c08dffe73ababca1804875c`, with documentation baseline `c077a05`. At that source, passive discovery Stop, stale automatic Toggle, unguarded settings recovery, Boolean credential probing, misleading EQ results and in-memory-only mute ownership were source-supported defects/gaps. Current reports describe their implemented, bounded resolutions.
+
+The October 10 private integration and pending-reboot statements were earlier snapshots. Reboot and subsequent verification are complete. Original source and executed failures remain pinned in Git and [acceptance records](../issues/CONTINUATION-ACCEPTANCE.md), without relabeling them as fresh Main executions. All 17 reports are implemented; upstream publication, hardware qualification and release actions remain separate work.

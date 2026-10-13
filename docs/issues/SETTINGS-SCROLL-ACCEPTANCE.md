@@ -1,104 +1,74 @@
 # Settings scrolling acceptance
 
-Verified locally on 2026-10-07 after the user reported crowded Settings scrollbars. This is a separate UI fix, outside Groups A–H. The user subsequently authorized merging it into A+B fork main and building it with GitHub Actions. The fork feature merged at `96c7b5593a5a7d10b72980b814bf0ae7ddc7908d`; upstream main was `41190e0` during that validation. Upstream PR #13 has since merged, as recorded in the current-status addendum below.
+## Current Main and upstream integration — 2026-10-12
+
+Fork Main `8989b3609dd1294f4d1d6eb1502f345cc22bc382` contains `codex/fix-settings-scroll` head `54cd18e028af9abc4d0b85af8197209a978c4603`; [PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13) is merged and [issue #12](https://github.com/Ding-Kyoma/AirFlash/issues/12) closed. Original stable `cf420d97700463c56adc31408510e8336e99e51c` already includes it. Current [XAML](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Ui/SettingsWindow.xaml), [handler](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs) and [scroll fixture](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Verification/UiScrolling.cs) retain the fix.
+
+This is a separate UI follow-up outside 17 reports. Final Main packaged UI/DPI qualification in [continuation acceptance](CONTINUATION-ACCEPTANCE.md) includes scrolling and expanded Monitor/recording content. Physical pointer observations below apply only to their historical binary/session, not current manual qualification.
 
 ## Source and behavior
 
-The Settings layout and theme are unchanged between audited original `41190e0` and the A+B fork main `1a517c1`. The reported layout therefore predates those implementations. Original [SettingsWindow.xaml](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml#L102) nests a horizontal Equalizer viewer with vertical scrolling disabled; the shared page viewer has only six pixels of right padding at line 389.
+Original `41190e0` had only 6 DIP page right padding and disabled inner vertical scrolling over Equalizer bands. Original-code fixture reproduced 26 vertical clearance failures and 8 wheel failures; actual minimum-width 16 kHz label overlapped horizontal scrollbar by 12 DIP before inner padding. A discarded arrow-glyph measurement was not accepted.
 
-The original-code fixture reproduced 26 vertical-clearance failures (content extends six DIP into the scrollbar's bounds) and eight failures to scroll down over Equalizer labels/sliders. A subsequent check of the actual `16 kHz` label at minimum width found it extended 12 DIP into the horizontal scrollbar. This horizontal check ran before adding inner padding, with the vertical fix already applied. The earlier diagnostic that selected a scrollbar arrow glyph was discarded.
-
-The final change reserves 24 DIP on the right of the page viewer and below the frequency bands, giving 12 DIP of measured clearance from each realized scrollbar. A preview wheel handler forwards a fresh bubbling wheel event to the page viewer once, preserving WPF's configured wheel distance. It does not change EQ processing, persistence, focus, horizontal scrolling or session ownership.
+Fix reserves 24 DIP page-right and band-bottom padding. Historical measured gutter is 12 DIP; fixture requires at least 8 DIP with 0.5 DIP tolerance rather than promising 12 on every display. Preview handler marks original wheel handled and forwards one fresh bubbling event to PageScroll preserving device/delta/timestamp and WPF wheel distance. EQ processing/persistence/horizontal offset/focus/session behavior remain unchanged.
 
 ## Branch and build boundaries
 
-- Implementation: `codex/fix-settings-scroll`, code commit `7d21728bd2d2e12d986089be89ac0ba0765bd3fd`, directly based on verified original `41190e0d13a63a714c08dffe73ababca1804875c`. Commit `94f6f5c57e3bd237ca027f801992fc314a4fb761` adds directly runnable PowerShell documentation examples; published head `54cd18e028af9abc4d0b85af8197209a978c4603` clarifies requested versus realized verification window dimensions. Both later commits change documentation only.
-- Five-file implementation diff: Settings XAML/code-behind, the existing UI harness hookup, `UiScrolling.cs`, and public Settings verification documentation. Complete diff and outgoing commit exclude fork analysis/issues/planning.
-- Earlier local integration: `codex/verify-settings-scroll`, source merge `b78753cd260544019012cb5314d3204f72440a1e`, combines this fix with the unchanged A+B fork main. Independent review compared all 19 A/B paths: 17 are identical; the other two contain only the approved Settings handler/harness additions. Group B's Pair wrapper and lifecycle checks remain present.
-- The feature merges into the user's fork main separately from the fork-only documentation. The A and B feature branches retain their original heads. This validation performed no release reservation, official release or local MSI installation. Subsequent upstream issue/PR publication is recorded below.
-
-The earlier integration-branch updates changed documentation only; the locally tested executable below was built from source merge `b78753c`.
+Implementation `7d21728` based on original `41190e0`; later `94f6f5c`/`54cd18e` adjust public verification documentation only. Five-file feature diff/every outgoing commit exclude private analysis/issues/planning. Initial combined source `b78753c` retained all A/B behavior; 17 of 19 A/B blobs were identical, 2 differed only for intended handler/harness additions.
 
 ## Prior local validation
 
-| Check | Result |
-| --- | --- |
-| Independent production, fixture and combined-source reviews | No actionable findings |
-| Focused eight-page layout/wheel fixture, both themes, 880×640 and 640×440 | English 201 passed; Chinese 193 passed |
-| Vertical and minimum-width Equalizer horizontal clearance | 12 DIP in both themes/languages |
-| Final content and highest frequency band | Reachable; native wheel distance applied once; curve/horizontal offset preserved |
-| Combined Core suite | 218 passed, zero failures/skips |
-| Locked restore, Debug build and combined Release publish | Passed with SDK 10.0.401 |
-| Exact published EXE full mock UI suite | English 474 passed; Chinese 466 passed |
-| Published EXE pointer wheel and vertical thumb dragging | Wheel moved page by 48 DIP over an enabled slider; lower end reached 246.4 DIP, matching its extent; upper end restored the first card visually |
-| Checks after the bounded pointer session | All 201 passed; draft/curve/store/start counts preserved; test process exited |
+Historical `b78753cd260544019012cb5314d3204f72440a1e`: 201 English/193 Chinese focused checks; 218 Core; warning-free builds/publish; SDK 10.0.401. Exact EXE `36912295c3e91f7a3914e5e0a32481444d48ce6cd7787497371ed7dab59d32c4` passed 474 English/466 Chinese full mock checks. Native output was hosted, not recompiled locally.
 
-The unofficial self-contained EXE has product version `0.3.1-scroll-validation.b78753c+b78753cd260544019012cb5314d3204f72440a1e` and SHA-256 `36912295c3e91f7a3914e5e0a32481444d48ce6cd7787497371ed7dab59d32c4`. Numeric 0.3.1 is only an unreserved validation version. The unchanged native executable was reused from the verified A+B GitHub build, SHA-256 `a43615e24cbe29b23ab5cf24ebad3ac5ced96d1590c5851184abe99e2eb99f98`; it was not recompiled locally.
-
-All services and devices in these checks are simulated. No real config, credentials, discovery, endpoint control or accessory playback was used. Native pointer checks cover this desktop session; other monitor scaling and touchpads remain unverified. [Settings diagnostics](../SETTINGS-DIAGNOSTICS.md) describes the reproducible commands. Local ignored build receipts contain exact hashes, reports, Core TRX and synthetic renders.
+Eight pages×two themes×default/minimum, minimum frequency labels, wheel distance/direction, curve/draft/store/playback preservation were asserted. A bounded actual-pointer session moved page 48 DIP per wheel, reached end 246.4 DIP and restored first card; all 201 final assertions passed. These use fake services and isolated windows, not accessories.
 
 ## GitHub build and exact downloaded binary
 
-Fork main contains A+B and the scrolling implementation. Source `d30c043b51765221e722d975ba06492160962040` passed [CI](https://github.com/ThatMarko/AirFlash/actions/runs/37696850901) and [fork build/package validation](https://github.com/ThatMarko/AirFlash/actions/runs/37696850934). The hosted checks passed 86 Python tests, native checks (47 passed, one intentionally ignored soak), 218 Core tests, both SDK installer paths, runtime-only rejection, embedded native hello and disposable-runner installer lifecycle checks. The downloaded ZIP digest matched GitHub's artifact metadata; all three binary hashes and source/version metadata matched the manifest.
+Historical `d30c043` passed [CI 37696850901](https://github.com/ThatMarko/AirFlash/actions/runs/37696850901) and [package 37696850934](https://github.com/ThatMarko/AirFlash/actions/runs/37696850934): 86 Python/47 native/218 Core/default+explicit installer/embedded hello/disposable lifecycle; one localhost soak ignored.
 
-The exact downloaded EXE passed 498 English and 490 Chinese mock UI checks, including all 273 existing non-scroll checks per language, 32 unique page/theme/size configurations, and two minimum-width `16 kHz` label measurements with 12 DIP clearance. The fixture requests 880×640 for its default window, but this desktop realized 660×500; the additional 24 checks reflect three more overflowing pages in both themes. They do not indicate changed application source or missing coverage. Native hello also passed, and verification left the downloaded files unchanged.
-
-During that first downloaded-build run, the desktop reported a 640×432 work area and produced blank UI renders. Native pointer/visual checks of that `d30c043` binary were not completed; the prior pointer checks above apply only to the earlier local binary. No real accessory test or local MSI installation was performed in that stage. The later final-build pointer results are recorded below.
-
-Local packaging uncovered a separate, pre-existing installer cache defect: a successful same-version package could still contain an earlier executable. The clean-checkout GitHub MSI contains the correct EXE; both local MSIs from the cached checkout contained old A+B bytes and are rejected. The separate original-base [installer fix and regression check](INSTALLER-REFRESH-ACCEPTANCE.md) is now integrated and verified below.
+Exact downloaded EXE passed 498 English/490 Chinese because requested 880×640 default realized 660×500 and additional pages overflowed. Minimum 640×440, 32 configurations/two frequency labels, 12 DIP measured gutters. Blank renders/capture failure prevented pointer qualification of that binary. Stale local MSI payload discovery led to the separate [installer repair](INSTALLER-REFRESH-ACCEPTANCE.md).
 
 ## Final A+B+scrolling build
 
-Exact source `1303a09127760912c1cdf6a47bdb14e45904fd62` passed [CI](https://github.com/ThatMarko/AirFlash/actions/runs/37711905828) and [fork integration validation](https://github.com/ThatMarko/AirFlash/actions/runs/37711905836). The hosted run repeated the full 86 Python / 47 native / 218 Core test sets, lint and icons, both installer SDK paths, runtime-only rejection, the new repeated-payload regression, embedded native hello, and disposable-runner installation/repair/upgrade/uninstall with hashes and user-data preservation. One existing native soak remains intentionally ignored.
+Exact historical `1303a09127760912c1cdf6a47bdb14e45904fd62` passed [CI 37711905828](https://github.com/ThatMarko/AirFlash/actions/runs/37711905828) and [integration 37711905836](https://github.com/ThatMarko/AirFlash/actions/runs/37711905836): 86 Python/47 native/218 Core/lint/icons/static CRT/build/publish/installer-host checks/runtime-only rejection/repeated payload/hello/disposable MSI. One soak ignored.
 
-Downloaded artifact ID `11522064329` has verified archive SHA-256 `88d73a4feefc95e0e6393130f7277d85b7e5fae77dc3c82bc78b8cb27e26f127`. Manifest source/run/repository/version, file sizes and all binary checksums matched before and after desktop verification. Informational version is `0.3.1-fork-validation.1303a09127760912c1cdf6a47bdb14e45904fd62+1303a09127760912c1cdf6a47bdb14e45904fd62`; the numeric version remains an unreserved test value.
+Artifact 11522064329 ZIP SHA-256 `88d73a4feefc95e0e6393130f7277d85b7e5fae77dc3c82bc78b8cb27e26f127`; repository/ref/source/run/metadata/all payload checksums verified before/after.
 
-| Final binary | SHA-256 |
+| Exact historical file | SHA-256 |
 | --- | --- |
-| AirFlash.exe | `89982600d059a39875acfd5351b77796cc0023959d6c84f1112d6b18899e4bd7` |
-| AirFlash-0.3.1.msi | `e3a22a000e5aa3117604064245320b66ac742ce28843bd74346be2fd34f2896c` |
-| airflash-engine.exe | `8836ed98936f075f712810d62945b63c6ed399e1e609f55ab2c1f925532a1cd0` |
+| EXE | `89982600d059a39875acfd5351b77796cc0023959d6c84f1112d6b18899e4bd7` |
+| MSI | `e3a22a000e5aa3117604064245320b66ac742ce28843bd74346be2fd34f2896c` |
+| Engine | `8836ed98936f075f712810d62945b63c6ed399e1e609f55ab2c1f925532a1cd0` |
 
-The exact final downloaded EXE passed 498 English and 490 Chinese mock UI checks. Each language retained all 273 A+B checks and covered 32 distinct page/theme/size configurations. Every measured overflowing page gutter and both minimum-width frequency-label gutters were 12 DIP, with zero scrolling failures. Native hello passed without creating a playback/pairing worker. The desktop still realized 660×500 for the requested default window; minimum cases realized 640×440.
+Exact EXE passed 498 English/490 Chinese, 273 prior non-scroll each/32 layouts/default 660×500/minimum 640×440 / 12 DIP measured gutters. Local republish reused verified newly hosted engine and produced identical EXE; default/explicit and downloaded MSI read-only extraction matched 77,187,230-byte 0.3.1.0 payload. Full MSI hashes may differ across build identities; payload bytes are the criterion. No local MSI installation.
 
-Local managed publish, with SDK 10.0.401, locked dependencies and the exact newly compiled GitHub native output, produced a byte-for-byte identical EXE. Full native compilation/tests occurred on GitHub. Both local installer paths rebuilt successfully with zero warnings/errors. Read-only extraction of those two MSIs and the downloaded MSI found the exact final EXE checksum in all three, matching File-table version `0.3.1.0` and size 77,187,230 bytes. Inspection did not alter packages; later packaging preserved the first local MSI and source EXE. Complete MSI hashes may differ because each package build creates its own identity; payload checksums are the acceptance criterion.
-
-The first final-build UI run produced blank images while desktop capture was unavailable. A fresh-window capture retry returned `IGraphicsCaptureItemInterop.CreateForMonitor failed: Could not capture the given monitor. (0x80070057)`; no pointer input was sent after that failure. The user subsequently reported that manual testing mostly looked good and made the desktop available. The exact same downloaded binary was then checked with native mouse input as recorded below. Agent verification used mock services throughout, without restarting the user's normal app, accessing real settings/credentials/accessories, or installing an MSI locally.
-
-Evidence is retained under ignored `artifacts/fork-integration/scroll-github-1303a09/`: archive/API metadata, binaries/manifest, hosted logs/TRX/regression reports, desktop reports/receipt, local republish comparison, and `fixed-installer-payload-receipt.json`. The original failing installer and corrected original-base/integrated receipts are copied there too. Artifacts have 14-day GitHub retention; local copies preserve this build. Later evidence-only documentation commits leave the tested runtime and build configuration unchanged.
+Local evidence: `artifacts/fork-integration/scroll-github-1303a09/`, archive/manifest/logs/TRX/UI/republish/payload receipts. Later documentation-only commits do not change that tested source. An initial blank-render capture retry failed `0x80070057` and sent no pointer input; later user-available desktop enabled the follow-up below.
 
 ## Final downloaded build: native pointer follow-up
 
-On 2026-10-07, capture succeeded for an isolated Settings window opened by the exact final downloaded EXE (`89982600…e4bd7`). Physical checks used the current monitor, light theme and English, with simulated discovery/audio/engine/settings services. Three accepted bounded sessions finished with all 201 focused checks passing, including unchanged edited curve/draft, unchanged store and no playback start. The EXE checksum remained unchanged.
+October 7 exact `89982600…e4bd7`, English/light theme/current monitor, synthetic services: three accepted bounded pointer sessions passed 201 checks each with unchanged curve/draft/store/start count and EXE hash.
 
-| Native input / visual check | Observed result |
+| Native input | Observed historical result |
 | --- | --- |
-| Wheel down/up over enabled Equalizer slider | Page moved 0 → 48 → 0 DIP; first gain remained +7.5 dB |
-| Wheel down/up over disabled Equalizer slider | Same 0 → 48 → 0 DIP movement; gain unchanged; Enabled restored before final checks |
-| Monitor vertical thumb down/up | 0 → 554 → 0 DIP; lower value matched measured scrollable height; final content and first card visible at their respective ends |
-| Horizontal band thumb at minimum width | 0 → 224 → 0 DIP; actual `16 kHz` label readable and clear of the bar; `31 Hz` restored at the left end |
-| Default-size visual pass through all eight Settings pages | Cards, controls and visible scrollbars spaced correctly; General, Network and About fit without unnecessary vertical scrolling |
+| Enabled/disabled slider wheel |0→48→0 DIP; gain+7.5 dB unchanged; enabled state restored |
+| Monitor vertical thumb |0→554→0 DIP; extent reached/final and first content visible |
+| Minimum-width horizontal thumb |0→224→0 DIP; 16 kHz readable/clear; 31 Hz restored |
+| Eight-page visual pass |Cards/controls/gutters fit; General/Network/About did not need vertical scrolling |
 
-Native width resizing reached logical 640×640; automated checks separately covered the exact 640×440 minimum layout in both themes. Bottom/corner resize attempts did not establish a successful native height resize and are not counted as such. Source review found no fixed-height resize lock, and no additional scrolling defect was found. Other monitor scales, touchpads and accessory/audio reliability remain outside this mock UI validation.
+Native resizing reached 640×640; automated checks separately covered 640×440. Native bottom/corner height resize was not established and is not counted. Initial disabled-EQ trial expired before restoring checkbox and correctly failed draft preservation; it remains rejected procedural evidence. Accepted pointer directories/receipt remain under that artifact's local `desktop/`.
 
-The initial mouse trial intentionally disabled EQ but expired before the operator restored its checkbox, so the final draft-preservation assertion correctly failed. That trial is retained as a procedural failure and excluded from acceptance. Repeating the disabled-band check with restoration passed. The accepted session directories are `pointer-c16b824807ff4be683bfcce32c24505e` (disabled wheel/Monitor), `pointer-65ae29d8d76c4c99970dcbc8f5cd5d9c` (horizontal thumb), and `pointer-029eb3f43d66440b9d922d790c31a1ac` (enabled wheel/all-page visual pass), under the final artifact's ignored `desktop/` folder. `native-pointer-receipt.json` records the observations and scope. No production implementation changed during this follow-up.
+This covers a specific display/session; other scales/touchpads/physical input/accessory behavior are unqualified.
 
 ## Upstream Task 3 publication
 
-On 2026-10-07, after explicit user authorization, published [issue #12](https://github.com/Ding-Kyoma/AirFlash/issues/12) and ready-for-review [PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13). The PR targets original stable `41190e0d13a63a714c08dffe73ababca1804875c` from `ThatMarko:codex/fix-settings-scroll` at `54cd18e028af9abc4d0b85af8197209a978c4603`. Its five-file diff and all three outgoing commits exclude fork analysis/issues/planning documents. `Fixes #12`, the published bodies and branch identities were read back and verified; the PR is attached to the Codex task.
-
-At publication, [upstream CI run 37717295723](https://github.com/Ding-Kyoma/AirFlash/actions/runs/37717295723) reported `action_required` and awaited maintainer approval, with no jobs started. No review had been submitted; approval/review were the next external actions at that time. That historical gate is separate from completed local/fork validation and later upstream acceptance.
+October 7 authorized issue #12/PR #13 used original `41190e0` and head `54cd18e` with verified five-file/private-free history, `Fixes #12` and body/readback/app attachment. Upstream 37717295723 initially awaited maintainer approval with zero jobs; that historical state is not current PR status.
 
 ## Current upstream status on 2026-10-10
 
-[PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13) is **merged**, and [issue #12](https://github.com/Ding-Kyoma/AirFlash/issues/12) is closed. Its feature branch head remains `54cd18e028af9abc4d0b85af8197209a978c4603`; no additional scrolling source change was required in the fresh audit. Group A PR #11 also merged. Actual upstream stable main was confirmed at `d4aa0686fc411de6655aac313243f0f6bf71e439` on 2026-10-10, including later Traditional Chinese localization. Earlier approval-gate statements describe the dated runs, not the current PR state.
-
-Prior local [A/B/C/D source](ABCD-INTEGRATION-ACCEPTANCE.md) `6fe467b` passed 422 Core per configuration, six exact portable runs and MSI payload/refresh checks with catalog restoration. Public A/B-only `d70f30d` passed hosted checks and six exact downloaded 501/493-check runs. Both matrices covered 32 page/theme/size plus two frequency labels at 880×640/640×440, with 12 DIP gutters and 201 English/193 Chinese scrolling checks. The distinct final receipts pin each binary/source. Historical `122500d`/`098c0a1` predate the restoration assertion. Closed B PR #15 still presents `11c6046`, without reopen. Scrolling source/native pointer history is unchanged; C/D are unpublished.
+Retained historical anchor: PR #13 and A PR #11 were merged by that audit, stable then `d4aa068`. B PR #15 remained closed/frozen; C/D local evidence and A/B-only hosted binaries were distinct. Current stable `cf420d9` and fork Main `8989b36` contain scrolling; current full package UI/DPI results are in continuation acceptance.
 
 ## All-local-branch integration and deferred execution — 2026-10-10
 
-All retained local branches now merge into local `main`, source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. No branch was deleted. Source inspection confirms [SettingsWindow.xaml](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml) retains `PageScroll` right padding 24 DIP and the Equalizer band viewer bottom padding 24 DIP. [OnEqualizerMouseWheel](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml.cs) marks the original preview event handled and forwards one fresh bubbling event to `PageScroll`; its delta/device/timestamp are preserved. The [scroll fixture](../../desktop/AirFlash.App/Verification/UiScrolling.cs) and full-smoke hookup remain integrated with the B/C checks.
+The old `9e894ab` source review retained padding/handler/fixtures but ran no app/build/test before reboot. Deferral is now satisfied. Earlier `6fe467b`/`d70f30d`/`1303a09` results remain source-bound; current geometry is executed through final package rather than assumed from historical source.
 
-The fixture asserts at least 8 DIP clearance (with 0.5 DIP tolerance); 12 DIP was the measured result in the pinned earlier binaries, not a constant guaranteed by reading source on every display. It requests eight pages × two themes × two sizes, records realized geometry, additionally checks the two minimum-width frequency-label gutters, and verifies wheel direction/distance plus draft/store/playback preservation. Its routed events remain distinct from the bounded physical pointer observations for `1303a09` above.
-
-This all-branch review launched no app and ran no build or test. The user deferred current-main execution until after reboot. Earlier `6fe467b`, `d70f30d` and `1303a09` results remain tied to their exact sources and hashes; a fresh `9e894ab` binary and desktop verification are still pending.
+No scrolling branch/worktree was removed. Current worktree `fix-settings-scroll/AirFlash` is preserved until separately authorized cleanup; ignored pointer receipts must be preserved independently of Git.

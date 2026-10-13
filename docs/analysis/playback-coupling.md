@@ -1,102 +1,55 @@
 # Playback coupling
 
-## Verified state — 2026-10-12
-
-Stable base `cf420d97700463c56adc31408510e8336e99e51c` now includes merged [PR #19](https://github.com/Ding-Kyoma/AirFlash/pull/19)'s passive discovery retention. Pushed B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b` and tested integrated fork runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee` add the stronger serialized ownership/admission and selection/control contracts. Earlier `41190e0` discovery-driven Stop and `9e894ab` execution/publication statements below are historical.
-
-Current [reconciliation](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.App/ViewModels/AppViewModel.cs) retains owned Connecting, Pairing, Streaming and Standby through empty, partial, offline and repeated discovery, including adapter browse restart. Catalog availability stays truthful; it does not replace a complete owned transport with partial/offline data. New unavailable/incomplete starts remain rejected. A complete online reappearance may update only the original atomic owner/intent through [controller serialization](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.Core/SessionController.cs); valid identity promotion and applicable signature restarts remain.
-
-The active row retains Stop even when hidden/offline. Explicit Stop, PIN cancellation, shutdown and terminal transport/capture faults still govern cleanup/retry; passive discovery loss does not initiate it. Native retries create fresh processes and transport identities. Exact local mute restoration remains best effort after owned worker cleanup, with the new separate [recovery journal](control-and-mute.md); no immediate restoration or acoustic guarantee follows from discovery retention.
-
-B's refreshed 764-check UI run and 28-check stability command passed, alongside 304 Core and build. Integrated runtime passed 666 Core and six 1059-check synthetic UI pairs, with completed normal/native/package CI. These tests prove the fake-command, ownership and control outcomes; they do not attribute HomePod incidents to a network/hardware cause. See [B acceptance](../issues/GROUP-B-ACCEPTANCE.md).
-
-## Historical local-main audit — 2026-10-10 (9e894ab)
-
-Local main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7` now contains final B `0a2c1ac`, C `c3a1d5e` and D `48e7ab62`. In current [AppViewModel.ReconcileDiscoveryAsync](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs), missing/offline/incomplete discovery data does not revoke Connecting, Pairing, Streaming or Standby. A complete online reappearance may retarget only the captured owner/intent through [SessionController.TryUpdateReceiverAsync](../../desktop/AirFlash.Core/SessionController.cs). Its effective transport/settings signature can still restart an active non-pairing stream. The active panel overlay keeps Stop available while catalog availability remains truthful; after stop/terminal completion, rows retained only for ownership disappear.
-
-The remainder through the original verification table describes **historical `41190e0`** discovery-driven cancellation, its controls and mute consequences. Explicit stop, shutdown, engine faults, PIN cancellation and applicable signature/endpoint changes still follow current controller cleanup; passive discovery loss does not. A selected discovery adapter still does not bind the native media route. No physical mute/acoustic reliability conclusion follows from the earlier mock checks. This merge/source audit executes no app, build, test, DNS or audio operation; new main testing is deferred until after reboot. C/D remain unpushed/unpublished, and B PR #15 remains closed without merge. See [integration acceptance](../issues/ABCD-INTEGRATION-ACCEPTANCE.md).
-
-At the pinned baseline, when the desktop applied a discovery snapshot that lacked an active non-manual receiver, or contained its incomplete stereo group, it called `Session.StopAsync`. The engine's TCP and UDP health was not consulted for this decision. Reconciliation performed any required identity save before reaching this check; a save failure exited that transaction and left the catalog/session untouched by that snapshot. [Discovery](discovery.md) describes cache publication. [Session](session.md) describes stop and the new process that may follow.
+This page describes fork `main` at **`8989b3609dd1294f4d1d6eb1502f345cc22bc382`**, reviewed on 2026-10-12, including original stable `cf420d97700463c56adc31408510e8336e99e51c`. Discovery availability and owned transport now have separate lifetimes. [Audit](audit.md), [B acceptance](../issues/GROUP-B-ACCEPTANCE.md) and [current qualification](../issues/CONTINUATION-ACCEPTANCE.md) define evidence limits.
 
 ## The check
 
-[`ReconcileDiscoveryAsync`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs) runs on every discovery result, including the empty list `Restart` publishes before the new browse has resolved anything. For the receiver in the current snapshot:
+[ReconcileDiscoveryAsync](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L301) captures snapshot, desktop owner and intent atomically before any awaited identity save. A valid save/migration can complete even if the session changes, but applying a replacement requires fresh owner/intent equality and [serialized controller validation](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/SessionController.cs#L397).
 
-```csharp
-if (currentSnapshot.Receiver is { IsManual: false } current)
-{
-    var id = ReceiverMigrations.GetValueOrDefault(current.Id, current.Id);
-    if (!discovered.TryGetValue(id, out var next) || !next.Complete)
-    {
-        if (currentSnapshot.IsActive) await Session.StopAsync();
-    }
-    else if (!ReceiverEqual(current, next) || !SettingsMerge.Equal(originalSettings, _settings))
-        await Session.UpdateReceiverAsync(next, _settings.Clone());
-}
-```
+Missing, offline, partial, overfull or repeated discovery does not Stop an owned Connecting, Pairing, Streaming or Standby attempt. Only complete online data can update its receiver/settings. A valid same-owner identity promotion leaves transport intact when the effective signature is unchanged. Peer address/port/group-leader flags, capture endpoint, latency or rate changes can trigger the applicable owned non-Pairing restart. A new Pair, explicit intent or same-id replacement rejects stale control work.
 
-`IsActive` includes Connecting, Streaming, Standby, and Pairing. A discovered receiver that is missing, or a stereo row that is no longer 2/2, stops the session. A manual receiver skips this block. Its stream continues across an empty browse. That split is the `{ IsManual: false }` pattern: manual rows are not members of the mDNS map, so the check does not apply to them.
-
-`currentSnapshot` is captured before any awaited identity save. The settings gate serializes discovery and Settings Apply, but Pair invokes the session directly and the worker can change state independently. The later stop/update decision is therefore based on the captured snapshot, not an atomic check of the receiver still active after the save. The nominal manual-receiver exemption above is a branch property; this audit did not exercise a concurrent pairing/session switch during a delayed identity save.
-
-An address, port, or stereo leader change still reaches `UpdateReceiverAsync`. An active non-pairing session is restarted when its signature changes: peer addresses/ports/stereo-leader flags, effective capture endpoint, latency, or sample rate. An identity promotion with unchanged transport and effective settings does not restart; migrated latency preferences can make an otherwise identical address restart. Pairing is excluded from signature-triggered restarts, but can still be stopped by the missing/incomplete-receiver check. See [After discovery](after-discovery.md).
+A save failure exits before that transaction replaces catalog/session data; independent worker events can still happen. There is no unused conditional passive-Stop plumbing. Manual receivers retain exact explicit endpoints and are not retargeted by discovery.
 
 ## What produces the empty snapshot
 
-[`WindowsDiscovery.Restart`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs) clears `_records`, `_instances`, `_browsers`, and `_pending`, then calls `Publish` while the cache is empty. These calls reach `Restart`:
+[WindowsDiscovery](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Services/WindowsDiscovery.cs) publishes cached aggregation when its catalog changes. Explicit interface change clears records; TTL removal/expiry can remove records. Restart retires old queries but retains ten seconds of cache while rediscovery proceeds; it does **not** guarantee a synchronous empty publication before new inline results. Suspended visibility-scoped browsing retains catalog data.
 
-- `Start`
-- `SetInterface` when the saved adapter id changes
-- `NetworkAddressChanged`
-- `NetworkAvailabilityChanged`
-- The 20-second timer, when a selected adapter's IPv4 index no longer matches the browse
+Adapter change policy deliberately retains the already owned attempt while browsing obeys the selected interface. An unavailable selection pauses without fallback. The selected DNS interface is not a playback routing binding. [Discovery](discovery.md) describes PTR-TTL cache lifetime, five-second resolve deadlines and helper ownership separately.
 
-The network handlers do not receive the adapter that changed. Any address change on the machine, including a virtual adapter, takes the same path as a change on the NIC that reaches the HomePod.
-
-A second path drops one name without clearing the others. A TTL-zero PTR removes the record and pending marker. A refresh tick deletes a record whose 90-second expiry has passed, including its instance name, and a hung resolve can leave `_pending` set so that name is not queried again. The expiry is processed by the 20-second timer rather than at a precise 90-second alarm. The details are in [Discovery](discovery.md).
-
-`Discovery resolved:` is logged when the name is missing from `_records` or when its description changed. An identical description logged again can follow a cache miss, or an intervening description change that later reverted. The log does not label restart, expiry, or PTR-removal causes. Several resolve lines near one another are insufficient to identify a network event, a receiver reboot, or the state of the engine watches; this audit does not use local log counts as repository ground truth.
+Repeated `Discovery resolved:` descriptions can reflect cache absence or metadata change/reversion. They do not identify a network event, receiver reboot or native-watch condition.
 
 ## The row leaves the panel
 
-`RefreshReceivers` keeps a row only when it is online and not hidden. Marking a device `Online = false` removes it from the control panel. Removing it from `_known` does the same. With all interfaces selected, a missing device stays in the map as offline and can still appear as history in Settings. With a NIC selected, the map entry is deleted. Saved options in `config.json` remain either way. The user cannot press play on a row that the panel has removed.
+The ordinary panel filter remains online/non-hidden. [RefreshReceivers](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L371) overlays a current active row excluded by that filter. Offline/incomplete catalog availability stays truthful; the session keeps its complete transport snapshot. `ReceiverViewModel.Active` makes that row's toggle Stop even when new Play is unavailable. Hidden or selected-adapter-removed active rows also retain Stop. Once the attempt ends, a card retained only for ownership disappears.
+
+This is not marking an absent receiver online. New Play/automatic starts reject offline, incomplete or hidden candidates; explicit Pair requires online/completeness and can be offered on a hidden Settings row. Manual rows persist independently. Settings can retain offline history/preferences under its own catalog policy.
 
 ## Stop does not increment reconnects
 
-`StopAsync` cancels the session lifetime and waits for the worker. `RunStreamAsync` returns on lifetime cancellation before recording another fault or entering its next retry; cancellation during retry delay prevents that retry's `ReconnectCount` increment as well. Stop does not reset or prove the absence of an earlier fault. `StartLockedAsync` on the next explicit/automatic start replaces diagnostics with an empty value, so reconnect count starts at 0 and live metrics begin unavailable. Sender recovery values arrive in later engine metrics and may already be nonzero. Zero counters alone do not prove discovery caused a stop, that streaming was reached, or that engine watches remained healthy.
+Explicit user Stop and shutdown invalidate older automatic intent before waiting for lifecycle serialization. They cancel the actual worker; cancellation during read/retry delay prevents a later retry count increment. Stop suppression stays set until an intended reset/explicit Play, and rejected stale automatic work cannot clear it.
 
-At timer entry, auto-connect checks that it is enabled, the user has not suppressed it with stop, no session is active, and the receiver is online, complete, and not hidden. Those checks precede awaited settings work and are not an atomic admission guard against a later Pair or user Stop. The timer is 900 ms after the last discovery result. With auto-connect off, the stop is the end of playback until the user presses play. The setting defaults off. See [After discovery](after-discovery.md) for the selection and concurrency limits.
-
-The suppress flag is set by `AppViewModel.StopAsync` when the stop is user-initiated, which is the panel and the tray. The discovery path calls `Session.StopAsync` without changing the flag. It does not clear a flag already set by a previous user stop. A receiver that vanishes and returns can auto-connect again when the flag and attempt-selection rules permit it; an already-attempted preferred receiver can block fallback to a different receiver. See [After discovery](after-discovery.md).
+Force reconnect applies to eligible terminal worker faults, not passive availability loss. Each permitted retry opens a fresh native process/session UUID/PTP/SSRCs while retaining desktop lifecycle ownership. A new Start/restart clears diagnostic history; retries preserve last fault/pre-fault capture/transport while resetting live data. Zero counters do not prove a discovery cause or transport health. [Session](session.md) gives the admission, fault and retry ordering.
 
 ## Local mute follows the stop
 
-Mute-while-streaming defaults on. On `streaming`, the audio service captures the endpoint's mute bit immediately before first setting it to muted, then the desktop publishes Streaming. The worker's `finally`, and `StopLockedAsync` after cancellation/worker cleanup, call `RestoreAudioAsync`. Restore attempts to write that exact bit back. If it was unmuted and restore succeeds, local audio can become audible before a later auto-connect reaches `streaming` and mutes again. This is not a promise of immediate physical playback: engine cleanup precedes these stop-path restore calls, and an unavailable endpoint's COM failure retains its original bit for a later retry. Session-level restore errors are logged. The same restore paths apply to user stop, engine failure, and discovery stop. [Control and mute](control-and-mute.md) has the endpoint calls.
+Mute-while-streaming defaults on and is attempted after the Streaming event. For playback endpoints the [owned journal](control-and-mute.md) records actual identity and exact prior true/false before mutation. Recording endpoints never read/write mute or acquire mute ownership. Normal restore follows owned worker/connection cleanup and is best effort; initially muted stays muted. COM/journal failures remain visible/pending.
+
+Passive discovery disappearance no longer invokes cleanup/restoration. Explicit Stop, PIN cancellation, shutdown and terminal faults still do. If a terminal fault ends one attempt and a later fresh attempt reaches Streaming, exact restoration/remuting may occur between them; there is no immediate restoration deadline or acoustic continuity guarantee. Unresolved recovery conservatively blocks new attempts with local muting enabled.
 
 ## What this check does not see
 
-The engine may still be running its feedback, event, and media watches when the desktop calls `stop`. Those watches are in [Engine](engine.md). An engine fault such as `feedback_timeout` or `media_send_timeout` can cause the desktop to enter its retry loop. The reconnect count increments only after a retry is permitted and its delay completes, before the next process attempt. An error by itself does not increment it. A discovery-driven lifetime cancellation does not initiate that retry path, though an engine fault could already have occurred independently before cancellation.
+Retaining an attempt does not certify native feedback/event/media watches, UDP receipt or audible output. A native terminal transport/capture/auth/IPC fault still ends or retries under controller policy. A successful feedback response or local UDP send cannot prove speaker output. Network route, receiver OS tolerance, Wi-Fi behavior and physical endpoint recovery need separate evidence.
 
-Force reconnect defaults off. It does not apply to a discovery stop anyway, because that path cancels rather than returning a retryable `error`.
+The PIN dialog remains modal. Stop regression fixtures hold Pair **before** `pin_required`, or complete pairing and close the prompt before exercising normal Stop. CanExecute alone does not establish an accessible underlying control through a modal prompt.
 
 ## Source and verification scope
 
-| Claim group | Source anchors |
-| --- | --- |
-| Save-before-check transaction and manual/incomplete split | [`AppViewModel.cs:166–220`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L166) |
-| Empty restart, per-name removal/expiry, log predicate | [`WindowsDiscovery.cs:47–161`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/WindowsDiscovery.cs#L47) |
-| Panel filtering and user suppress flag | [`AppViewModel.cs:234–249, 312–324`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L234) |
-| Active states, fresh diagnostics, stop, signature update | [`SessionController.cs:9–11, 175–260`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L190) |
-| Cancellation, fault/retry ordering, count increment | [`SessionController.cs:370–394`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L370) |
-| First mute and restore handling | [`SessionController.cs:325–329, 461–464`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L325), [`AudioService.cs:63–82`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/AudioService.cs#L63) |
+Current [UiSessionLifecycle](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Verification/UiSessionLifecycle.cs), [SessionLifecycleTests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/SessionLifecycleTests.cs), [SessionTests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/SessionTests.cs) and [ReceiverSelectionTests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/ReceiverSelectionTests.cs) cover all four retained active states, empty/partial/repeated results, reappearance, hidden/offline controls, selected-adapter change, exact manual targets, explicit Stop, terminal fault cleanup/retry and both prior mute bits through fake services.
 
-[`SessionTests`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L126) covers pending-start cancellation, fresh-process retries (line 169), mute restore (lines 199–208), incomplete-group rejection (line 220), and preserving diagnostics until a fresh playback (line 260). The WPF [`UiRegression` harness](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L163) checks failed identity-save preservation, offline-to-online auto-attempt recovery (line 202), and stereo-member disappearance stopping playback (line 223), using mock services. Neither those tests nor this source audit establishes the cause of any particular real-world dropout or guarantees mute restoration on unavailable hardware.
-
+Current main passes 667 Core with warning-free build; code-identical packaged six full regional/catalog runs pass 1,059 assertions each. Detailed source-bound and negative-control evidence is in B/current acceptance. This documentation update runs no real audio, configuration, credentials, receiver or endpoint mutation.
 
 ## Implemented Group B behavior
 
-The preceding baseline audit describes `41190e0`. Initial B at `342aeb77cb85ff6f3f7f850161b3db79d8637945` was integrated historically at `72dc7c7`; later production follow-up `11c6046` and verification-only fixes advanced the pushed feature to `0a2c1ac`. All are now ancestors of local main `9e894ab`. B remains unmerged upstream with PR #15 closed. See the [feature acceptance checklist](../issues/GROUP-B-ACCEPTANCE.md) and [combined fork validation](../issues/FORK-INTEGRATION-ACCEPTANCE.md) for separate dated test evidence.
+At [historical `41190e0`](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L211), reconciliation called unconditional Stop when a captured non-manual receiver was absent/incomplete; a required identity save preceded that decision. An awaited save could make that captured owner stale. Discovery Stop did not set user suppression or increment retry count, and a later Start reset diagnostics. Those facts explain the original policy, not a specific household incident.
 
-Empty, partial, overfull or repeated discovery results do not cancel an owned handshake/stream or reopen its engine. Catalog availability remains truthful while the full active transport stays in the session. An active card remains visible, including when hidden or removed from the selected-adapter catalog, with an availability label and a bound Stop button. After stop or terminal completion, a card retained solely by ownership disappears.
-
-A complete online reappearance can still trigger a guarded receiver update, including a restart when its effective signature changes; stale saved discovery work cannot retarget a newer owner. Adapter browse restart retains playback without making the selected discovery interface an egress binding. Existing worker failures, explicit stop, PIN cancellation and retry/mute cleanup remain effective. The mock evidence establishes these desktop contracts, not a cause for a particular hardware dropout.
+Original stable `cf420d9` contains [PR #19](https://github.com/Ding-Kyoma/AirFlash/pull/19)'s passive retention/fresh snapshot/Pairing exclusions. Fork B `442e8d8` adds atomic admission/retargeting, exact selection and retained hidden controls; it is integrated here while old PR #15 stays closed. Reports [01](../issues/ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md)/[03](../issues/ISSUE-03-HIGH-discovery-disconnects-active-playback.md) and B acceptance retain baseline failures. Old pre-reboot/unpushed/incomplete-group statements belong to dated historical audits.

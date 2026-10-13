@@ -1,65 +1,35 @@
-# [LOW] Capture-padding telemetry lacks missing-frame accounting
+# [LOW] Local missing-frame accounting — implemented in fork main
 
-## Implementation update — 2026-10-11
+**Status:** Implemented and integrated in own-fork main `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, reviewed 2026-10-12. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`; this implementation is not yet integrated there. Severity is the original triage priority.
 
-Implemented on refreshed Group H at `7f5135384d2245cfdf39d9c77b591c39df1981e3`, against original stable `cf420d97700463c56adc31408510e8336e99e51c`. [Native accounting](https://github.com/ThatMarko/AirFlash/blob/7f5135384d2245cfdf39d9c77b591c39df1981e3/native/airflash-engine/src/live.rs) saturates `padded_frames` and `fully_padded_packets`, counting missing output-rate slots before EQ once per shared pull. Captured silence is not padding; recording and playback use the same downstream queue. Optional desktop UInt64 fields retain the full range, display invalid/absent values unavailable, reset current metrics per attempt and preserve pre-fault snapshots. Existing underrun semantics remain unchanged; no input-rate fill percentage, network-loss or acoustic measurement is inferred. [H acceptance](GROUP-H-ACCEPTANCE.md) records both-rate synthetic fixtures and actual hosted native checks. This supersedes unimplemented labels; upstream integration and hardware qualification are not claimed, and the original audit/proposal below is historical.
+**Group:** H — Diagnostics/observability. **Feature head:** `6855dfe27b4283a58ede7c37474f3e2aa3c31cf7`. [Plan](IMPLEMENTATION_PLAN.md#issue-16), [acceptance](GROUP-H-ACCEPTANCE.md), [capture/clocks](../analysis/capture-clocks.md), [EQ](../analysis/equalizer.md).
 
-- **Issue ID**: ISSUE-16
-- **Implementation plan**: [Work package ISSUE-16](IMPLEMENTATION_PLAN.md#issue-16)
-- **PR group**: H — Diagnostics/observability
-- **Severity**: LOW
-- **Kind**: Enhancement
-- **Type / Status**: Open enhancement — source-verified observability limitation; no verified playback defect
-- **Subsystem**: Native capture metrics and desktop Monitor
-- **Runtime baseline**: `41190e0d13a63a714c08dffe73ababca1804875c`, unchanged by documentation baseline `c077a0577de26ad7e44b8fd50f62456e12965fb0`
-- **Evidence status**: Implementation and existing test sources inspected on 2026-10-07. The reproduction harness below is proposed and unexecuted. No receiver or audio-endpoint test was performed. No claim about current remote branch tips or excluded `67435a4` behavior is made.
-- **Implementation status**: Proposal only; no runtime change applied
-- **Merged-main review (2026-10-10)**: Still unimplemented at local source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. [Metrics and Loopback::packet](../../native/airflash-engine/src/live.rs) (lines 40 and 120) still expose packet-level underruns without padded-frame counts; [SessionController](../../desktop/AirFlash.Core/SessionController.cs) and [Monitor](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml) retain those local-fill semantics. Native capture/DSP code is unchanged from `41190e0`. This pass ran no queue fixture, capture endpoint, app, build, or test.
-- **Target files**: [live.rs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/live.rs#L39-L48), [SessionController.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L360-L366), [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L43-L46), [SettingsWindow.xaml](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml#L227-L228)
-- **Analysis context**: [Capture and clocks](../analysis/capture-clocks.md), [Equalizer](../analysis/equalizer.md), [Source check](../analysis/source-check.md)
+## Current behavior and source trace
 
-## 1. Current behavior and bounded impact
+[Loopback::packet](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/live.rs#L124) counts absent **output-rate frame slots before EQ**, once per shared 352-frame pull before speaker fan-out. Existing underrun_packets still increments once for any fill. Saturating UInt64 padded_frames adds exact missing slots; fully_padded_packets adds one only when all 352 were absent.
 
-A 352-frame media pull supplies zero-valued input for missing capture frames and increments `underrun_packets` once if **any** frame was absent. An empty queue and a queue containing 351 frames both add one to the same counter. `Metrics` includes cumulative input `capture_frames`, but no missing-output-frame count or wholly padded-packet count. The desktop displays this accurately as `Local underrun packets`; the limitation is that this count cannot quantify how many frames were padded. It also cannot establish why capture stopped producing frames. ([live.rs:39–48](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/live.rs#L39-L48), [120–159](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/live.rs#L120-L159), [SettingsWindow.xaml:227–228](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml#L227-L228).)
+| Input available for one pull | Underruns | Padded frames | Wholly padded pulls |
+| --- | --- | --- | --- |
+| 0 frames | +1 | +352 | +1 |
+| 351 frames | +1 | +1 | +0 |
+| 352 frames, including captured silence | +0 | +0 | +0 |
 
-Silent render endpoints **may** emit no loopback packets, so fill is permitted normal operation. Multiplying the counter by `352 / sample_rate` gives the duration of packets containing some fill; it gives missing-frame duration only if every frame in those packets was absent. The equalizer follows padding and may produce a filter tail, so padded input is not necessarily a wholly silent output packet. ([live.rs:325–330](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/live.rs#L325-L330), [151–153](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/live.rs#L151-L153), [equalizer.rs:160–178](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/equalizer.rs#L160-L178).)
+Gain zero/real captured silence are not missing input; EQ history can produce a tail from wholly padded input. Playback and Recording use the same downstream path. Existing queue/resampler/onset/scheduling/underrun behavior remains.
 
-No audibility, DPC cause, fixed Windows scheduling quantum, Wi-Fi loss, receiver clock correction, or incident duration has been established. The original HIGH report's claim that recovery is missing is rejected: local queue-depth resampling correction, stale-frame trimming, and live sender-schedule recovery already exist. They are not receiver jitter-buffer measurements. ([live.rs:161–168](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/live.rs#L161-L168), [397–403](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/live.rs#L397-L403), [transport.rs:619–645](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/transport.rs#L619-L645).)
+[desktop parsing](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/SessionController.cs#L531) accepts new counters independently as optional full-range UInt64. Absent/invalid is unavailable, not invented zero. Current metrics reset per worker attempt; immutable pre-fault values survive retry and pre-capture retry failure. [Monitor](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Ui/SettingsWindow.xaml#L239) and existing diagnostics display them. No fill percentage uses input-rate capture_frames.
 
-## 2. Source-visible mechanism
+## Acceptance and evidence
 
-`packet` has one `underrun` boolean for the entire pull. The `else` branch sets that boolean for each absent frame but keeps no frame total; after the loop, one packet increment is recorded. The information needed to distinguish one missing frame from 352 missing frames is discarded. This is an accounting limitation, not evidence that padding or the existing 20 ms target/60 ms cap is defective. ([live.rs:129–158](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/live.rs#L129-L158).)
+Both-rate [native accounting fixtures](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/live.rs#L534) cover partial/whole/resumed fills, silence/gain zero/EQ tails, saturation/serialization and error/reset snapshots. [Core compatibility/failure fixtures](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/CapturePaddingMetricsTests.cs#L31) cover old events, invalid/full UInt64, stale sessions, retry/cancellation and immutable fault data. Actual WPF checks cover refresh/copy/layout.
 
-The desktop copies `underrun_packets` into `StreamMetrics` and renders the number without additional frame accounting. Separately, queue-age p95 includes zero-age synthetic frames and is sampled before actual socket send. Those existing values must not be relabeled as network loss or acoustic latency. ([SessionController.cs:360–366](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/SessionController.cs#L360-L366), [AppViewModel.cs:43–46](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L43-L46), [live.rs:145–175](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/live.rs#L145-L175).)
+H acceptance retains the failing old-accounting control and fractional-DPI investigation. Current layout assertions use finite parent-assigned WPF slot, actual 125% DPI, every digit/viewport and unchanged tolerance. Restoring old rectangle arithmetic and disabling wrapping each fail their intended independent controls; neither is merged into main.
 
-## 3. Proposed reproduction — not executed
+Exact-main CI passed 667 Core, 124 Python and 69 native tests (recording-device qualification and thirty-minute localhost soak ignored). Packaged integration at `4ae1db4` passed six 1,059-assertion UI runs, three actual 125% DPI runs with 40 each and disposable MSI lifecycle; current runtime/package inputs are identical, with main's last commit documentation only. This refresh reviewed sources/records; it did not rerun suites or use real user data/devices.
 
-Use an isolated queue fixture derived from the existing `source()` test helper; open no capture device or network socket.
+## Remaining work and limits
 
-1. Pull one packet with zero queued frames. Inspect packet count and missing-frame accounting.
-2. In a fresh fixture, enqueue 351 frames and pull once.
-3. In another fixture, enqueue 352 frames and pull once.
-4. Repeat at 44100 and 48000 Hz.
+This is observability, not an identified network/acoustic playback cause. Local queue p95 precedes socket send; packet-level underrun duration overstates partial missing frames. Padding can be normal during silence; no receiver delivery, Wi-Fi/DPC cause or measured remote clock correction is inferred. Upstream publication is separate.
 
-**Source-predicted current result:** cases 1 and 2 each add one underrun packet; case 3 adds none. No current metric records 352 versus one padded frame. This prediction has not been presented as an observed runtime result. A no-event WASAPI endpoint is not necessary to demonstrate the accounting gap.
+## Historical finding
 
-## 4. Proposed change — unimplemented
-
-Add cumulative missing-frame accounting, for example `padded_frames`, and optionally `fully_padded_packets`, alongside the existing `underrun_packets`. Count zero-valued substitute **input frames**, not output samples after DSP. Surface the counters or an explanatory Monitor description without inferring that no capture packets means intentional idle silence. If recent captured-frame activity is shown, describe it as evidence rather than an authoritative idle-versus-starvation classifier.
-
-Keep the existing counter and its semantics for JSONL v1 compatibility; new event fields and desktop properties should be optional, and missing fields should display unavailable. Do not change schema 2 settings, presets, RTP pacing, capture queue limits, resampler control, or retry policy as part of this issue. Do not automatically expand receiver latency from a local padding count. Preserve exact-bit local mute restoration, mutually exclusive pair-verify/transient authentication, and credential ownership.
-
-## 5. Testable acceptance criteria
-
-- An empty 352-frame pull adds one underrun packet, 352 padded frames, and one wholly padded packet if that optional counter exists.
-- A 351-frame queue adds one underrun packet and one padded frame; it is not wholly padded.
-- A complete queue adds no padding counts. Counts accumulate independently of stream rate, gain, and equalizer output tails.
-- Existing underrun/resume and scheduler-recovery behavior remains intact at both supported rates.
-- Monitor text states local fill semantics. It does not claim an audible glitch, network loss, exact silence duration from packet count, or measured receiver latency.
-- Older events lacking additional fields still parse; older readers retain their existing counters.
-
-## 6. Existing coverage and verification plan
-
-[live.rs:442–455](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/live.rs#L442-L455) tests empty-queue fill followed by resumed audio, and [472–489](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/native/airflash-engine/src/live.rs#L472-L489) tests overflow and stale-frame discard. [SessionTests.cs:211–217](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L211-L217) checks fake-engine standby without restart. These sources were inspected, not executed for this issue review, and do not cover a partial-packet missing-frame counter or real endpoint idle detection.
-
-Add the isolated accounting cases above and desktop optional-field/wording checks. No hardware probe is needed. If later hardware qualification is independently authorized, use finite probes with sender gain at most 0.1, duration at most five seconds, and the existing disabled-EQ restrictions; do not use a long receiver soak to validate a telemetry enhancement.
+Original `41190e0` exposed packet-level underruns but discarded one-versus-352 missing-slot information. The earlier speculative claim that sender recovery was absent was rejected: local depth correction, stale trimming and live schedule recovery already existed. The resolved scope adds bounded truthful accounting. The [archival report at the prior documentation commit](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/docs/issues/ISSUE-16-LOW-capture-padding-metrics-lack-frame-accounting.md) preserves original `41190e0` source anchors, reproduction/proposal and dated updates. Its proposal-only/open/pending-reboot labels are historical, superseded by the current resolution above.

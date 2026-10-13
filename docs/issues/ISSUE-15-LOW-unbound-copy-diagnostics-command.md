@@ -1,57 +1,31 @@
-# [LOW] Settings does not expose its existing diagnostics-copy command
+# [LOW] Monitor diagnostics-copy access — resolved in fork main
 
-## Implementation update — 2026-10-11
+**Status:** Implemented and integrated in own-fork main `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, reviewed 2026-10-12. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`; this implementation is not yet integrated there. Severity is the original triage priority.
 
-Implemented on refreshed Group H `codex/fix-diagnostics-metrics` at `7f5135384d2245cfdf39d9c77b591c39df1981e3`, against original stable `cf420d97700463c56adc31408510e8336e99e51c`. [Monitor's localized action](https://github.com/ThatMarko/AirFlash/blob/7f5135384d2245cfdf39d9c77b591c39df1981e3/desktop/AirFlash.App/Ui/SettingsWindow.xaml) exposes the existing `CopyDiagnosticsCommand` with keyboard/automation access. The same serializer, STA clipboard operation and Settings error surface remain in use; isolated tests inject a writer rather than touching the user's clipboard. [Group H acceptance](GROUP-H-ACCEPTANCE.md) records realized button/binding, Idle/Streaming/Error, copied snapshots and failure checks without settings saves, engine commands or audio mutation. This supersedes earlier unimplemented labels; original stable has not integrated H and the earlier audit/proposal below is historical.
+**Group:** H — Diagnostics/observability. **Feature head:** `6855dfe27b4283a58ede7c37474f3e2aa3c31cf7`. [Plan](IMPLEMENTATION_PLAN.md#issue-15), [acceptance](GROUP-H-ACCEPTANCE.md), [settings map](../analysis/settings.md), [failure snapshots](../analysis/failures.md).
 
-- **Issue ID**: ISSUE-15
-- **Implementation plan**: [Work package ISSUE-15](IMPLEMENTATION_PLAN.md#issue-15)
-- **PR group**: H — Diagnostics/observability
-- **Severity**: LOW; diagnostics access/usability, without a demonstrated playback failure
-- **Kind**: Defect — UI binding
-- **Subsystem**: Desktop App (`AirFlash.App`)
-- **Status**: Open — source-confirmed UI binding gap
-- **Runtime baseline**: upstream `41190e0`; documentation baseline `c077a05`
-- **Evidence status**: Command/XAML references inspected; no live WPF clipboard reproduction performed
-- **Implementation status**: Proposal only; command binding remains absent
-- **Merged-main review (2026-10-10)**: Still unimplemented at local source `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. A fresh desktop C#/XAML reference scan finds the command only in [SettingsViewModel](../../desktop/AirFlash.App/ViewModels/SettingsViewModel.cs) (lines 62/89), without a binding in the current [SettingsWindow](../../desktop/AirFlash.App/Ui/SettingsWindow.xaml). [AppViewModel.Diagnostics](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs) (line 471) still supplies the existing report; both Chinese catalogs retain the label. No clipboard or UI test was executed in this review.
-- **Target files**: [SettingsViewModel.cs:62,89](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L62), [SettingsWindow.xaml:204–299,314–336](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml#L204)
-- **Analysis context**: [Settings](../analysis/settings.md), [Session diagnostics](../analysis/session.md), [Failures](../analysis/failures.md)
+## Current behavior and source trace
 
-## Current behavior and effect
+[Monitor Copy diagnostics button](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Ui/SettingsWindow.xaml#L211) binds the existing [CopyDiagnosticsCommand](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L89), with localized content/automation name and keyboard access. It calls the same [Diagnostics serializer](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L609) on the STA dispatcher; clipboard exceptions still use Settings ShowError. A writer is injectable for isolated verification, avoiding the user's clipboard.
 
-`SettingsViewModel` exposes `CopyDiagnosticsCommand` at [line 62](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L62) and initializes it at [line 89](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/SettingsViewModel.cs#L89). Execution calls `Clipboard.SetText(App.Diagnostics())`, catching errors through `ShowError`. The localized label exists at [Strings.zh.json:199](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Core/Strings.zh.json#L199).
+The report includes desktop/engine state, current local capture values and serialized fault/transport/pre-fault diagnostics. Added padding values are local fill accounting; end-to-end latency remains unmeasured. Copy does not save settings, send engine controls or mutate local audio.
 
-There is no command binding or invocation elsewhere in the scanned desktop C#/XAML source. The Monitor page at [SettingsWindow.xaml:204–299](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml#L204) displays status, capture/transport values, and fault history, but offers no diagnostics-copy action. The About page at [lines 314–336](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Ui/SettingsWindow.xaml#L314) offers update, license, log-folder, and donation actions; it does not contain the previously alleged report-issues button either.
+## Acceptance and evidence
 
-Users can still open logs and inspect the monitor. The specific gap is that the implemented combined clipboard report is inaccessible through this UI. The original claim that users can manually select all displayed values is not established: the monitor uses `TextBlock` controls, not a guaranteed selectable report editor.
+- Realized button/binding, visible/focusable/localized/automation invocation is verified in Idle, Streaming, Error and a fresh attempt.
+- Copied text equals the existing serializer snapshot; writer sees STA/dispatcher.
+- Clipboard-writer failure appears through the existing error surface.
+- Hidden updates/reopen and immutable pre-fault snapshots appear in actual Monitor text.
+- Cleanup is gated/joined before asserting Copy's absence of saves/engine/mute effects.
 
-## Root cause and report contents
+[actual-button fixture](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Verification/UiDiagnostics.cs#L138) performs these observable checks. Three languages and both regional UI matrices are in H acceptance; no live clipboard/hardware operation is claimed.
 
-The command is constructed but never connected to a UI action. [AppViewModel.Diagnostics():418](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L418) produces desktop/engine version, current status, local capture values, and serialized playback diagnostics, including saved fault state when available. Its text explicitly says acoustic latency is not measured. The command does not save settings, open receiver sockets, or alter playback.
+Exact-main CI passed 667 Core, 124 Python and 69 native tests (recording-device qualification and thirty-minute localhost soak ignored). Packaged integration at `4ae1db4` passed six 1,059-assertion UI runs, three actual 125% DPI runs with 40 each and disposable MSI lifecycle; current runtime/package inputs are identical, with main's last commit documentation only. This refresh reviewed sources/records; it did not rerun suites or use real user data/devices.
 
-## Deterministic reproduction plan
+## Remaining work
 
-Use the existing WPF mock-service harness; no receiver is needed:
+Upstream publication remains separate. No upload/duplicate logging/report serializer or unsupported report-issues button was added. Diagnostics may include endpoint/receiver identifiers; use synthetic examples when sharing fixtures.
 
-1. Construct Settings with an idle or synthetic streaming `AppViewModel` and visit Monitor/About.
-2. Enumerate realized buttons/keyboard actions and their command bindings.
-3. Current source predicts no element bound to `CopyDiagnosticsCommand`.
-4. Execute the view-model command directly on an STA dispatcher with a controlled clipboard to verify that the report exists independently of the missing action.
+## Historical finding
 
-This is a proposed UI regression scenario, not a recorded clipboard run. Use synthetic device/host identifiers when testing or sharing the resulting report.
-
-## Proposed implementation and acceptance
-
-Add one clearly labeled `Copy diagnostics` button to Monitor, bound to the existing command and using the existing localization entry. Keep clipboard work on the WPF dispatcher and preserve the current exception-to-error path. Do not add another diagnostics serializer.
-
-- The action is visible and keyboard-accessible on Monitor in English and Chinese, including Idle/Error states.
-- Clicking it copies the same snapshot text as `App.Diagnostics()` and does not restart/stop playback or save settings.
-- A clipboard-access exception appears in the settings error surface without escaping the UI handler.
-- A WPF fixture asserts the actual binding/action rather than only constructing the view model.
-
-## Existing and missing verification
-
-[UiSmoke.cs:137–176](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiSmoke.cs#L137) already walks settings pages and checks synthetic transport metrics; [UiRegression.cs:128–132](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L128) checks persistent monitor rows. Neither currently verifies a diagnostics-copy action. [SessionTests.cs:241–302](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/SessionTests.cs#L241) covers the controller's warning/fault snapshots, not clipboard access.
-
-No JSONL or schema-2 configuration change is needed. No source-supported causal relationship to upstream audio/disconnect issues is claimed.
+Original `41190e0` constructed CopyDiagnosticsCommand and localized its label but exposed no button/binding. Source established inaccessible combined-copy UI, not a playback fault or guaranteed selectable TextBlock report. The [archival report at the prior documentation commit](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/docs/issues/ISSUE-15-LOW-unbound-copy-diagnostics-command.md) preserves original `41190e0` source anchors, reproduction/proposal and dated updates. Its proposal-only/open/pending-reboot labels are historical, superseded by the current resolution above.

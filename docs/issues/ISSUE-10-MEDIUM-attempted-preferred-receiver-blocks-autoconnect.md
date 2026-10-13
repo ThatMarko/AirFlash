@@ -1,78 +1,35 @@
-# [MEDIUM] An attempted preferred receiver blocks another auto-connect candidate
+# [MEDIUM] Automatic selection ranks only eligible unattempted candidates
 
-## Verified update — 2026-10-12
+- **Status**: Implemented, pushed and integrated in fork `main` `8989b3609dd1294f4d1d6eb1502f345cc22bc382`.
+- **Group / feature**: B, `codex/fix-session-lifecycle`, `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`.
+- **Stable comparison**: `cf420d97700463c56adc31408510e8336e99e51c`/PR #19 do not fix this candidate rule.
+- **Original severity**: MEDIUM eligible candidate blocked after another attempt at `41190e0`.
+- **Plan / evidence**: [ISSUE-10](IMPLEMENTATION_PLAN.md#issue-10), [B acceptance](GROUP-B-ACCEPTANCE.md), [current acceptance](CONTINUATION-ACCEPTANCE.md).
+- **Related**: [02 atomic admission](ISSUE-02-HIGH-delayed-autoconnect-replaces-new-session.md), [After discovery](../analysis/after-discovery.md).
 
-- **Status**: Implemented in pushed B `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`, based on stable `cf420d97700463c56adc31408510e8336e99e51c` and integrated into tested runtime `dc521ae4236479cf21f9881b2d053f51a0fea7ee`; PR #19 does not fix this selection rule.
+## 1. Current behavior
 
-[Candidate selection](https://github.com/ThatMarko/AirFlash/blob/442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b/desktop/AirFlash.Core/ReceiverSelection.cs) filters attempted IDs together with current eligibility before last-used/name/ID ranking. An attempted preferred A therefore cannot hide eligible unattempted B. Override precedence, alias migration and permitted offline/incomplete transition resets remain; identical snapshots do not reset an attempt. Admission after persistence rechecks canonical identity/options and only admitted attempts update attempted/last-used state, including failed connections.
+[ReceiverSelection.SelectAutoConnect](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/ReceiverSelection.cs) excludes attempted ids **with eligibility before ranking**. Eligible means online, complete, visible and effectively opted in; receiver false overrides global true, receiver true can opt in independently. Remaining candidates rank by last-used id, current-culture name then ordinal id. Attempted preferred A cannot hide unattempted B.
 
-B passed 139 focused/304 Core, build, 764 isolated UI checks and 28 stability checks. [Acceptance](GROUP-B-ACCEPTANCE.md) separates fallback assertions from atomic admission and from old baseline failures. Earlier current-head/reboot and missing-test statements below are historical; no hardware connection failure was inferred.
+[TryAutoConnectAsync](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L488) rechecks canonical identity/current options after persistence and uses serialized owner/inactive/intent admission. Only admitted attempts become attempted/last-used; an admitted connection failure counts. Identical online/complete snapshots do not reset A. Alias migration carries its attempt; new/offline-return/incomplete-to-complete transitions retain permitted resets. Global automatic enable retains its explicit reset behavior.
 
-- **Issue ID**: ISSUE-10
-- **Implementation plan**: [Work package ISSUE-10](IMPLEMENTATION_PLAN.md#issue-10)
-- **PR group**: B — Session lifecycle
-- **Severity**: MEDIUM — automatic connection to a new eligible receiver can be suppressed after another receiver failed.
-- **Kind**: Defect
-- **Subsystem**: Desktop auto-connect selection
-- **Historical status (2026-10-10)**: Implemented in local main `9e894ab`; feature and earlier compositions were verified separately. B remains unmerged upstream; PR #15 is closed without merge. New main testing is deferred until after reboot.
-- **Runtime baseline**: upstream `41190e0`, retained by documentation commit `c077a05`
-- **Evidence status**: The original audit inspected source without executing the proposed dispatcher/mock scenario. Subsequent isolated baseline observation reproduced candidate blocking; the local implementation passes the [Group B checks](GROUP-B-ACCEPTANCE.md). No receiver failure was observed on hardware.
-- **Historical implementation status (2026-10-10)**: Pushed feature head `0a2c1ac`, including production follow-up `11c6046` and regional/catalog verification corrections, is merged locally with C/D and updated upstream. See [Group B acceptance](GROUP-B-ACCEPTANCE.md) for dated results and [integration acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) for this source-only merge boundary.
-- **Target file**: [AppViewModel.cs](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L318)
-- **Analysis context**: [After discovery](../analysis/after-discovery.md)
+## 2. Historical root cause and observation
 
-## Historical local implementation — 2026-10-10 (9e894ab)
+At [41190e0 AppViewModel](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L318), ranking chose preferred A first, then returned if A was attempted. Newly appeared B was eligible but never considered. Original isolated fake observations reproduced this blocking; no real receiver failure is attributed.
 
-`ReceiverSelection.SelectAutoConnect` filters online/completeness/hidden/options and `_autoAttempted` before ranking by last-used, current-culture name and ordinal id. `TryAutoConnectAsync` repeats eligibility after persistence and marks only admitted attempts. Alias migration and permitted offline/incomplete transition resets remain; identical snapshots do not clear the guard. Atomic admission is the separate ISSUE-02 contract.
+Filtering fixes ranking, not the separate delayed-start ownership race. Report02 supplies that admission contract; resetting all attempts on every snapshot would defeat both the intended guard and failure policy.
 
-Source audit: [AppViewModel](../../desktop/AirFlash.App/ViewModels/AppViewModel.cs), [SessionController](../../desktop/AirFlash.Core/SessionController.cs), [ReceiverSelection](../../desktop/AirFlash.Core/ReceiverSelection.cs) and their [lifecycle](../../desktop/AirFlash.Tests/SessionLifecycleTests.cs), [selection](../../desktop/AirFlash.Tests/ReceiverSelectionTests.cs) and [WPF](../../desktop/AirFlash.App/Verification/UiSessionLifecycle.cs) assertions were read against source main `9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`. No application/build/test execution occurs in this audit. The following original behavior/proposal/coverage statements remain pinned to `41190e0`; missing-fixture statements describe that baseline, not the current test tree.
+## 3. Regression coverage and acceptance
 
-## 1. Original baseline behavior
+Current [ReceiverSelectionTests](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Tests/ReceiverSelectionTests.cs) and WPF [UiSessionLifecycle](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Verification/UiSessionLifecycle.cs) assert A-failure/B-fallback, last-used/name/id ordering among remaining candidates, all-attempted no-op, hidden/offline/incomplete/override exclusion, identical snapshot no-repeat, alias carry/reset transitions and admitted-only bookkeeping.
 
-`TryAutoConnectAsync` builds eligible receivers from online/completeness/visibility and auto-connect settings, then picks the last-used receiver or first name. Only after selecting it does the function consult `_autoAttempted`. If that preferred receiver was already attempted, the function returns without selecting another eligible receiver, even when the second receiver has just appeared and has never been attempted.
+- Candidate B can be admitted without another A attempt.
+- At most one current request commits against inactive owner/intent.
+- User suppression and active-session guards remain.
+- Legitimate reset/migration semantics persist.
 
-The attempted set correctly prevents repeated attempts to the same continuously visible receiver; the defect is applying that exclusion after candidate choice. Automatic connection defaults off, so this requires an enabled global setting or overrides and at least two candidates. See [After discovery](../analysis/after-discovery.md).
+Current integrated **667 Core** and complete packaged six **1,059-assertion** regional/catalog runs pass; B acceptance preserves narrower branch results/red controls/review. Source review here executes no real discovery/engine/receiver.
 
-## 2. Root cause
+## 4. Compatibility and publication
 
-```csharp
-var eligible = AllReceivers.Where(r => r.Online && r.Complete
-    && !_settings.ReadOptions(r.Id).Hidden
-    && (_settings.ReadOptions(r.Id).AutoConnect ?? _settings.AutoConnectOnDiscover));
-var receiver = eligible.OrderByDescending(r => r.Id == _settings.LastReceiverId).FirstOrDefault();
-if (receiver is not null && !_autoAttempted.Contains(receiver.Id)) await ToggleAsync(receiver);
-```
-
-Exact source: [AppViewModel.cs:318–323](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L318). `ToggleAsync` marks the id before start and saves it as last-used ([292–310](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L292)); asynchronous connection failure leaves the id attempted. A new B clears B's attempted mark, not A's ([202–206](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/ViewModels/AppViewModel.cs#L202)). Repeating A's online/complete snapshot does not clear A, so it continues winning selection and blocking B.
-
-## 3. Original mock reproduction plan
-
-Use the existing [automatic-attempt harness](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L202) with `MockDiscovery`, `MemoryStore`, fake audio, and [MockFactory.FailOpen](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiSmoke.cs#L344).
-
-1. Enable global auto-connect, disable force reconnect, and publish only complete receiver A. Make the factory fail open. Wait for one automatic attempt and Error; A becomes last-used and attempted.
-2. Allow the fake factory to succeed, keep A online/complete, and publish A plus newly discovered complete B. Choose names that keep A first as well, so either preference rule exercises the defect.
-3. Pump the dispatcher through the restarted 900 ms timer. Source-predicted result: no second process is opened; B is eligible/unattempted but is never selected.
-4. Verify a direct click on B succeeds with the same fake factory, demonstrating that candidate suppression rather than simulated transport failure blocked B.
-
-All hosts can be documentation-only addresses and all connections must be fake. The desired automatic policy is to prefer last-used/name among unattempted eligible candidates, while retaining one automatic attempt per id until its allowed reset.
-
-## 4. Original change proposal
-
-Exclude attempted ids before ranking/selecting candidates. Preserve the existing global/per-receiver override precedence, visibility/completeness checks, entry-time active-session check, and user-stop suppression. That entry check alone does not prevent a separately started session from being replaced after an awaited settings operation; [ISSUE-02](ISSUE-02-HIGH-delayed-autoconnect-replaces-new-session.md) addresses atomic auto-start admission. Do not clear all attempted ids on every snapshot: that would repeatedly retry A and defeat the guard. Keep existing alias migration and offline/incomplete transition reset semantics. No schema, IPC, engine, or network-policy change is needed.
-
-## 5. Acceptance criteria and verification
-
-- After A fails once, a newly eligible unattempted B can be selected on the next timer without another A attempt.
-- Last-used/name priority applies among the remaining eligible unattempted ids.
-- Identical snapshots do not retry an attempted id; if every candidate was attempted, the timer is a no-op.
-- Hidden, offline, incomplete, explicitly auto-connect-disabled, and user-suppressed receivers remain excluded.
-- Alias promotion preserves attempted status, while an allowed offline-to-online/incomplete-to-complete transition can make that same receiver retryable.
-- Each timer invocation selects at most one candidate; a session already active at entry retains the existing no-op behavior. The overlapping-start protection is separately covered by ISSUE-02 and must not be claimed fixed by candidate filtering alone.
-
-The [existing identity automatic-attempt regression](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Verification/UiRegression.cs#L202) verifies one receiver's failure, alias promotion, and offline recovery. It does not include the second eligible candidate. Add that assertion, ideally with controllable timer scheduling rather than a timing-sensitive sleep, before implementation is considered verified.
-
-Safety: mock-only verification; no hardware or probes. Any later audio qualification remains gain ≤0.1 and duration ≤5 seconds. No upstream issue #6/#7 or dev correspondence is claimed.
-
-## Executed implementation and fork integration
-
-The source and proposed-fixture discussion above describes the original `41190e0` audit. [Group B acceptance](GROUP-B-ACCEPTANCE.md) records reproduced original-base failures, implementation/follow-up commits and their executed Core/WPF evidence. Current pushed B `0a2c1ac` is now included in local main `9e894ab`; original upstream has merged A/scrolling, while B PR #15 remains closed without merge. [Combined acceptance](ABCD-INTEGRATION-ACCEPTANCE.md) keeps earlier tested compositions separate from this merge's deferred main testing. No hardware incident is attributed to this defect.
+Schema 2/JSONL v1 and credentials are unchanged. Atomic admission, exact manual routing and passive retention remain distinct acceptance scopes in coherent B. The fork branch is pushed/integrated; old PR #15 remains closed, and this package is not merged upstream.

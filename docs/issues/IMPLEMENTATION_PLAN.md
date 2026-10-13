@@ -1,301 +1,217 @@
-# AirFlash implementation plan
+# AirFlash completed implementation and publication plan
 
-## Current implementation — stable refresh on 2026-10-11
+## Current fork Main — 2026-10-12
 
-All 17 reports are implemented in the fork. The unmerged B–H and installer feature branches have been refreshed to verified original stable `cf420d97700463c56adc31408510e8336e99e51c`; their complete diffs and every outgoing commit exclude this fork's analysis/issues/planning documents. Current fork code source `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1` contains the reviewed implementations and the controlled EQ fixture correction. The reboot gate is satisfied. Its Release build has zero warnings/errors and all 667 Core tests pass in Debug and Release. Exact-source normal CI and complete unofficial packaged UI/DPI/MSI qualification both pass; earlier `107174a` receipts remain separate. Final crossed WPF and Windows hosted/package qualification are recorded in [continuation acceptance](CONTINUATION-ACCEPTANCE.md), including failures and limitations.
+All 17 reports in eight coherent groups are implemented, independently reviewed and integrated into reviewed fork runtime baseline `8989b3609dd1294f4d1d6eb1502f345cc22bc382`. Later documentation-only commits may advance Main without changing those runtime trees. All 10 implementation heads are ancestors of Main; complete desktop/native/scripts/installer/tests/workflow trees match qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`. Original stable is `cf420d97700463c56adc31408510e8336e99e51c`, already contained. [Backlog](README.md)/[combined acceptance](CONTINUATION-ACCEPTANCE.md) identify source, receipts, full group heads and executed limits.
 
-A and scrolling are integrated upstream. PR #19 is now merged and covers part of discovery retention/fresh-snapshot handling; B still adds atomic lifecycle ownership, admission/selection/manual-routing guards and stronger controls. PR #15 remains closed and unmerged at its frozen old head; issue #14 is open. C–H and the installer fixture repair are fork implementations, with no new upstream publication authorized. Earlier dated progress, pending-reboot and proposal statements below are historical and superseded by this section.
+This page describes **the implemented contracts and remaining publication work**, not unimplemented instructions. Original audited runtime `41190e0` remains the baseline for defective-source comparisons in reports. Excluded dev `67435a4` is not imported. Current source must be checked before further changes; an original defect is not presumed to remain in upstream or fork Main.
 
-| Group | Current branch head | Acceptance |
-| --- | --- | --- |
-| A | `de13b6d` (already upstream) | [Build scope](ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md) |
-| B | `442e8d8` | [Session/receiver package](GROUP-B-ACCEPTANCE.md) |
-| C | `5d72da3` | [Settings preservation/validation](GROUP-C-ACCEPTANCE.md) |
-| D | `277efc5` | [Bounded DNS process ownership](GROUP-D-ACCEPTANCE.md) |
-| E | `0ebc59b` | [PIN and credential lookup](GROUP-E-ACCEPTANCE.md) |
-| F | `421e1ea` | [IPC errors and EQ outcomes](GROUP-F-ACCEPTANCE.md) |
-| G | `96b9120` | [Owned mute recovery](GROUP-G-ACCEPTANCE.md) |
-| H | `6855dfe` | [Diagnostics/padding/localization](GROUP-H-ACCEPTANCE.md) |
-
-The original work packages below remain requirements/history, not evidence that current stable or feature code still has every original defect. Implementation on a tested fork branch is distinct from integration into upstream stable. New upstream issues/PRs, reopening B, upstream merges and releases still require explicit publication/action authorization.
-
-## Historical continuation stage — early 2026-10-11
-
-The [continuation acceptance](CONTINUATION-ACCEPTANCE.md) supersedes the earlier pending-reboot and unpushed-branch statements below. The manual reboot is verified; current B/D follow-ups are reviewed, pushed to the fork and integrated locally, with 437 Core tests and six crossed regional/catalog WPF runs passing. E is actively in progress; F/G/H remain unimplemented. Upstream publication gates remain unchanged. Earlier source audits and receipts retain their dated boundaries.
-
-The user subsequently authorized [fork synchronization on 2026-10-11](README.md#fork-synchronization--2026-10-11). All 18 local branches, including C/D, were pushed and their exact remote heads verified. This supersedes the dated unpushed-feature state below; it does not activate upstream issue/PR submission or another implementation group. Current runtime source is unchanged and local execution awaits reboot.
-
-This plan retains **17 reports in eight coherent PR groups**. Its work-package sections describe the original implementation requirements on `41190e0`; they are not a claim that implemented A–D still have those defects or missing test seams. [Group B acceptance](GROUP-B-ACCEPTANCE.md) and [combined fork validation](FORK-INTEGRATION-ACCEPTANCE.md) retain standalone, fork-main and downloaded build evidence separately. Issue numbers organize the original backlog by severity; they are not the execution order.
-
-## Historical local integration — 2026-10-10
-
-All 17 pre-existing local branches are contained in local fork `main` at **`9e894ab133f8cbdb3b5f5ac1f411023b182e65d7`**; every branch remains, with its original non-main tip preserved. This combines A/B/C/D, scrolling, installer refresh, the 19 cross-group verification assertions and actual upstream `d4aa068`. The desktop/native/scripts/tests/installer trees match previously verified `6fe467b`; historical Group A validation workflow history is also retained. No push, new publication or upstream merge was performed.
-
-| Group | Current local state | Upstream/publication state |
-| --- | --- | --- |
-| A | Implemented and integrated | PR #11 merged upstream |
-| B | Current `0a2c1ac` integrated | Branch pushed; PR #15 closed without merge at frozen `11c6046` |
-| C | Current `c3a1d5e` integrated | Feature branch unpushed; Task 3 not activated |
-| D | Current `48e7ab62` integrated | Feature branch unpushed; Task 3 not activated |
-| E/F/G/H | Unimplemented proposals | No implementation/publication activated by this audit |
-
-The user's current instruction limits this task to merges and a full source/documentation audit. **Application/build/test execution on new main is deferred until after reboot.** Existing pass counts remain bound to their original source/artifacts; see [all-file audit coverage](../analysis/audit.md#merged-main-documentation-audit--2026-10-10). This integration does not authorize later groups or new issues/PRs.
-
-The 2026-10-08 existing-PR audit advanced Group B to `11c6046`, fixing additional endpoint and awaited-cleanup intent races. At that stage the follow-up was validated separately on `codex/verify-pr-session-audit` before main integration; acceptance records distinguish those standalone checks from earlier artifacts. Group A and scrolling required no source amendments. C/D were then implemented only on local unpublished branches; their current integration is recorded above.
-
-Additional testing advanced C to `c3a1d5e` (oversized future schemas) and D to `48e7ab62` (browse cancellation status); their [C](GROUP-C-ACCEPTANCE.md)/[D](GROUP-D-ACCEPTANCE.md) records preserve decisive failures/checks. A later marker assertion proved a tray-harness catalog restoration gap. Current B `0a2c1ac` passed four 300-check UI runs and 253 Core per configuration. Private [A/B/C/D source](ABCD-INTEGRATION-ACCEPTANCE.md) `6fe467b` passed 422 Core per configuration, six 579/571-check portable runs and MSI payload/refresh checks. Public A/B-only `d70f30d` passed hosted checks and six exact downloaded 501/493-check runs with the assertion. Earlier counts retain their original scope; C/D are unchanged and unpublished.
-
-Upstream status refreshed on **2026-10-10**: A [PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11) and scrolling [PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13) are merged; main is `d4aa0686fc411de6655aac313243f0f6bf71e439`, including Traditional Chinese. B [PR #15](https://github.com/Ding-Kyoma/AirFlash/pull/15) remains closed at `11c6046`, distinct from pushed `0a2c1ac` with completed hosted/downloaded qualification. No reopen was performed. Before C/D publication, review standalone diffs against actual main and recheck scope. Historical proofs stay pinned.
-
-Task 3 publication on 2026-10-07 followed the user's explicit order: separate scrolling [issue #12](https://github.com/Ding-Kyoma/AirFlash/issues/12) / [PR #13](https://github.com/Ding-Kyoma/AirFlash/pull/13), then Group B [issue #14](https://github.com/Ding-Kyoma/AirFlash/issues/14) / [PR #15](https://github.com/Ding-Kyoma/AirFlash/pull/15). Both awaited maintainer workflow approval at publication; their current states are recorded above. Exact source boundaries and historical validation are in the [scrolling](SETTINGS-SCROLL-ACCEPTANCE.md) and [Group B](GROUP-B-ACCEPTANCE.md) records. This submission does not activate Groups C–H or the separate installer fix for upstream publication.
-
-Read the linked report and dedicated analysis page before changing an area. Original evidence describes runtime `41190e0`; current addenda identify the integrated source separately. Recheck each trigger against the actual original-repository base used for implementation: a newer stable base may already fix or change a case. Do not import excluded development-preview behavior.
+| Group | Reports | Integrated head | Status / acceptance |
+| --- | --- | --- | --- |
+| A | 05 | `de13b6d` | [Preflight report](ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md); upstream PR #11 merged |
+| B | 01,02,03,10,11 | `442e8d8` | [B acceptance](GROUP-B-ACCEPTANCE.md); upstream PR #15 closed/unmerged; issue #14 open; PR #19 partial overlap merged |
+| C | 06,07 | `5d72da3` | [C acceptance](GROUP-C-ACCEPTANCE.md); fork implementation |
+| D | 04 | `277efc5` | [D acceptance](GROUP-D-ACCEPTANCE.md); fork implementation |
+| E | 08,09 | `0ebc59b` | [E acceptance](GROUP-E-ACCEPTANCE.md); fork implementation |
+| F | 12,14 | `421e1ea` | [F acceptance](GROUP-F-ACCEPTANCE.md); fork implementation |
+| G | 13 | `96b9120` | [G acceptance](GROUP-G-ACCEPTANCE.md); fork implementation |
+| H | 15,16,17 | `6855dfe` | [H acceptance](GROUP-H-ACCEPTANCE.md); fork implementation |
+| Scrolling | Separate | `54cd18e` | [Acceptance](SETTINGS-SCROLL-ACCEPTANCE.md); upstream PR #13 merged |
+| Installer | Separate | `a20f9db` | [Acceptance](INSTALLER-REFRESH-ACCEPTANCE.md); fork implementation |
 
 ## PR groups and order
 
-| Group | Scope | Reports | Suggested timing |
-| --- | --- | --- | --- |
-| A | Validate build prerequisites before release/build side effects | 05 | First, or alongside initial design/fixture preparation |
-| B | Preserve session ownership and explicit receiver/user intent through discovery | 01, 02, 03, 10, 11 | First runtime package; shared lifecycle contract, then selection/admission, then retention |
-| C | Preserve unreadable configuration and validate loaded settings | 06, 07 | Parallel with B/D/E after agreeing on one recovery policy |
-| D | Bound DNS resolve operations and safe cancellation ownership | 04 | Parallel with B/C/E; settle native resource ownership first |
-| E | Make authentication input and credential lookup decisions consistent | 08, 09 | Parallel with B/C/D; two independently tested changes in one authentication package |
-| F | Make JSONL errors and equalizer preparation results truthful | 12, 14 | Prefer after B to reduce controller conflicts; no functional dependence on it |
-| G | Recover owned mute state conservatively after process loss | 13 | Design/prototype in parallel; integrate after lifecycle behavior is stable |
-| H | Expose diagnostics, account for capture padding, and finish catalog cleanup | 15, 16, 17 | Finish after relevant UI/metrics contracts settle; cleanup is the final internal step |
+Prepare one focused PR per coherent group, with distinct internal report acceptance; do not create a PR per helper/test. Recommended next submission is B, reusing issue #14 accurately and reviewing merged PR #19 overlap. Then independent C/D/E may proceed with normally one/two review-ready PRs open. F/G/H overlap controller/UI/native consumers and must refresh against what actually merges. Installer repair remains its own submission.
 
-Use one PR per coherent group, not one PR per issue or test helper. Keep independently reviewable commits inside a group, with a separate acceptance checklist for each report. Avoid an infrastructure-only PR for a helper used by one fix. If B becomes too large because its active-session presentation/policy needs separate review, split only its retention step (03) into a dependent follow-up; do not split every small selection fix.
-
-Keep the remote review queue small: normally open one or two fully tested, review-ready PRs at a time. Independent work can be prepared in isolated local worktrees without opening all eight PRs together. Complete and merge an earlier overlapping group, refresh the next branch from the original stable main, and re-run its affected integration checks before opening it.
+Publication requires selected Task 3 authorization; documentation updates do not authorize new upstream issues/PRs, reopening B, upstream merges/releases or cleanup. Closed PR #15 retains its frozen `11c6046` snapshot; current B is a different reviewed feature head. Own-fork code pushes are not upstream integration.
 
 ### Dependencies and parallel work
 
-The hard dependencies are the shared ownership contract before B's guarded actions, guarded retargeting before retained-session behavior, a preservation contract before C's recovery/validation, native resource settlement before D's retries, a recovery/lease design before G, and reference review before H's catalog deletions. Installing usable toolchains is a verification prerequisite; implementing A is not itself a runtime prerequisite for the other fixes.
+Implemented internal contracts:
 
 ```mermaid
 flowchart TD
-    L[Agree lifecycle and automatic-intent contract] --> B1[B: ownership 01 and admission 02]
-    B1 --> B2[B: receiver selection 10 and 11]
-    B1 --> B3[B: retained playback and controls 03]
-    R[Agree configuration preservation policy] --> C[C: read recovery 06 and validation 07]
-    N[Settle native cancellation and resource lifetime] --> D[D: DNS deadlines 04]
-    M[Agree journal lease and stale-state recovery] --> G[G: mute recovery 13]
-    U[Final UI and metric references] --> H[H: diagnostic access 15 and accounting 16]
-    H --> T[H: final catalog review 17]
+    L[Atomic lifecycle and explicit intent] --> B[B: guarded admission and receiver routing]
+    B --> R[B: retained active transport and controls]
+    P[One preservation policy across Load and Save] --> C[C: recovery and validation]
+    N[Proven resource settlement boundary] --> D[D: bounded deadlines and retries]
+    M[Journal lease and conservative recovery] --> G[G: mute recovery]
+    U[Final UI and optional metrics] --> H[H: diagnostics and padding]
+    H --> T[H: final dynamic catalog review]
 ```
 
-The diagram shows internal prerequisites, not a requirement to wait for every group before starting another. Candidate filtering (10) and manual routing (11) are individually independent; doing them with B avoids competing edits to the same start path. F before H, and G before H's final catalog review, are convenient integration choices rather than intrinsic feature dependencies.
-
-Parallel lanes may start with B, C, D and E. They still share some WPF verification code and must coordinate those edits. F and H touch `SessionController` and should integrate against B's final owner/state API instead of simultaneously redesigning it. G can develop its fake endpoint/journal state machine independently. Do not interpret separate worktrees as permission to introduce competing ownership or persistence policies.
+These are shared implementation contracts, not proof that one public group depends on an unmerged PR. A tooling fix is not a functional prerequisite for runtime groups. F/G/H integrate through B's ownership API in fork Main; publication must reconcile API overlap against actual stable, not merge private documentation Main into feature branches. Delegate independent investigation/tests/review with one owner per shared file.
 
 ## Branch and repository boundary
 
-These issue reports, analysis pages and this plan stay in **ThatMarko/AirFlash**. Future implementation branches start from the **original repository's stable main**, not the fork's documentation main. Fetch `upstream`, verify the base, then create a clean isolated worktree/branch such as `codex/fix-session-lifecycle` from `upstream/main`. Do not merge or cherry-pick the documentation commits into that branch.
+Private analysis/issues/planning stay in ThatMarko/AirFlash. Future public changes start from freshly verified Ding-Kyoma stable Main, using a clean existing or managed worktree and explicit base. Read private docs from the separate fork checkout. Never merge/cherry-pick fork documentation history into code branches.
 
-Read the fork's documentation from its separate checkout. Push code branches to `origin` only; never push directly to `upstream`. Implementation PRs target the original repository's stable main. Describe behavior and validation directly in the PR, without links to this planning material. Update the fork's analysis separately, identifying the source actually implemented/tested.
+Push implementation features only to origin; target original stable Main for PRs. Public issue/PR bodies describe behavior, source and actual tests directly without private report numbers/links. Inspect both final diff and **every outgoing commit**, even when private files were later removed. Register a created/worked PR immediately. Preserve branches and ignored receipts until cleanup is explicitly authorized.
 
-Before opening a PR, check both its complete diff and all outgoing commit paths for `docs/analysis/` and `docs/issues/`; neither may contain these fork-only documents. Refresh/rebase a dependent implementation branch onto the updated original main after its prerequisite merges. Do not solve dependencies by merging the fork's main. Register any created/worked PR with the app's PR-linking tool.
+## Current verification and maintenance setup
 
-## Verification setup
+The reboot gate is satisfied. Selected local .NET 10.0.401 resolves desktop `10.0.100/latestFeature`; the same executable/working directory must be preflighted. Local Rust/MSVC/Windows SDK are unavailable; native compilation/testing is hosted. Python dependencies are locked.
 
-Use Windows and PowerShell 7, a .NET SDK that resolves the repository's `desktop/global.json`, the native Windows Rust toolchain when needed, and the locked Python environment. Check the executable actually selected by the wrapper, not just a different SDK on PATH. A does not provision Rust.
+Core xUnit references Core, not WPF. Controller/settings go there; actual dispatcher/dialog/bindings use isolated `--ui-smoke`. Diagnostic startup chooses temporary data before logs/services; DNS helper dispatch precedes WPF/logging. Use save-entry signals, controlled asynchronous gates and finally release/join. Fixture source is not passing-test evidence.
 
-The core xUnit project references `AirFlash.Core`, not the WPF application. Controller and settings-store cases belong there. Actual `AppViewModel`, PIN-dialog, panel and clipboard binding cases belong to the separate WPF `--ui-smoke` harness, unless a small pure helper is deliberately extracted. The mock entry precedes production service/engine initialization; managed UI fixtures can use fake connections without building or contacting the Rust engine. See [test references](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.Tests/AirFlash.Tests.csproj) and [mock startup](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/App.xaml.cs#L42).
+Fresh Main passed 667 Release Core tests, 124 Python tests, lint and a build with zero warnings/errors; prior qualified code passed 667 Debug/Release. Exact Main CI 38296750592 is green. Exact code package 38294493405 passed 69 native (recording qualification/localhost soak ignored), six portable 1,059 each, three actual 125% DPI 40 each and disposable MSI lifecycle. See receipts rather than inferring totals from test inventory.
 
-At the original planning baseline, missing seams included controllable timer/admission entry, awaitable reconciliation completion, cancellation-aware scripted pairing events, fake DNS-SD operations/monotonic time, and narrowly injectable filesystem/endpoint operations. A–D added the seams needed by their fixtures; inspect current source before adding another. The original `MemoryStore.SaveEntered`/`SaveGate` alone did not provide all of them. Use explicit signals, asynchronous continuations and `finally` gate release rather than sleeps deciding which task wins.
-
-These are future check entry points, selected according to the affected code:
+Appropriate maintenance commands, from root:
 
 ```powershell
-# The wrapper enters desktop/, so global.json applies and project paths are relative to desktop/.
-.\scripts\dotnet.ps1 build AirFlash.sln
-.\scripts\dotnet.ps1 test AirFlash.Tests/AirFlash.Tests.csproj
-
-# A built WPF mock run, using isolated output and fake services.
-$verificationFolder = Join-Path $env:TEMP ("airflash-plan-" + [Guid]::NewGuid().ToString("N"))
-.\scripts\dotnet.ps1 run --project AirFlash.App/AirFlash.App.csproj '-p:AirFlashConsole=true' -- --ui-smoke --output "$verificationFolder\report.json"
-
-# Use when native code or Python/PowerShell tooling changes.
-cargo build --manifest-path native/airflash-engine/Cargo.toml
+# Wrapper enters desktop/; project paths are relative to desktop/.
+./scripts/dotnet.ps1 build AirFlash.sln '-p:RestoreLockedMode=true'
+./scripts/dotnet.ps1 test AirFlash.Tests/AirFlash.Tests.csproj '-p:RestoreLockedMode=true'
+# Built fake-service WPF harness; output must be isolated.
+$verificationFolder = Join-Path $env:TEMP ("airflash-verification-" + [Guid]::NewGuid().ToString("N"))
+./scripts/dotnet.ps1 run --project AirFlash.App/AirFlash.App.csproj '-p:AirFlashConsole=true' -- --ui-smoke --output "$verificationFolder/report.json"
+# Only when owning source/tooling requires these and native prerequisites exist.
 cargo test --manifest-path native/airflash-engine/Cargo.toml
 uv run --locked pytest -q -ra
 ```
 
-For a package, run the narrow relevant fixtures first, then its owning suite/build and affected integration harness. Do not repeat unrelated checks just to increase the test count. Use fake release operations for A; do not invoke a real version-reserving build as its reproduction. All reproductions below use temporary/synthetic data and no receiver audio. Any later separately authorized finite receiver probe remains gain at most 0.1 and duration at most five seconds; no hardware soak.
+Run narrow owning fixtures first, then relevant suite/build/integration. Do not rerun unrelated checks merely to grow counts. Do not reproduce A through a real release workflow/build: use fake operations. Production release may reserve a version/clean output even with publish disabled. Manual release source is complete; release notes/reservation history need review before separate publication. Real-device probes require separate authorization, gain<=0.1, duration<=5 seconds; never hardware soak.
 
 ## Group A — build readiness
 
 ### ISSUE-05
 
-[Report](ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md). Read [verification/source limits](../analysis/source-check.md). Touchpoints: [SDK wrapper](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/dotnet.ps1#L8-L23), [build order](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/scripts/build.ps1#L17-L33), installer override and release workflow.
+[Report](ISSUE-05-MEDIUM-build-pipeline-missing-dotnet-sdk-check.md); [source/verification map](../analysis/source-check.md).
 
-**Implementation.** Factor host selection and SDK preflight so the same executable and intended working directory are used for preflight and the real command. Resolve the existing `10.0.100`/`latestFeature` policy; do not replace it with an exact-version or major-version regex. Move preflight before conditional version reservation, cleanup and native work. Apply equivalent release-workflow ordering. Explicitly settle whether installer `-DotnetPath` adopts the desktop resolver policy; its current repository-root execution is different. Keep runtime-only informational commands usable.
+Implemented common selected-host context and SDK resolver preflight before avoidable reservation, cleanup, native work or publishing. Checkout/integration/PATH precedence is deliberate. Resolution uses actual intended desktop working directory and global.json roll-forward, including explicit installer -DotnetPath. Runtime-only preferred hosts produce actionable failure rather than silently changing selection; informational commands/argument forwarding/exit propagation remain intact.
 
-**Acceptance/verification.** A fake host records selection, working directory, arguments and exit status. Failed resolution causes zero reservation, deletion, cargo or publish calls; compatible later feature bands work; local/integration/PATH precedence stays deliberate. Existing release-version tests are controls, not coverage of this ordering. Run the relevant Python/PowerShell fixtures. Update the fork's build/verification notes separately.
+Fake-host/operation fixtures assert selection, cwd, arguments, compatible roll-forward, diagnostics and zero reservation/deletion/cargo/publish on failure. Historical 37 focused prerequisite tests/eight actual resolution checks remain source-bound; current 124 Python suite includes them. A is already upstream.
 
 ## Group B — session ownership, selection and discovery retention
 
-Agree one owner/state contract and implement it once. Capture the controller's snapshot and owner token atomically; separate getters can observe different transitions. The token identifies the desktop start/stop/replacement lifecycle, survives ordinary metrics and native-process retries, and is neither a snapshot reference nor the engine session UUID. Validate conditional mutations under `_serial` and use locked helpers without reacquiring that semaphore.
-
-Suggested internal commits: ownership/guarded retargeting; automatic admission plus candidate/manual selection; active-session presentation/retention. Each commit must remain testable. Because the final retention policy removes passive discovery Stop, do not retain a dead conditional-stop API solely for an intermediate implementation. The present/reappearing-receiver retarget guard remains necessary.
+The implemented SessionCapture atomically contains snapshot, desktop lifecycle owner and automatic intent. Owner survives metrics/native retries and differs from receiver id, snapshot reference and engine UUID. Controller conditional mutation validates under serialization. Passive discovery Stop plumbing is removed; guarded valid retargeting remains.
 
 ### ISSUE-01
 
-[Report](ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md). Read [after discovery](../analysis/after-discovery.md), [session](../analysis/session.md), and [playback coupling](../analysis/playback-coupling.md). Touchpoints: discovery reconciliation, controller retargeting and direct Settings Pair.
+[Report](ISSUE-01-HIGH-stale-discovery-snapshot-controls-new-session.md); [catalog](../analysis/after-discovery.md), [session](../analysis/session.md), [coupling](../analysis/playback-coupling.md).
 
-**Implementation.** Capture the lifecycle owner before an identity save and pass it to conditional retarget/other lifecycle decisions. Check ownership atomically at controller admission. A changed owner makes the delayed action a no-op, including the same receiver id restarted. Retain legitimate identity/settings migration and changed-signature restart behavior for the same owner; neither a fresh view-model read nor an id-only comparison is sufficient.
-
-**Acceptance/verification.** Stream A, hold an identity save forced by new broadcast C, start manual Pair B, then release the save. Test absent-A and present/changed-A paths, same-id/new-generation replacement, metrics during the wait, save failure and unchanged-signature identity promotion. B's worker, receiver/settings and diagnostics remain its own. Changed effective latency still causes its intended single restart. Add controller tests plus the dispatcher/save-gate fixture; update session/catalog coupling notes.
+Lifecycle owner is captured before awaited identity save and revalidated for retargeting. Absent/changed old row, same-id replacement, metrics/save failure cannot affect newer session/settings/worker/diagnostics. Same-owner identity promotion remains valid; changed signature restarts once. Actual controller/save-gate/WPF assertions are recorded in B acceptance.
 
 ### ISSUE-02
 
-[Report](ISSUE-02-HIGH-delayed-autoconnect-replaces-new-session.md). Read [after discovery](../analysis/after-discovery.md) and [session](../analysis/session.md).
+[Report](ISSUE-02-HIGH-delayed-autoconnect-replaces-new-session.md); [selection](../analysis/after-discovery.md), [session](../analysis/session.md).
 
-**Implementation.** Separate automatic admission from explicit-click Toggle. Capture lifecycle and automatic-intent tokens before the first await; invalidate older automatic intent synchronously on explicit Play/Pair/Stop/shutdown, before their own controller waits. After persistence, revalidate the current canonical receiver, online/completeness/visibility, options and auto-connect eligibility under the app settings gate, coordinated with serialized controller admission. Keep that gate through admission so queued catalog/Apply changes cannot invalidate the selected data between checks. Under controller serialization, check owner, inactive state and intent. Preserve Error as an inactive state eligible for auto-connect. Return admitted/rejected; update attempted ids and last-used only for admitted attempts, while admitted connection failure still counts. Rejection must leave a legitimate settings save intact and must never clear newer Stop suppression.
+Automatic admission is distinct from explicit Toggle. Explicit Play/Pair/Stop/shutdown invalidate old intent before awaits; action token survives persistence/serialization/cleanup. After persistence, canonical candidate/online/completeness/visibility/options/engine readiness are revalidated under settings gate through admission. Owner/inactive/intent validate serialized; Error stays eligible. Only admitted attempts update attempted/last-used and admitted failure counts; rejection preserves valid save/newer suppression/notice.
 
-**Acceptance/verification.** Control one automatic entry for A and hold its own dirty flush before another timer can consume the gate. Start B with scripted pairing events, then release saving: no A Start or B cancellation. For Stop, hold B before `pin_required`, or finish pairing/close the modal dialog before stopping; an enabled command alone does not prove the ordinary control is accessible during `ShowDialog`. Also queue discovery removal/incompleteness or Apply hiding/disabling A while the save is held; apply that transaction before automatic gate reacquisition without changing the lifecycle owner, then assert no stale A admission. Cover Stop waiting for `_serial`, Streaming replacement, same-id/new-owner, queued automatic tasks, valid Idle/Error admission and rejected-request side effects. Update the ownership/admission notes.
+Tests cover Pair/Streaming/Stop, controller wait, eligibility changing without owner change, queued requests, Idle/Error, save failure/retry and post-admission newer notice. Stop fixtures hold Pair before PIN or close modal prompt first; CanExecute alone does not prove accessible normal Stop.
 
 ### ISSUE-10
 
-[Report](ISSUE-10-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md). Read [after discovery](../analysis/after-discovery.md).
+[Report](ISSUE-10-MEDIUM-attempted-preferred-receiver-blocks-autoconnect.md); [selection](../analysis/after-discovery.md).
 
-**Implementation.** Exclude attempted ids before selecting/ranking candidates. Keep override precedence, hidden/offline/incomplete filtering, alias migration, permitted transition resets and user suppression. Integrate with ISSUE-02 admission; candidate filtering alone is not concurrency protection.
-
-**Acceptance/verification.** A fails once and stays eligible; newly eligible B receives exactly one admitted attempt without retrying A. Cover all-attempted no-op, last-used/name preference among remaining candidates, aliases, explicitly disabled overrides and offline/incomplete recovery. Use the controlled automatic harness. No discovery/capture/native protocol change is needed.
+Attempted ids are filtered before ranking, so attempted preferred A cannot block unattempted B. Options/aliases/offline-incomplete reset/global reenable/suppression are preserved. Controlled fixtures assert one admitted B, all-attempted no-op and stale rejected requests consuming no candidate.
 
 ### ISSUE-11
 
-[Report](ISSUE-11-MEDIUM-manual-play-redirected-to-stereo-by-address.md). Read [identity](../analysis/identity.md) and [after discovery](../analysis/after-discovery.md).
+[Report](ISSUE-11-MEDIUM-manual-play-redirected-to-stereo-by-address.md); [identity](../analysis/identity.md), [catalog](../analysis/after-discovery.md).
 
-**Implementation.** Honor a manual row's explicit host/port/id/options; never substitute a discovered group. For discovered member clicks, use a unique confirmed canonical/alias owner, or a deliberately constrained normalized address-plus-port fallback. Keep already selected groups intact and reject ambiguity. Manual preferences stay separate; DPAPI credentials still use the accessory `/info deviceID`, not a manual-row namespace.
-
-**Acceptance/verification.** Manual M shares a group member's address but uses another port: capture exactly M's single peer and manual active/last-used id. Repeat with incomplete/hidden groups. Cover real group clicks, confirmed automatic members, same-address/different-port and ambiguous owners. Assert only fake engine commands; update routing/catalog notes.
+Manual rows retain exact endpoint/port/id/options, including shared addresses with complete/incomplete/hidden stereo groups. Explicit groups remain selected. Discovered members require unique confirmed canonical/alias ownership; ambiguity rejects and address-only fallback is omitted. Fake wire peers/preferences/last-used assert actual routing; accessory credential keys stay independent.
 
 ### ISSUE-03
 
-[Report](ISSUE-03-HIGH-discovery-disconnects-active-playback.md). Read [playback coupling](../analysis/playback-coupling.md), [discovery](../analysis/discovery.md), and [control/mute](../analysis/control-and-mute.md).
+[Report](ISSUE-03-HIGH-discovery-disconnects-active-playback.md); [coupling](../analysis/playback-coupling.md), [discovery](../analysis/discovery.md), [mute](../analysis/control-and-mute.md).
 
-**Implementation.** Remove passive absence/incompleteness as a stop reason for an already owned active attempt, including Connecting, Pairing, Streaming and Standby. An already-started handshake/PIN workflow continues under its existing failure/timeout/cancellation policy; this does not admit a new offline/incomplete start. Keep discovery availability separate from the last-known active transport snapshot; do not retarget/restart it from an offline or incomplete catalog row. Retain explicit Stop controls through an active-session presentation overlay/card; do not mark an offline catalog row online to retain it, since that would enable new starts. Guard reappearance/retargeting with ISSUE-01 ownership. Proposed adapter-change policy: retain the owned attempt through browse restart while new discovery obeys the selected interface; this selector does not establish an engine egress binding. Record that visible policy in the PR.
-
-**Acceptance/verification.** A healthy fake session survives empty results, selected-interface removal, 1/2 or overfull stereo announcements, repeated publications and reappearance without new Start/Stop, process disposal or mute restore. Repeat disappearance while Connecting and while Pairing, including explicit Stop/cancel and eventual handshake/PIN failure; the owned attempt is retained rather than a fresh one admitted. Controls remain usable; new offline/incomplete starts remain rejected. Native terminal faults still end/retry under existing policy, with fresh processes and exact-bit cleanup; explicit Stop/shutdown stay responsive through asynchronous cleanup. Manual rows and selected-offline no-fallback remain intact. Intentionally replace the old stereo-disappearance Stop assertion. Update playback/session/failure and active-row descriptions, without claiming feedback proves audible health.
+Owned Connecting/Pairing/Streaming/Standby survive passive missing/partial/repeated discovery, preserving full transport separately from unavailable catalog. Stop presentation remains accessible; no offline row is marked online and new offline/incomplete starts reject. Adapter browse restart retains owned attempt while DNS follows selected interface without fallback; selector is not an engine egress binding. Handshake/PIN/native faults, cancellation/retry/shutdown still govern the attempt. Bound Stop/reappearance/freshUUID/both mute-bit regressions remain executed.
 
 ## Group C — settings preservation and loaded validation
 
-Subsequent local execution is recorded in [Group C acceptance](GROUP-C-ACCEPTANCE.md), feature head `c3a1d5e`, after initial `e129466`. Reports 06/07 are implemented together; additional tests corrected future integer overflow. C is now in local fork main; its feature branch remains unpushed and upstream does not contain it. Earlier standalone checks were 126 focused/261 full Core and 208 WPF per language. They are not a new-main execution result. Recheck the clean implementation branch against updated upstream before publication. The work-package text below retains the original requirements.
-
-Agree a single recovery result/preservation policy used across both startup Load calls and later automatic saves. Capture readable original bytes once, then decode them compatibly for parsing, including existing BOM/encoding behavior. Keep the raw bytes for a byte-preserving backup; the current ReadAllText/WriteAllText string path alone cannot guarantee that. If contents were not captured, allow controlled defaults/diagnostics without silently authorizing replacement of an unreadable original. A subsequent save must preserve it successfully or report a controlled failure. Distinguish genuine absence, pending preservation and verified backup; retain future-schema rejection.
-
 ### ISSUE-06
 
-[Report](ISSUE-06-MEDIUM-settings-recovery-reread-escapes.md). Read [settings](../analysis/settings.md). Touchpoints: `SettingsStore.Load`/Save and startup warning/recovery handling.
+[Report](ISSUE-06-MEDIUM-settings-recovery-reread-escapes.md); [settings](../analysis/settings.md).
 
-**Implementation.** Remove the unguarded recovery reread. Maintain explicit preservation state when an I/O/access failure occurs before contents are captured; do not let an error-suppressing existence probe alone authorize an overwrite. Keep that state across repeated Load calls. Normal readable parse/migration failures retain exact original bytes for backup. Warnings describe actual captured/pending/failed preservation, rather than promise a nonexistent backup.
+Both startup Loads and later persistence share preservation state. Guarded capture/decode retains exact original bytes/BOM; catch never rereads unreadable input. Only genuine absence releases original-file concerns. Unreadable/uncertain originals cannot be overwritten by defaults. Pending revisions/backups/replacement remain retryable and notices describe actual state.
 
-**Acceptance/verification.** Lock a synthetic temporary file with `FileShare.None`; recovery does not throw from a second read. Unlock and attempt a defaults save: original bytes are preserved or replacement is controlled/blocked. Also cover missing file, readable malformed JSON, BOM/encoding round-trip backup, simulated access failure, failed backup/replacement, pre-existing backup and future schema. Existing migration/identity-backup fixtures remain controls. Run Core settings tests and mock startup notice handling; update settings notes.
+Locked/readable-invalid/BOM/access/backup/replacement/existing-backup/future-schema fixtures prove controlled preservation, not merely catching exceptions. C acceptance records decisive original 8 failures and later oversized-future-schema 6 failures.
 
 ### ISSUE-07
 
-[Report](ISSUE-07-MEDIUM-invalid-loaded-settings-reach-runtime.md). Read [settings](../analysis/settings.md) and [startup/catalog](../analysis/after-discovery.md).
+[Report](ISSUE-07-MEDIUM-invalid-loaded-settings-reach-runtime.md); [settings](../analysis/settings.md), [startup/catalog](../analysis/after-discovery.md).
 
-**Implementation.** After migration and documented normalization, validate collection shape then semantics before returning settings. Validation must be total for null manual entries and null/invalid sample-rate strings. Use C's recovery/preservation policy for invalid readable input. Keep schema 1 migration, schema 2, unknown root/EQ fields, nullable overrides and unavailable selected NIC ids; offline is not an invalid adapter that should be reset to all interfaces.
-
-**Acceptance/verification.** Temporary loader fixtures cover null manual elements, invalid/null rates and malformed shapes; a mock constructor/startup creates no playback command, mute or replacement save for rejected data. Cover valid schema 1/2, manual rows/extensions/overrides and selected-offline behavior. Merely calling the current `Validate` is insufficient because it also assumes non-null manual entries. Use Core loader tests plus WPF startup integration; update settings/startup notes. Land 06/07 together rather than competing recovery policies.
+Migration/documented normalization precede total shape/semantic validation, including null manual elements and invalid/null rates. Controlled recovery happens before runtime playback/mute/persistence consumption. Schema 1 migration/schema 2/extensions/nullable overrides/manual rows/offline adapter ids remain valid. WPF startup uses both actual Loads and verifies zero rejected-input playback/mute/unpreserved save. This is not arbitrary external-writer coordination after valid Load.
 
 ## Group D — DNS operation lifecycle
 
-Subsequent local execution is recorded in [Group D acceptance](GROUP-D-ACCEPTANCE.md), feature head `48e7ab62`, after initial `4c79f22`. Report 04 was implemented after C; additional testing corrected browse cancellation status 995 to documented 1223. Earlier standalone checks were 69 focused/232 full Core, 149 WPF per language and a bounded DNS-only Windows probe. D is now in local fork main, while C/D feature branches remain unpushed and upstream does not contain them. New-main execution is deferred. Recheck against updated upstream before publication; the work-package text below retains the original requirements.
-
 ### ISSUE-04
 
-[Report](ISSUE-04-HIGH-dns-resolve-without-deadline-stalls-discovery.md). Read [discovery](../analysis/discovery.md). Touchpoints: `WindowsDiscovery` pending tokens, record TTL, registered native operations, Restart/Dispose.
+[Report](ISSUE-04-HIGH-dns-resolve-without-deadline-stalls-discovery.md); [discovery](../analysis/discovery.md).
 
-**Implementation.** Add an injectable DNS-SD operation boundary and monotonic clock, or a small isolated lifecycle component. Separate advertised-name knowledge, cached record expiry, logical pending token and native resource ownership. Define a finite resolve deadline, bounded/backed-off retries and limits on retained unresolved operations. A deadline releases logical blocking only under an explicit ownership policy; it does not itself prove callback/pointer safety.
+Logical advertisement/cache/pending/epoch/token/deadline/backoff are separate. Finite 5 second lookups and bounded retry reject stale tokens/epochs. Per-query helper roots owner before Start and globally caps eight unsettled children across instances/epochs; exact process-exit observation settles capacity. Reply/Cancel/Kill/deadline alone does not establish quiescence. Failed read/Kill can still settle on confirmed exit; failed wait retains owner until later successful observation.
 
-Before coding reclamation, settle inline completion, failed Start, successful/failed Cancel, late callback, removal/new PTR and Restart/Dispose races. Microsoft requires the cancel structure to remain valid until cancellation; the cancel result does not establish a general callback-quiescence guarantee. See [resolve](https://learn.microsoft.com/en-us/windows/win32/api/windns/nf-windns-dnsserviceresolve) and [cancel](https://learn.microsoft.com/en-us/windows/win32/api/windns/nf-windns-dnsserviceresolvecancel). Back off/pause rather than grow replacement operations indefinitely after failed cancellation. No timer-only pointer freeing.
-
-**Acceptance/verification.** Fault-inject missing initial/refresh completion, normal failures, inline/late completions, expiry/new PTR, timeout/completion races, restart and failed cancel. Fresh resolution becomes possible under the bounded policy; obsolete epochs and obsolete tokens within the same epoch cannot publish or clear/complete a newer request. Safely settled owners release exactly once; failed settlement retains safe ownership within a cap. Verify adapter no-fallback and disposal. These seams do not exist merely because adapter enumeration is injectable. No live DNS incident or leak measurement is required; update discovery notes and record the settled API lifetime assumptions.
+Browse uses documented 1223 terminal cancellation with native/callback-frame deferral. Original intermittent test was fake self-join, corrected through controlled drainer winners and mutation assertions; later green alone was not repair. A permanent retained-native-owner prototype was rejected after normal repeated-query starvation. Current fake/process checks cover missing/inline/late callbacks, blocked/failed starts, timeout/retry/removal/restart/disposal/observer failures/caps/reuse; no live receiver incident is claimed.
 
 ## Group E — authentication input contracts
 
 ### ISSUE-08
 
-[Report](ISSUE-08-MEDIUM-pairing-pin-format-mismatch.md). Read [authentication](../analysis/auth.md) and [session pairing](../analysis/session.md).
+[Report](ISSUE-08-MEDIUM-pairing-pin-format-mismatch.md); [auth](../analysis/auth.md), [pairing](../analysis/session.md).
 
-**Implementation.** Use one small ASCII normalizer for enablement and submission: remove permitted dashes and require 4–8 ASCII digits. Do not trim arbitrary characters or accept Unicode digits. Keep native strict validation, cancellation and authentication/storage order intact. Extract a testable pure helper only if it avoids duplicating UI predicates.
-
-**Acceptance/verification.** Cover 4/8-digit boundaries, dashed forms, too few/many digits, letters, whitespace, Unicode, excessive characters and cancel. WPF typing/paste/submission fixtures capture the actual fake `pair_pin` payload; existing all-digit pairing tests do not prove this UI path. No real PIN or pairing is needed. Update dialog/IPC authentication details.
+Shared ASCII normalization removes permitted dashes then requires 4–8 digits for enablement/submission; native validation remains strict. Actual fake pair_pin payloads, typing/paste/selection/Unicode/boundaries/cancel are covered. Clipboard tests are explicitly disposable hosted with finally restoration.
 
 ### ISSUE-09
 
-[Report](ISSUE-09-MEDIUM-credential-probe-errors-look-like-absence.md). Read [credentials/IPC](../analysis/credentials-and-ipc.md) and [authentication](../analysis/auth.md).
+[Report](ISSUE-09-MEDIUM-credential-probe-errors-look-like-absence.md); [credentials/IPC](../analysis/credentials-and-ipc.md), [auth](../analysis/auth.md).
 
-**Implementation.** Replace Boolean existence probing with an error-preserving operation, preferably opening/reading one handle. Map only the chosen genuine `NotFound` case to absence; define disappearance handling explicitly. Permission/read/DPAPI/parse/identity errors remain errors, before either authentication method starts. Preserve accessory-keyed filename normalization, current-user DPAPI and saved-file format; no alias migration, plaintext backup or verify-to-transient fallback.
+One opened handle preserves lookup/read errors; only initial NotFound means absence. Read-stage errors, DPAPI/parse/identity/verification failures remain errors and cannot switch methods. Current-user DPAPI/file format/accessory key remain. Synthetic temporary-root/injected faults test classification/bounds/tampering/replacement and one method; regression mutation is retained.
 
-**Acceptance/verification.** Inject NotFound, PermissionDenied and other I/O errors; synthetic temporary-root DPAPI fixtures cover saved/tampered data and disappearance. Verified absence selects transient once; valid saved data selects verify once; storage/verification failures never switch methods. Existing DPAPI/verify tests are controls, not lookup fault coverage. Run relevant Rust tests without receivers; update storage/auth/failure notes.
-
-## Group F — JSONL error and preparation-result contracts
+## Group F — JSONL error and preparation results
 
 ### ISSUE-12
 
-[Report](ISSUE-12-MEDIUM-uncorrelated-ipc-errors-become-timeouts.md). Read [credentials/IPC](../analysis/credentials-and-ipc.md), [session](../analysis/session.md), and [failures](../analysis/failures.md).
+[Report](ISSUE-12-MEDIUM-uncorrelated-ipc-errors-become-timeouts.md); [IPC](../analysis/credentials-and-ipc.md), [session](../analysis/session.md), [failures](../analysis/failures.md).
 
-**Implementation.** Recognize the narrowly defined version-1 empty-correlated `error`/`command_error`/`ipc` envelope from the owning child before ordinary session filtering. Preserve detail and explicit nonretryable classification through playback and pairing failure handling. Fail/clean up the desktop attempt promptly; native command rejection alone leaves its command loop alive. Keep arbitrary stale nonempty-session events filtered. Do not bundle symmetric byte limits or bounded-reader hardening into this fix.
-
-**Acceptance/verification.** Emit exact empty-id errors during start, streaming and pairing. Even with force reconnect enabled, the result is the original command_error with one attempt, rather than a timeout/host_error retry. Cover stale/wrong-version/malformed output and cancellation. Existing fake `EmitData` handles some cases; raw-envelope controls need extension. Native oversized/malformed hello followed by valid hello verifies parser rejection without receiver sockets. Update correlation/classification notes; no new protocol version.
+The narrowly defined process-owned v1 empty-correlated terminal IPC error is recognized before ordinary session filtering. Original detail and nonretryable classification survive playback, pairing and force reconnect. Stale ordinary events remain filtered and EQ feedback stays nonfatal. Receiver-free parser fixtures prove command-loop recovery separately from desktop attempt termination. Malformed/nonobject output becomes controlled protocol failure; general reader size and allocation policy remain unchanged.
 
 ### ISSUE-14
 
-[Report](ISSUE-14-LOW-equalizer-ignored-update-success-metadata.md). Read [equalizer](../analysis/equalizer.md) and [credentials/IPC](../analysis/credentials-and-ipc.md).
+[Report](ISSUE-14-LOW-equalizer-ignored-update-success-metadata.md); [EQ](../analysis/equalizer.md), [IPC](../analysis/credentials-and-ipc.md).
 
-**Implementation.** Make mailbox mutation return an outcome and retained preparation, then derive handler metadata from it. Proposed narrow v1 contract: newer accepted and identical replay use existing `equalizer_changed`; stale or same-sequence conflicting requests use nonfatal `equalizer_error`. Define replay identity explicitly, preferably equality of the prepared value already supported by `Prepared`. Preserve desktop benign startup/preview replay and obsolete-response filtering. Preparation adoption is not DSP pickup/fade completion.
-
-**Acceptance/verification.** Inject a valid stored control slot without a start handshake. Test `10/A`, `9/B`, `10/B`, `10/A`, `11/B`, with different headroom; assert both mailbox and serialized envelope/metadata. Preserve invalid/nonpositive/wrong-session/probe/pair rejection, then prove another valid command succeeds. Cover desktop nonfatal feedback. Do not wait on audio, alter clipping math, or expand worker-liveness reporting. Update EQ result semantics; run relevant Rust and Core tests.
+Mailbox mutation returns an outcome plus retained sequence/preparation. Accepted and identical requests use compatible `equalizer_changed`; stale/conflicting requests use nonfatal `equalizer_error` without mutation. Full Prepared equality includes gain, bypass, coefficients and headroom. Replies and retained state are asserted together for 10/A, 9/B, 10/B, 10/A and 11/B, both rates, malformed input, session/probe/pair exclusions and subsequent recovery. Preparation adoption is not DSP completion. The inherited rollback fixture separately tests live-send cancellation and timeout/next-attempt preview without changing production timeouts.
 
 ## Group G — owned mute recovery
 
 ### ISSUE-13
 
-[Report](ISSUE-13-MEDIUM-endpoint-mute-crash-recovery-gap.md). Read [control/mute](../analysis/control-and-mute.md) and [session cleanup](../analysis/session.md).
+[Report](ISSUE-13-MEDIUM-endpoint-mute-crash-recovery-gap.md); [mute/control](../analysis/control-and-mute.md), [session](../analysis/session.md).
 
-**Design gate.** Agree journal version/durability, actual endpoint identity, exclusive owner lease, exact prior boolean, recovery states and unresolved-record UI before implementation. A proposed model is `Intent → Owned → Restoring → Resolved`; durably record intent before the mute write. Resolve the actual endpoint id rather than storing null/default. Use an owner GUID/generation and lifetime lease, not PID alone. The existing [Local single-instance mutex](https://github.com/Ding-Kyoma/AirFlash/blob/41190e0d13a63a714c08dffe73ababca1804875c/desktop/AirFlash.App/Services/SingleInstance.cs#L12-L17) is session-scoped; it is insufficient alone for a shared per-user journal across logon sessions. [Microsoft's namespace contract](https://learn.microsoft.com/en-us/windows/win32/termserv/kernel-object-namespaces) supports that scope distinction.
+The separate version-1 journal records actual endpoint id and exact prior bit using an exclusive file lease, owner GUID and generation. Durable Intent precedes mutation. Both original bits and meaningful interruption, COM/journal failure, lease, multiple-entry, disappearance/return and repeat paths are tested. A live known-restored persistence retry performs no further endpoint write; after restart ambiguity remains. Direction comes from the actual opened endpoint; recording acquires no new mute ownership and saved non-playback obligations remain Pending. Exact-id mismatch rejects before bit/journal access.
 
-**Implementation.** Add narrowly injectable endpoint/journal boundaries, then implement deterministic interruption handling before startup integration. If mutation succeeds but journal commit fails, preserve durable intent/in-memory ownership and attempt tracked exact-bit rollback or surface the failure. If restore succeeds but resolution persistence fails, retain known restored status while the process remains alive; that distinction is not guaranteed durable, so any leftover record after restart must use conservative recovery rather than blindly replay a stale bit. Preserve entries after failed endpoint restore. New streaming must not overwrite unresolved prior information.
-
-Conservative recovery: an already matching saved bit needs no endpoint write; otherwise require an explicit recovery/abandon choice unless the chosen ownership model establishes safety. Saved state alone cannot prove no later user/app change. Present recovery outside audio MTA, settings and lifecycle locks. Normal cleanup still attempts the exact original true/false bit even when journal I/O fails, with no reconnect grace or hard deadline. Keep the journal separate from schema-2 preferences and credentials.
-
-**Acceptance/verification.** Cover both original bits, repeated mute without recapture, every intent/write/restore/resolution interruption, COM and journal failures, active owners, corrupt/future records, endpoint disappearance/return/change, multiple entries and repeated recovery. Gate startup integration on fake state-machine plus MTA/dispatcher/cleanup checks. The plan does not prove physical Windows mute persistence or recover crashes that occurred before a journal existed. Update ownership/recovery notes after actual implementation.
+Recovery is modeless and runs outside audio/settings/lifecycle locks, with Stop accessible. When local muting is enabled, unresolved recovery blocks admission even for recording. Disabled muting permits operation without discarding recovery. Normal exact-bit cleanup remains best effort after journal failure, with no hard deadline or reconnect grace. Physical power-loss durability and later external endpoint changes remain unqualified.
 
 ## Group H — diagnostics and bounded observability
 
 ### ISSUE-15
 
-[Report](ISSUE-15-LOW-unbound-copy-diagnostics-command.md). Read [settings](../analysis/settings.md) and [session diagnostics](../analysis/session.md).
+[Report](ISSUE-15-LOW-unbound-copy-diagnostics-command.md); [settings](../analysis/settings.md), [diagnostics](../analysis/session.md).
 
-**Implementation.** Add one localized, keyboard-accessible Monitor action bound to the existing command/serializer and exception handling. Keep clipboard work on the STA dispatcher; no upload, new logging or second serializer. It does not depend on additional capture metrics.
-
-**Acceptance/verification.** Use the WPF mock harness to verify the realized button/binding and command invocation for Idle/Error/synthetic Streaming. Verify copied diagnostics and controlled clipboard-error handling using a narrow writer seam if needed. No engine command or settings save should result. Check English/Chinese layouts separately; update settings/UI notes.
+The accessible localized Monitor action uses existing `CopyDiagnosticsCommand`, serializer and error surface. Production clipboard work remains on STA; a narrow injected writer supports isolated fixtures. Actual binding/copy/error/old-new metrics/Idle/Error/Streaming checks assert no engine, settings or audio mutation after joining the exact owned worker.
 
 ### ISSUE-16
 
-[Report](ISSUE-16-LOW-capture-padding-metrics-lack-frame-accounting.md). Read [capture/clocks](../analysis/capture-clocks.md), [equalizer](../analysis/equalizer.md), and [session diagnostics](../analysis/session.md).
+[Report](ISSUE-16-LOW-capture-padding-metrics-lack-frame-accounting.md); [capture](../analysis/capture-clocks.md), [EQ](../analysis/equalizer.md), [diagnostics](../analysis/session.md).
 
-**Implementation.** Define additive counters with explicit units: `padded_frames` counts substituted output-rate frame slots before EQ, while `fully_padded_packets` counts pulls missing all 352 frames. Accumulate both once per shared capture pull, not once per speaker. Preserve `underrun_packets`; real captured silence is not padding. Reset with the native worker attempt and retain pre-fault snapshots' own values. Emit optional v1 fields and decode/display missing data as unavailable, including diagnostics/Monitor refresh. Define overflow/invalid values; do not derive percentages from input-rate `capture_frames`.
-
-**Acceptance/verification.** Queue fixtures at both supported rates cover 0/351/352 frames, accumulation, resumed capture, real silence and EQ tails, without changing scheduler/queue recovery. Core/desktop fixtures cover old events without fields, new fields, attempt reset, pre-fault retention and reopened Monitor refresh. Increments remain bounded/allocation-free; no per-frame logging, queue/latency changes, standby classifier or network diagnosis. Update metrics/DSP timing/diagnostic notes and test old/new producer-reader combinations.
+Saturating UInt64 `padded_frames` counts substituted output-rate slots before EQ. `fully_padded_packets` counts pulls missing all 352 slots, once per shared pull before speaker fan-out. Existing underruns, captured silence, queue recovery and scheduling remain. Both rates, partial/whole padding, resumed capture, silence, EQ tails, reset and fault serialization are covered. Optional metrics treat invalid/missing as unavailable and preserve the unsigned range; pre-fault snapshots survive retry. No input-rate fill percentage or acoustic/network interpretation is claimed.
 
 ### ISSUE-17
 
-[Report](ISSUE-17-LOW-orphaned-translation-keys-cleanup.md). Read [settings/localization](../analysis/settings.md).
+[Report](ISSUE-17-LOW-orphaned-translation-keys-cleanup.md); [localization](../analysis/settings.md).
 
-**Implementation.** After the final UI/diagnostic labels are known, re-evaluate the ten named candidates against actual literals and dynamic lookup sources in both Simplified and Traditional Chinese catalogs. Remove only those still unused. Preserve diagnostics labels, Monitor caveats, EQ presets, generated version text and legacy serialized settings properties. Do not add a universal CI rule requiring every key to appear as a literal.
+Final dynamic/literal/markup/preset and recording/Coffee consumer review removed only ten unused candidates from both Chinese catalogs. Labels, presets, formats and serialized fields remain. Six complete regional/catalog pairs and three actual fractional-DPI cases pass, with retained legacy/NoWrap negative controls. No test merely mirrors deleted keys.
 
-**Acceptance/verification.** Use existing localization/format checks and English, Simplified Chinese and Traditional Chinese mock Settings/Monitor/EQ pages. Review variable `L.Get`, choice arrays and markup inputs as well as exact-string scans. No new test that merely mirrors a deleted-key list is needed. Finish this as H's last commit and record the final reference review.
+## Maintenance and publication gates
 
-## Completion gate for every group
+1. Reverify actual upstream and remove already-fixed overlap before changes/publication.
+2. Use controlled observable regressions and relevant owning build/integration; preserve failure receipts and provenance.
+3. Preserve schema 2, JSONL v1, adapter no-fallback, manual persistence, authentication/accessory keys, exact mute bits, nonblocking dispatcher and additive metric compatibility.
+4. Review final source/assertions independently and resolve concrete findings; a clean merge or green rerun alone is insufficient.
+5. Exclude private docs from both outgoing history and final diff; update fork docs separately.
+6. Distinguish fork implementation, upstream integration and real hardware qualification.
+7. Preserve controls, branches and ignored evidence; cleanup, publication and releases remain separately authorized.
 
-- Re-verify the included reports against the actual stable upstream base; remove already-fixed scope before coding.
-- Run the missing decisive regressions and relevant checks; record what actually ran and any toolchain/hardware limits. Proposed fixtures do not count as passing tests.
-- Preserve config schema 2, JSONL v1, selected-adapter no-fallback, manual persistence, authentication exclusivity, accessory-keyed current-user DPAPI, exact prior mute bits and nonblocking dispatcher behavior. For H's additive metrics, explicitly test compatibility; for G, settle and test the internal recovery design before enabling journal writes.
-- Keep source changes focused and integration-green across the group's internal commits. A bug's acceptance criteria must remain distinguishable even when several fixes share a PR.
-- Ensure all outgoing code commits and the final original-repository PR diff exclude this fork's analysis/issues/plan. Explain the fix and tests directly; update fork-only analysis separately.
-- Mark each report implemented only after its required behavior/tests are achieved. Opening a PR is not completion; neither is a successful mock proof of physical audio behavior.
+## Current implementation — stable refresh on 2026-10-11
+
+Historical cross-link retained. The stable refresh and E–H completion led to qualified `4ae1db4`; current Main/results above replace earlier unimplemented, unpushed and reboot-pending stages.
