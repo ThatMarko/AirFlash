@@ -12,7 +12,7 @@ Original stable Main is `cf420d97700463c56adc31408510e8336e99e51c`, already cont
 | B | 01, 02, 03, 10, 11 | `442e8d8` | [Session/receiver package](GROUP-B-ACCEPTANCE.md); PR #15 closed, issue #14 open |
 | C | 06, 07 | `5d72da3` | [Settings preservation/validation](GROUP-C-ACCEPTANCE.md); [issue #22](https://github.com/Ding-Kyoma/AirFlash/issues/22) and [PR #23](https://github.com/Ding-Kyoma/AirFlash/pull/23) open; not merged |
 | D | 04 | `277efc5` | [Bounded DNS process ownership](GROUP-D-ACCEPTANCE.md); publication pending authorization |
-| E | 08, 09 | `7dfcbb2` | [PIN and credential lookup](GROUP-E-ACCEPTANCE.md); publication pending authorization |
+| E | 08, 09 | `7dfcbb2` | [PIN and credential lookup](GROUP-E-ACCEPTANCE.md); [issue #24](https://github.com/Ding-Kyoma/AirFlash/issues/24) and [PR #25](https://github.com/Ding-Kyoma/AirFlash/pull/25) open; not merged |
 | F | 12, 14 | `421e1ea` | [IPC errors and EQ outcomes](GROUP-F-ACCEPTANCE.md); publication pending authorization |
 | G | 13 | `fcded6b` | [Owned mute recovery](GROUP-G-ACCEPTANCE.md); publication pending authorization |
 | H | 15, 16, 17 | `6855dfe` | [Diagnostics/padding/localization](GROUP-H-ACCEPTANCE.md); publication pending authorization |
