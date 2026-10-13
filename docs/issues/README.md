@@ -13,7 +13,7 @@ Original stable Main is `cf420d97700463c56adc31408510e8336e99e51c`, already cont
 | C | 06, 07 | `5d72da3` | [Settings preservation/validation](GROUP-C-ACCEPTANCE.md); [issue #22](https://github.com/Ding-Kyoma/AirFlash/issues/22) and [PR #23](https://github.com/Ding-Kyoma/AirFlash/pull/23) open; not merged |
 | D | 04 | `277efc5` | [Bounded DNS process ownership](GROUP-D-ACCEPTANCE.md); publication pending authorization |
 | E | 08, 09 | `7dfcbb2` | [PIN and credential lookup](GROUP-E-ACCEPTANCE.md); [issue #24](https://github.com/Ding-Kyoma/AirFlash/issues/24) and [PR #25](https://github.com/Ding-Kyoma/AirFlash/pull/25) open; not merged |
-| F | 12, 14 | `421e1ea` | [IPC errors and EQ outcomes](GROUP-F-ACCEPTANCE.md); publication pending authorization |
+| F | 12, 14 | `421e1ea` | [IPC errors and EQ outcomes](GROUP-F-ACCEPTANCE.md); [issue #26](https://github.com/Ding-Kyoma/AirFlash/issues/26) and [PR #27](https://github.com/Ding-Kyoma/AirFlash/pull/27) open; not merged; shared SDK/lock mismatch blocks CI |
 | G | 13 | `fcded6b` | [Owned mute recovery](GROUP-G-ACCEPTANCE.md); publication pending authorization |
 | H | 15, 16, 17 | `6855dfe` | [Diagnostics/padding/localization](GROUP-H-ACCEPTANCE.md); publication pending authorization |
 | Scrolling | Separate UI follow-up | `54cd18e` | [Scrolling](SETTINGS-SCROLL-ACCEPTANCE.md); PR #13 merged |
