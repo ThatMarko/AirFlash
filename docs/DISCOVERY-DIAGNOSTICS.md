@@ -15,7 +15,9 @@ expires. Native calls and helper startup run off the UI dispatcher.
 
 Cancellation success does not establish callback quiescence. Browse cancellation
 has a [documented final status 1223](https://learn.microsoft.com/windows/win32/api/windns/nf-windns-dnsservicebrowsecancel);
-its inputs settle after that callback and all active native/callback frames return.
+its inputs settle after that terminal indication and completion of tracked
+Start/Cancel calls and managed payload/consumer sections. Those counters do not
+observe arbitrary unmanaged callback return frames.
 [Resolve callbacks describe individual results](https://learn.microsoft.com/windows/win32/api/windns/nc-windns-dns_service_resolve_complete),
 and [resolve cancellation](https://learn.microsoft.com/windows/win32/api/windns/nf-windns-dnsserviceresolvecancel)
 does not specify a final notification. Each resolve therefore runs in a hidden

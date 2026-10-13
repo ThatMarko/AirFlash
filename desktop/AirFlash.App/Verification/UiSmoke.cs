@@ -15,7 +15,7 @@ using AirFlash.App.Ui;
 using AirFlash.App.ViewModels;
 using AirFlash.Core;
 namespace AirFlash.App.Verification;
-// Opt-in, isolated UI verification. Never constructs real discovery, audio or autostart services.
+// Opt-in, isolated UI verification with fake DNS, engine, endpoint and autostart boundaries.
 internal static class UiSmoke
 {
     public static async Task<int> RunAsync(string[] args)
@@ -78,6 +78,17 @@ internal static class UiSmoke
             {
                 await UiSettingsRecovery.RunAsync(checks, directory);
                 App.WriteOutput(args, new { ok = true, checks, note = "Concrete settings recovery with synthetic files and simulated services only." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
+        if (args.Contains("--ui-discovery-smoke"))
+        {
+            try
+            {
+                await UiDiscoveryLifecycle.RunAsync(checks);
+                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
+                    ui_culture = CultureInfo.CurrentUICulture.Name, note = "WPF discovery scheduling with injected DNS and simulated engine/audio services." });
                 return 0;
             }
             catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
@@ -314,11 +325,12 @@ internal static class UiSmoke
             await UiDiagnostics.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyStartupFailureAsync(checks, directory);
+            await UiDiscoveryLifecycle.RunAsync(checks);
             await UiScrolling.RunAsync(checks, directory);
             await VerifyTrayLifecycleAsync(tray, app, trayGuid, () => menuOpened, () => quitRequestedFromTray, checks);
             App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name,
                 startup_data_directory = Program.DiagnosticStartupDataDirectory, startup_log_directory = AppPaths.LogDirectory,
-                hidden_receiver_observation = hiddenReceiverObservation, icon_environment = iconEnvironment, note = "All engine/audio/discovery/autostart services are simulated. DPI renders do not replace physical multimonitor QA." });
+                hidden_receiver_observation = hiddenReceiverObservation, icon_environment = iconEnvironment, note = "DNS, engine, audio and autostart boundaries are simulated. DPI renders do not replace physical multimonitor QA." });
             return 0;
         }
         catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name, hidden_receiver_observation = hiddenReceiverObservation, error = error.ToString() }); return 1; }

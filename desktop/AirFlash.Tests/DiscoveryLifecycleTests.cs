@@ -10,6 +10,83 @@ public sealed class DiscoveryLifecycleTests
     private const string Airplay = "_airplay._tcp.local";
     private const string Name = "Office._airplay._tcp.local";
 
+    [Theory]
+    [InlineData("gpn", "After")]
+    [InlineData("igl", "1")]
+    [InlineData("cn", "0,1")]
+    public void TxtOnlyRefreshPublishesUpdatedReceiverMetadata(string key, string value)
+    {
+        using var fixture = new Fixture();
+        const string type = "_raop._tcp.local", name = "Synthetic._raop._tcp.local";
+        var txt = new Dictionary<string, string>
+        {
+            ["deviceid"] = "synthetic-device", ["tsid"] = "synthetic-group",
+            ["gpn"] = "Before", ["igl"] = "0", ["cn"] = "0"
+        };
+        var original = new ServiceRecord(name, type, "192.0.2.1", 7000, txt);
+        fixture.Discovery.Start();
+        fixture.Dns.Browses.Single(operation => operation.Name == type).Announced(0, new DnsAnnouncement(name, 3600));
+        fixture.Dns.Resolves[^1].Resolved(0, original);
+        var initial = Assert.Single(fixture.Catalog);
+        var publications = fixture.EventCount;
+        fixture.TickAfter(TimeSpan.FromSeconds(20));
+        fixture.Dns.Resolves[^1].Resolved(0, original with { Txt = new Dictionary<string, string>(txt) { [key] = value } });
+        Assert.Equal(publications + 1, fixture.EventCount);
+        var updated = Assert.Single(fixture.Catalog);
+        if (key == "gpn") Assert.Equal(value, updated.Name);
+        if (key == "igl")
+        {
+            Assert.True(Assert.Single(updated.Members).IsLeader);
+            Assert.NotEqual(initial.TransportKey, updated.TransportKey);
+        }
+        if (key == "cn") Assert.Equal(new byte[] { 0, 1 }, Assert.Single(updated.Members).Codecs);
+    }
+
+    [Fact]
+    public void PublicKeyOnlyRefreshPublishesChangedEndpointCompatibility()
+    {
+        using var fixture = new Fixture();
+        const string airplayName = "Primary._airplay._tcp.local", raopName = "Secondary._raop._tcp.local", raop = "_raop._tcp.local";
+        var first = new ServiceRecord(airplayName, Airplay, "192.0.2.1", 7000,
+            new Dictionary<string, string> { ["deviceid"] = "synthetic-primary", ["pk"] = "same-key" });
+        var second = new ServiceRecord(raopName, raop, first.Address, first.Port,
+            new Dictionary<string, string> { ["deviceid"] = "synthetic-secondary", ["pk"] = "same-key" });
+        fixture.Discovery.Start();
+        fixture.Dns.Browses.Single(operation => operation.Name == Airplay).Announced(0, new DnsAnnouncement(airplayName, 3600));
+        fixture.Dns.Resolves[^1].Resolved(0, first);
+        fixture.Dns.Browses.Single(operation => operation.Name == raop).Announced(0, new DnsAnnouncement(raopName, 3600));
+        fixture.Dns.Resolves[^1].Resolved(0, second);
+        Assert.Single(fixture.Catalog);
+        fixture.TickAfter(TimeSpan.FromSeconds(20));
+        fixture.Dns.Resolves.Last(operation => operation.Name == raopName).Resolved(0,
+            second with { Txt = new Dictionary<string, string>(second.Txt) { ["pk"] = "different-key" } });
+        Assert.Equal(2, fixture.Catalog.Count);
+        Assert.Contains(fixture.Catalog, receiver => receiver.DeviceId == "synthetic-secondary");
+    }
+
+    [Fact]
+    public async Task UnchangedOrReorderedTxtRefreshDoesNotRepublishCatalog()
+    {
+        using var fixture = new Fixture();
+        var original = Record("192.0.2.1") with
+        {
+            Txt = new Dictionary<string, string> { ["deviceid"] = "synthetic-device", ["gpn"] = "Same", ["igl"] = "1" }
+        };
+        fixture.StartAndAnnounce();
+        fixture.Dns.Resolves[^1].Resolved(0, original);
+        await fixture.Dns.Resolves[^1].DeferredCancellation.WaitAsync(TimeSpan.FromSeconds(5));
+        var publications = fixture.EventCount;
+        foreach (var txt in new[] { original.Txt, original.Txt.Reverse().ToDictionary(pair => pair.Key, pair => pair.Value) })
+        {
+            var count = fixture.Dns.Resolves.Count;
+            fixture.TickAfter(TimeSpan.FromSeconds(20));
+            Assert.Equal(count + 1, fixture.Dns.Resolves.Count);
+            fixture.Dns.Resolves[^1].Resolved(0, original with { Txt = txt });
+            await fixture.Dns.Resolves[^1].DeferredCancellation.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(publications, fixture.EventCount);
+        }
+    }
+
     [Fact]
     public void MissingInitialCallbackTimesOutAndRetriesOnlyWhenDue()
     {

@@ -212,6 +212,13 @@ internal static class ResolveWire
                 || record.Port is <= 0 or > 65535 || record.Txt is null || record.Txt.Count > 256
                 || record.Txt.Any(pair => pair.Key.Length > 4096 || pair.Value is null || pair.Value.Length > 4096))
                 throw new InvalidOperationException("Invalid DNS resolve helper record.");
+            // JSON dictionary deserialization loses the native TXT key comparer.
+            // Keep key lookup case-insensitive without changing any TXT values.
+            var txt = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in record.Txt)
+                if (!txt.TryAdd(pair.Key, pair.Value))
+                    throw new InvalidOperationException("Ambiguous DNS resolve helper TXT keys.");
+            reply = reply with { Record = record with { Txt = txt } };
         }
         return reply;
     }
