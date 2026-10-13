@@ -444,10 +444,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     public async Task PairAsync(Receiver receiver, Func<Receiver, CancellationToken, Task<string?>> requestPin)
     {
         if (_closing || !EngineReady || !MuteReady) return;
-        await FlushVolumeAsync();
-        await _settingsGate.WaitAsync();
-        try { if (!_closing && EngineReady && MuteReady) await Session.PairAsync(receiver, _settings.Clone(), requestPin); }
-        finally { _settingsGate.Release(); }
+        await Session.PairAsync(receiver, _settings.Clone(), requestPin);
     }
     private void ScheduleAutoConnect() { _autoTimer.Stop(); if (!_closing) _autoTimer.Start(); }
     private async Task TryAutoConnectAsync()

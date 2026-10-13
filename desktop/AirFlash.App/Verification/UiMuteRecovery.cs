@@ -31,6 +31,7 @@ internal static class UiMuteRecovery
         await MutatingFailureAsync(checks, Path.Combine(root, "setter-failure"));
         await DisposeFailureAsync(checks, Path.Combine(root, "dispose-failure"));
         await StartupAndRecoveryAsync(checks, Path.Combine(root, "startup"));
+        await PairDuringSaveAsync(checks, Path.Combine(root, "pair-during-save"));
         await QuitDuringStartupAsync(checks, Path.Combine(root, "quit-startup"));
         await ActiveStopAsync(checks, Path.Combine(root, "active-stop"));
     }
@@ -231,6 +232,58 @@ internal static class UiMuteRecovery
         checks.Add("clean app disposal joins recovery startup and releases journal lease");
     }
 
+    private static async Task PairDuringSaveAsync(List<string> checks, string directory)
+    {
+        var backend = new Backend(false); var journal = new Journal(directory); var audio = Audio(backend, journal);
+        var store = new UiSmoke.MemoryStore();
+        store.Save(new() { AutoConnectOnDiscover = false, MuteWhileStreaming = true,
+            ManualReceivers = [new("synthetic-manual", "Synthetic receiver", "192.0.2.20", 7000)] });
+        var factory = new Factory();
+        var app = new AppViewModel(store, new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(),
+            audio, factory, Application.Current.Dispatcher);
+        var release = Signal(); store.SaveGate = release; store.SaveEntered = Signal();
+        Task? persistence = null, pairing = null;
+        var pinRequested = false;
+        try
+        {
+            app.Start(); await app.Startup.WaitAsync(TimeSpan.FromSeconds(10));
+            Check(app.MuteReady && app.Settings.MuteWhileStreaming && audio.Recovery.CanMute,
+                "Pair fixture initializes applied muting settings and ready recovery before persistence", checks);
+            app.MasterVolume = 37; persistence = app.FlushVolumeAsync();
+            await store.SaveEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Check(!persistence.IsCompleted, "Pair fixture holds a real app settings save at an explicit gate", checks);
+            pairing = app.PairAsync(app.AllReceivers.Single(), (_, _) =>
+            {
+                pinRequested = true;
+                throw new InvalidOperationException("This fixture holds Pair before pin_required.");
+            });
+            try { await factory.PairEntered.Task.WaitAsync(TimeSpan.FromSeconds(10)); }
+            catch (TimeoutException error)
+            {
+                throw new InvalidOperationException("Explicit Pair must send its engine command before the unrelated settings save is released.", error);
+            }
+            await pairing.WaitAsync(TimeSpan.FromSeconds(10));
+            Check(!persistence.IsCompleted && factory.Opened == 1 && app.Session.Snapshot.State == PlaybackState.Pairing
+                && !pinRequested && !backend.Bit && backend.Setters == 0,
+                "ready explicit Pair reaches its fake connection during blocked persistence without opening PIN or muting", checks);
+            await app.StopAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            Check(app.Session.Snapshot.State == PlaybackState.Idle && !persistence.IsCompleted && !backend.Bit,
+                "Pair held before pin_required can be stopped while the unrelated save remains blocked", checks);
+        }
+        finally
+        {
+            release.TrySetResult();
+            try
+            {
+                if (persistence is not null) await persistence.WaitAsync(TimeSpan.FromSeconds(10));
+                if (pairing is not null) await pairing.WaitAsync(TimeSpan.FromSeconds(10));
+            }
+            finally { await app.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10)); }
+        }
+        Check(store.Saved.MasterVolume == 37 && !backend.Bit,
+            "releasing held persistence preserves the pending edit after Pair cleanup", checks);
+    }
+
     private static async Task QuitDuringStartupAsync(List<string> checks, string directory)
     {
         var backend = new Backend(false); var journal = new Journal(directory);
@@ -402,12 +455,14 @@ internal static class UiMuteRecovery
     private sealed class Factory : IEngineFactory
     {
         public int Opened;
-        public IEngineConnection Open() { Interlocked.Increment(ref Opened); return new Connection(); }
-        private sealed class Connection : IEngineConnection
+        public TaskCompletionSource PairEntered { get; } = Signal();
+        public IEngineConnection Open() { Interlocked.Increment(ref Opened); return new Connection(this); }
+        private sealed class Connection(Factory factory) : IEngineConnection
         {
             private readonly Channel<JsonElement> _events = Channel.CreateUnbounded<JsonElement>();
             public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
             {
+                if (command == "pair") factory.PairEntered.TrySetResult();
                 if (command == "start") _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, session_id = session, @event = "streaming" }));
                 if (command == "stop") _events.Writer.TryComplete();
                 return Task.CompletedTask;
