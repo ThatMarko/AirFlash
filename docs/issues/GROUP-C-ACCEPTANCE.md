@@ -1,5 +1,11 @@
 # Group C acceptance — configuration preservation and validation
 
+## Current SDK correction — 2026-10-13
+
+Current branch head `107c7dfcb192e8bc37648b9f324d2c030247f893`, independently based on original `cf420d97700463c56adc31408510e8336e99e51c`, includes the two-file shared analyzer-reference/CI logging correction. [SDK acceptance](SDK-LOCK-ACCEPTANCE.md) explains the executed unchanged-base control and preserved lock/SDK/analyzer contracts. [PR #23](https://github.com/Ding-Kyoma/AirFlash/pull/23) remains open and unmerged.
+
+Fresh selected SDK 10.0.402 locked restore, warning-free Release solution build and **300 Core tests** pass with unchanged lock hashes and the 10.0.12 analyzer actually consumed. [Complete upstream CI 38461059958](https://github.com/Ding-Kyoma/AirFlash/actions/runs/38461059958) explicitly logs 10.0.402 and passes **300 Core / 49 native**, with two existing native ignores, discovery stability, bundle audit and packaged startup/compatibility. Earlier publication, WPF/modal/MSI and source/control results below retain their original commits; they are not relabeled as new executions. The shared fix changes no group runtime policy.
+
 ## Upstream publication — 2026-10-13
 
 Explicit approval published [issue #22](https://github.com/Ding-Kyoma/AirFlash/issues/22) and ready-for-review [PR #23](https://github.com/Ding-Kyoma/AirFlash/pull/23), targeting original `main` from `ThatMarko:codex/fix-settings-recovery` at `5d72da3b77b4ac72f858966baef04b8a4ad8b1ad`. Fresh original stable remains `cf420d97700463c56adc31408510e8336e99e51c`. Open/closed issue/PR search found no duplicate configuration-recovery root cause; issue #14's delayed session authority and merged Settings scrolling work are separate. Published title/body, `Fixes #22`, nine changed files and four commits match the reviewed package. Complete diff and every outgoing commit exclude fork-only planning. Independent source/regression/evidence and final publication-text reviews are clear.

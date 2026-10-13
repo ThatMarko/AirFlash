@@ -1,5 +1,11 @@
 # Installer payload refresh acceptance
 
+## Current SDK correction — 2026-10-13
+
+Current branch head `74cba079e34cb1e607762f7e9af5a8da54b9368f`, independently based on original `cf420d97700463c56adc31408510e8336e99e51c`, includes the two-file shared analyzer-reference/CI logging correction. [SDK acceptance](SDK-LOCK-ACCEPTANCE.md) explains the executed unchanged-base control and preserved lock/SDK/analyzer contracts. [PR #21](https://github.com/Ding-Kyoma/AirFlash/pull/21) remains open and unmerged.
+
+Fresh selected SDK 10.0.402 locked restore, warning-free Release solution build and **202 Core tests** pass with unchanged lock hashes and the 10.0.12 analyzer actually consumed. [Complete upstream CI 38461067260](https://github.com/Ding-Kyoma/AirFlash/actions/runs/38461067260) explicitly logs 10.0.402 and passes **202 Core / 49 native**, with two existing native ignores, discovery stability, bundle audit and packaged startup/compatibility. Earlier publication, WPF/modal/MSI and source/control results below retain their original commits; they are not relabeled as new executions. The shared fix changes no group runtime policy.
+
 ## Upstream publication — 2026-10-13
 
 Explicit authorization published [issue #20](https://github.com/Ding-Kyoma/AirFlash/issues/20) and ready-for-review [PR #21](https://github.com/Ding-Kyoma/AirFlash/pull/21), targeting original `main` from `ThatMarko:codex/fix-installer-refresh` at `b6ae0955aa6b632c95adbc4ebbbc28d771cdf7e1`. Original stable is still `cf420d97700463c56adc31408510e8336e99e51c`. Open/closed issue and PR search found no matching payload-refresh defect; merged #11 is the preserved SDK preflight prerequisite, not a duplicate root cause. Published titles/bodies, `Fixes #20`, six changed files and four commits match the reviewed local kit. Complete diff and every outgoing commit exclude fork-only planning material. Independent source, regression/evidence and final publication-text reviews are clear.

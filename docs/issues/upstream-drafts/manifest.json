@@ -39,7 +39,17 @@
       "compare": "https://github.com/ThatMarko/AirFlash/compare/cf420d97700463c56adc31408510e8336e99e51c...5d72da3b77b4ac72f858966baef04b8a4ad8b1ad",
       "published_pr": "https://github.com/Ding-Kyoma/AirFlash/pull/23",
       "publication_state": "published-open",
-      "publication_date": "2026-10-13"
+      "publication_date": "2026-10-13",
+      "current_branch_head": "107c7dfcb192e8bc37648b9f324d2c030247f893",
+      "sdk_consistency_commit": "107c7dfcb192e8bc37648b9f324d2c030247f893",
+      "sdk_qualification": {
+        "sdk": "10.0.402",
+        "core_passed": 300,
+        "native_passed": 49,
+        "native_ignored": 2,
+        "upstream_ci": "https://github.com/Ding-Kyoma/AirFlash/actions/runs/38461059958",
+        "state": "success"
+      }
     },
     {
       "group": "D",
@@ -64,7 +74,15 @@
       "wpf_checks_each": 568,
       "native_passed": null,
       "hosted_run": null,
-      "compare": "https://github.com/ThatMarko/AirFlash/compare/cf420d97700463c56adc31408510e8336e99e51c...277efc5b389acd2b9699c9b25baf83450274096f"
+      "compare": "https://github.com/ThatMarko/AirFlash/compare/cf420d97700463c56adc31408510e8336e99e51c...277efc5b389acd2b9699c9b25baf83450274096f",
+      "current_branch_head": "cb9da32104fb98715f0b06db1730255fa78a4e2b",
+      "fixture_correction_commit": "cb9da32104fb98715f0b06db1730255fa78a4e2b",
+      "fixture_qualification": {
+        "sdk": "10.0.401",
+        "core_passed": 295,
+        "narrow_passed": 2,
+        "controlled_old_failures": 2
+      }
     },
     {
       "group": "E",
@@ -85,7 +103,17 @@
       "compare": "https://github.com/ThatMarko/AirFlash/compare/cf420d97700463c56adc31408510e8336e99e51c...7dfcbb27331c700846c552de28e8eef882c57cf6",
       "published_pr": "https://github.com/Ding-Kyoma/AirFlash/pull/25",
       "publication_state": "published-open",
-      "publication_date": "2026-10-13"
+      "publication_date": "2026-10-13",
+      "current_branch_head": "234167b31092339b2e909bfa2cbee5748b6006e1",
+      "sdk_consistency_commit": "234167b31092339b2e909bfa2cbee5748b6006e1",
+      "sdk_qualification": {
+        "sdk": "10.0.402",
+        "core_passed": 223,
+        "native_passed": 59,
+        "native_ignored": 2,
+        "upstream_ci": "https://github.com/Ding-Kyoma/AirFlash/actions/runs/38461050044",
+        "state": "success"
+      }
     },
     {
       "group": "F",
@@ -106,7 +134,17 @@
       "compare": "https://github.com/ThatMarko/AirFlash/compare/cf420d97700463c56adc31408510e8336e99e51c...421e1ea8159803fbc339dff3782b1858e8a797d4",
       "published_pr": "https://github.com/Ding-Kyoma/AirFlash/pull/27",
       "publication_state": "published-open",
-      "publication_date": "2026-10-13"
+      "publication_date": "2026-10-13",
+      "current_branch_head": "28cb83e55eda2e4b50847aafd783e75244697d23",
+      "sdk_consistency_commit": "28cb83e55eda2e4b50847aafd783e75244697d23",
+      "sdk_qualification": {
+        "sdk": "10.0.402",
+        "core_passed": 239,
+        "native_passed": 53,
+        "native_ignored": 2,
+        "upstream_ci": "https://github.com/Ding-Kyoma/AirFlash/actions/runs/38461045917",
+        "state": "success"
+      }
     },
     {
       "group": "G",
@@ -175,7 +213,17 @@
       "compare": "https://github.com/ThatMarko/AirFlash/compare/cf420d97700463c56adc31408510e8336e99e51c...b6ae0955aa6b632c95adbc4ebbbc28d771cdf7e1",
       "published_pr": "https://github.com/Ding-Kyoma/AirFlash/pull/21",
       "publication_state": "published-open",
-      "publication_date": "2026-10-13"
+      "publication_date": "2026-10-13",
+      "current_branch_head": "74cba079e34cb1e607762f7e9af5a8da54b9368f",
+      "sdk_consistency_commit": "74cba079e34cb1e607762f7e9af5a8da54b9368f",
+      "sdk_qualification": {
+        "sdk": "10.0.402",
+        "core_passed": 202,
+        "native_passed": 49,
+        "native_ignored": 2,
+        "upstream_ci": "https://github.com/Ding-Kyoma/AirFlash/actions/runs/38461067260",
+        "state": "success"
+      }
     }
   ]
 }

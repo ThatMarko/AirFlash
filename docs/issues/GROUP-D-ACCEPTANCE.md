@@ -1,5 +1,11 @@
 # Group D acceptance — bounded DNS operation ownership
 
+## Current cancellation fixture correction — 2026-10-13
+
+Standalone D now includes fixture-only `cb9da32104fb98715f0b06db1730255fa78a4e2b`, copied into Main as `7a4f9f5`. A fresh Main SDK 10.0.401 suite observed an early expected-4/actual-3 **CancelCalls** assertion; a later green did not resolve it. Controlled gates reproduce both existing publication-drain schedules failing at that old assertion, then release and join registered cancellation workers before final counts. Two resolve owners/six input buffers remain retained both before and after cancellation; only the independent fake API boundary reclaims them. Gates and joins run in finally.
+
+Independent source/regression review is clear. Explicit 10.0.401 locked restore, warning-free Release build, narrow **2/2** and owning **295 Core** pass. Production/native lifecycle code is unchanged. [Shared acceptance](SDK-LOCK-ACCEPTANCE.md) binds the failed Main execution and red/fixed receipts; artifact controls do not establish a real Windows incident. D still needs the shared SDK dependency correction or refreshed integrated original base before 10.0.402 publication qualification. Prior WPF/helper results below remain bound to `277efc5`, whose runtime source is unchanged by this test-only follow-up.
+
 ## Current Main integration — 2026-10-12
 
 Reviewed fork runtime baseline is `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, with source trees equal to qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`. The feature head below is an ancestor of Main and is pushed to origin. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`. Public complete diffs and every outgoing commit exclude private planning. This is fork implementation acceptance, not upstream integration. [Combined Main acceptance](CONTINUATION-ACCEPTANCE.md) records 667 Core/124 Python/native/package/UI qualification and limits.

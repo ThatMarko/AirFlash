@@ -1,5 +1,11 @@
 # Group E acceptance — PIN input and credential lookup
 
+## Current SDK correction — 2026-10-13
+
+Current branch head `234167b31092339b2e909bfa2cbee5748b6006e1`, independently based on original `cf420d97700463c56adc31408510e8336e99e51c`, includes the two-file shared analyzer-reference/CI logging correction. [SDK acceptance](SDK-LOCK-ACCEPTANCE.md) explains the executed unchanged-base control and preserved lock/SDK/analyzer contracts. [PR #25](https://github.com/Ding-Kyoma/AirFlash/pull/25) remains open and unmerged.
+
+Fresh selected SDK 10.0.402 locked restore, warning-free Release solution build and **223 Core tests** pass with unchanged lock hashes and the 10.0.12 analyzer actually consumed. [Complete upstream CI 38461050044](https://github.com/Ding-Kyoma/AirFlash/actions/runs/38461050044) explicitly logs 10.0.402 and passes **223 Core / 59 native**, with two existing native ignores, discovery stability, bundle audit and packaged startup/compatibility. Earlier publication, WPF/modal/MSI and source/control results below retain their original commits; they are not relabeled as new executions. The shared fix changes no group runtime policy.
+
 ## Upstream publication — 2026-10-13
 
 Explicit approval published [issue #24](https://github.com/Ding-Kyoma/AirFlash/issues/24) and ready-for-review [PR #25](https://github.com/Ding-Kyoma/AirFlash/pull/25), targeting original `main` from `ThatMarko:codex/fix-auth-input` at `7dfcbb27331c700846c552de28e8eef882c57cf6`. Original stable remains `cf420d97700463c56adc31408510e8336e99e51c`. Fresh open/closed issue/PR search found no matching PIN/credential-lookup root cause; connection timeout and session-authority reports are separate. Published titles/bodies, `Fixes #24`, nine changed files and five commits match the reviewed package. Complete diff and every outgoing commit exclude fork-only planning. Independent native/desktop/regression/evidence and final text reviews are clear.
