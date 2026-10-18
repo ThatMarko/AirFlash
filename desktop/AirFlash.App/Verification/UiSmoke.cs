@@ -50,6 +50,18 @@ internal static class UiSmoke
             }
             catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
         }
+        if (args.Contains("--ui-shutdown-smoke"))
+        {
+            try
+            {
+                await UiSessionLifecycle.RunShellShutdownAsync(checks);
+                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
+                    ui_culture = CultureInfo.CurrentUICulture.Name, note = "Shell shutdown ordering with simulated settings, probe, engine and audio services." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, culture = CultureInfo.CurrentCulture.Name,
+                ui_culture = CultureInfo.CurrentUICulture.Name, error = error.ToString() }); return 1; }
+        }
         object? iconEnvironment = null;
         if (args.Contains("--ui-engine-admission-smoke"))
         {

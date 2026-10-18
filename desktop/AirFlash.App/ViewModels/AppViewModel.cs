@@ -323,7 +323,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     }
     private void SessionChanged(SessionSnapshot snapshot) => _dispatcher.BeginInvoke(() =>
     {
-        if (_closing || !ReferenceEquals(snapshot, Session.Snapshot)) return;
+        if (!ReferenceEquals(snapshot, Session.Snapshot)) return;
         var title = StatusTitle; var detail = StatusDetail; var errors = ErrorDetails;
         var previous = _snapshot;
         _snapshot = snapshot;
@@ -369,9 +369,9 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     public async Task ToggleAsync(Receiver receiver)
     {
         var explicitIntent = Session.BeginExplicitIntent();
-        if (_closing) return;
         var current = Session.Capture().Snapshot;
         if (current.IsActive && current.Receiver?.Id == receiver.Id) { await StopAsync(); return; }
+        if (_closing) return;
         if (!EngineReady) return;
         receiver = ResolvePlayback(receiver);
         // Clear only the suppression preceding this explicit click, before any await.
@@ -465,7 +465,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             using (UiPerformance.Measure("settings.persist")) await _store.SaveAsync(current);
             saved = true;
             if (revision == _editRevision) _volumeDirty = false;
-            await Session.UpdateSettingsAsync(current);
+            if (!_closing) await Session.UpdateSettingsAsync(current);
         }
         finally { _settingsGate.Release(); if (saved && _volumeDirty && !_closing && !_controlledScheduling) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
     }
@@ -522,7 +522,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             }
             progress?.Invoke(L.Get("Updating audio…"));
             string? audioError = null;
-            try { using (UiPerformance.Measure("apply.session")) await Session.UpdateSettingsAsync(merged); }
+            try { if (!_closing) { using (UiPerformance.Measure("apply.session")) await Session.UpdateSettingsAsync(merged); } }
             catch (Exception error) { audioError = L.Format("Settings saved, but audio could not be updated: {0}", error.Message); ShowError(new IOException(audioError, error)); }
             ScheduleAutoConnect();
             return new(merged, audioError);
@@ -532,9 +532,18 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     public void ShowError(Exception error) { AppPaths.Log(error.ToString()); Notice = error.Message; }
     public string Diagnostics() => $"AirFlash {AppPaths.Version} / WPF\n" + L.Format("Engine: {0}\nStatus: {1}\n{2}\nLocal p95: {3}\nQueue age: {4}\nUnderruns: {5}; drops: {6}\nEnd-to-end latency: not measured", EngineVersion, StatusTitle, StatusDetail, MonitorLatency, MonitorQueue, MonitorUnderruns, MonitorDrops) + "\n" + System.Text.Json.JsonSerializer.Serialize(_snapshot.Diagnostics, AppSettings.JsonOptions);
     public ValueTask DisposeAsync() => new(_disposeTask ??= DisposeCoreAsync());
+    internal void BeginShutdown()
+    {
+        if (_closing) return;
+        _closing = true;
+        Session.InvalidateAutomaticIntent();
+        _volumeTimer.Stop(); _autoTimer.Stop(); _startupDiscoveryTimer.Stop(); _discoverySearchTimer.Stop();
+        foreach (var row in Receivers) row.Refresh();
+    }
     private async Task DisposeCoreAsync()
     {
-        _closing = true; Session.InvalidateAutomaticIntent(); _volumeTimer.Stop(); _autoTimer.Stop(); _startupDiscoveryTimer.Stop(); _discoverySearchTimer.Stop(); _discovery.Dispose();
+        BeginShutdown();
+        _discovery.Dispose();
         if (_engine is not null) _engine.Changed -= EngineChanged;
         await _startup;
         Endpoints.Dispose();
@@ -578,7 +587,7 @@ public sealed class ReceiverViewModel : ObservableObject
     public bool Muted => DeviceVolume.Display == 0;
     public string MuteLabel => Muted ? L.Get("Unmute") : L.Get("Mute");
     public bool Active => _app.Snapshot.IsActive && _app.Snapshot.Receiver?.Id == Receiver.Id;
-    public bool CanPlay => Active || _app.EngineReady && Receiver.Online && Receiver.Complete;
+    public bool CanPlay => Active || !_app.IsClosing && _app.EngineReady && Receiver.Online && Receiver.Complete;
     public string PlayHint => Active ? L.Get("Stop playback / disconnect") : L.Get("Play on this device");
     public string StateText => (Active ? _app.StatusTitle : !Receiver.Online ? L.Get("Offline") : !Receiver.Complete ? L.Get("Waiting for the other member") : L.Get("Disconnected"))
         + (Receiver.IsGroup ? $" · {Receiver.Members.Length}/2" : "")

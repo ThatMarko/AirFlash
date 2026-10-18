@@ -6,6 +6,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using AirFlash.App.Services;
 using AirFlash.App.Ui;
 using AirFlash.App.ViewModels;
 using AirFlash.Core;
@@ -38,6 +39,222 @@ internal static class UiSessionLifecycle
         await AdapterRetentionAsync(checks);
         await FaultAndMuteAsync(checks);
         await ShutdownDuringAutomaticSaveAsync(checks);
+        await RunShellShutdownAsync(checks);
+    }
+    public static async Task RunShellShutdownAsync(List<string> checks)
+    {
+        await ShellShutdownDuringApplyAsync(checks);
+        await ShellShutdownDuringAutomaticSaveAsync(checks);
+        await ShellShutdownRetainsStopAsync(checks);
+        await ShellShutdownDuringActiveApplyAsync(checks);
+        await ShellShutdownFailuresAsync(checks);
+    }
+    private static async Task ShellShutdownDuringApplyAsync(List<string> checks)
+    {
+        var receiver = Pod("shell-apply"); var settings = Settings(true);
+        settings.MuteWhileStreaming = true; SeedAliases(settings, receiver);
+        await using var fixture = await Fixture.CreateAsync(settings, [receiver]);
+        using var editor = new SettingsViewModel(fixture.App);
+        editor.Draft.MasterVolume = 29;
+        var save = fixture.Store.Hold(); var engineCleanup = new Gate();
+        var process = new ScriptedConnection(); fixture.Engine.Enqueue(process);
+        Task<bool> apply = Task.FromResult(false); Task automatic = Task.CompletedTask, shutdown = Task.CompletedTask;
+        var enteredClosing = false; var windowsClosed = false; var cleanupAfterApply = false;
+        var intent = fixture.App.Session.Capture().AutomaticIntent;
+        try
+        {
+            apply = editor.ApplyAsync(); await save.Entered.Task.WaitAsync(Limit);
+            automatic = fixture.App.TryAutoConnectAsync();
+            Check(!automatic.IsCompleted, "shell Quit fixture queues an older automatic request behind an actual Settings Apply save", checks);
+            shutdown = ShellShutdown.RunAsync(fixture.App,
+                () => { enteredClosing = fixture.App.IsClosing; return editor.ApplicationCompleted; },
+                () => { windowsClosed = true; editor.Dispose(); },
+                () => { cleanupAfterApply = windowsClosed && editor.ApplicationCompleted.IsCompleted; return new ValueTask(engineCleanup.WaitAsync()); });
+            var invalidatedSynchronously = fixture.App.IsClosing && fixture.App.Session.Capture().AutomaticIntent != intent;
+            save.Release.TrySetResult(); await apply.WaitAsync(Limit);
+            await engineCleanup.Entered.Task.WaitAsync(Limit);
+            await automatic.WaitAsync(Limit);
+            // If the missing shell barrier admits the stale request, join its real fake
+            // start/streaming events before asserting, rather than racing Task.Run.
+            if (fixture.App.Session.Snapshot.IsActive) await StateAsync(fixture, PlaybackState.Streaming);
+            Check(fixture.Engine.OpenCount == 0 && !process.Commands.Any(command => command.Name == "start") && !fixture.Audio.HasSavedBit && !fixture.Audio.MuteBit,
+                "shell Quit rejects an older automatic Start and mute while engine cleanup waits after Settings Apply", checks);
+            Check(enteredClosing && invalidatedSynchronously && cleanupAfterApply && !shutdown.IsCompleted,
+                "shell Quit invalidates admission synchronously before awaiting Apply and preserves shutdown ordering", checks);
+            Check(await apply && fixture.Store.Saved.MasterVolume == 29 && fixture.Store.Saved.LastReceiverId == "previous" && fixture.App.Settings.LastReceiverId == "previous",
+                "shell Quit preserves the committed Settings Apply without recording a rejected automatic attempt", checks);
+            await RejectNewShellStartsAsync(fixture, receiver, checks, "Settings Apply");
+            var responsive = false;
+            await Application.Current.Dispatcher.InvokeAsync(() => responsive = true, DispatcherPriority.Input);
+            Check(responsive && !shutdown.IsCompleted, "shell Quit remains responsive while engine cleanup is held after Settings Apply", checks);
+        }
+        finally
+        {
+            save.Release.TrySetResult(); engineCleanup.Release.TrySetResult();
+            await Task.WhenAll(apply, automatic, shutdown).WaitAsync(Limit);
+        }
+        Check(fixture.App.Session.Snapshot.State == PlaybackState.Idle && !fixture.Audio.HasSavedBit && !fixture.Audio.MuteBit,
+            "shell Quit completes idle with the exact prior mute bit after the held Apply and engine cleanup settle", checks);
+    }
+    private static async Task ShellShutdownDuringAutomaticSaveAsync(List<string> checks)
+    {
+        var receiver = Pod("shell-dirty-save"); var settings = Settings(true);
+        settings.MuteWhileStreaming = true; SeedAliases(settings, receiver);
+        await using var fixture = await Fixture.CreateAsync(settings, [receiver]);
+        var save = fixture.Store.Hold(); var engineCleanup = new Gate();
+        var process = new ScriptedConnection(); fixture.Engine.Enqueue(process);
+        fixture.App.MasterVolume = 37;
+        Task automatic = Task.CompletedTask, shutdown = Task.CompletedTask;
+        var enteredClosing = false; var windowsClosed = false;
+        var intent = fixture.App.Session.Capture().AutomaticIntent;
+        try
+        {
+            automatic = fixture.App.TryAutoConnectAsync(); await save.Entered.Task.WaitAsync(Limit);
+            shutdown = ShellShutdown.RunAsync(fixture.App,
+                () => { enteredClosing = fixture.App.IsClosing; return Task.CompletedTask; },
+                () => windowsClosed = true,
+                () => new ValueTask(engineCleanup.WaitAsync()));
+            var invalidatedSynchronously = fixture.App.IsClosing && fixture.App.Session.Capture().AutomaticIntent != intent;
+            await engineCleanup.Entered.Task.WaitAsync(Limit);
+            save.Release.TrySetResult(); await automatic.WaitAsync(Limit);
+            if (fixture.App.Session.Snapshot.IsActive) await StateAsync(fixture, PlaybackState.Streaming);
+            Check(fixture.Engine.OpenCount == 0 && !process.Commands.Any(command => command.Name == "start") && !fixture.Audio.HasSavedBit && !fixture.Audio.MuteBit,
+                "shell Quit rejects an older dirty-save automatic Start and mute while engine cleanup is held", checks);
+            Check(enteredClosing && invalidatedSynchronously && windowsClosed && !shutdown.IsCompleted,
+                "shell Quit closes admission before awaiting engine cleanup even when no Settings Apply is pending", checks);
+            Check(fixture.Store.Saved.MasterVolume == 37 && fixture.Store.Saved.LastReceiverId == "previous" && fixture.App.Settings.LastReceiverId == "previous",
+                "shell Quit preserves the older automatic request's valid dirty save without consuming an attempt", checks);
+            await RejectNewShellStartsAsync(fixture, receiver, checks, "automatic dirty save");
+        }
+        finally
+        {
+            save.Release.TrySetResult(); engineCleanup.Release.TrySetResult();
+            await Task.WhenAll(automatic, shutdown).WaitAsync(Limit);
+        }
+        Check(fixture.App.Session.Snapshot.State == PlaybackState.Idle && !fixture.Audio.HasSavedBit && !fixture.Audio.MuteBit,
+            "shell Quit completes idle after the automatic dirty save and engine cleanup settle", checks);
+    }
+    private static async Task RejectNewShellStartsAsync(Fixture fixture, Receiver receiver, List<string> checks, string pending)
+    {
+        await fixture.App.ToggleAsync(receiver).WaitAsync(Limit);
+        await fixture.App.PairAsync(receiver, (_, _) => throw new InvalidOperationException("Shutdown must not request a PIN.")).WaitAsync(Limit);
+        await fixture.App.TryAutoConnectAsync().WaitAsync(Limit);
+        Check(fixture.Engine.OpenCount == 0 && fixture.App.Session.Snapshot.State == PlaybackState.Idle && fixture.App.Settings.LastReceiverId == "previous",
+            "shell Quit rejects new Play, Pair and automatic requests during held " + pending + " cleanup", checks);
+    }
+    private static async Task ShellShutdownRetainsStopAsync(List<string> checks)
+    {
+        var receiver = Pod("shell-owned-stop"); var other = Pod("shell-new-play", "192.0.2.20");
+        var settings = Settings(); settings.MuteWhileStreaming = true; SeedAliases(settings, receiver, other);
+        await using var fixture = await Fixture.CreateAsync(settings, [receiver, other]);
+        await fixture.App.ToggleAsync(receiver); await StateAsync(fixture, PlaybackState.Streaming);
+        var process = fixture.Engine.Connections.Single(); var engineCleanup = new Gate();
+        Task shutdown = Task.CompletedTask;
+        try
+        {
+            shutdown = ShellShutdown.RunAsync(fixture.App, () => Task.CompletedTask, () => { }, () => new ValueTask(engineCleanup.WaitAsync()));
+            await engineCleanup.Entered.Task.WaitAsync(Limit);
+            await fixture.App.ToggleAsync(other).WaitAsync(Limit);
+            await fixture.App.PairAsync(other, (_, _) => throw new InvalidOperationException("Shutdown must not request a PIN.")).WaitAsync(Limit);
+            await fixture.App.TryAutoConnectAsync().WaitAsync(Limit);
+            Check(fixture.Engine.OpenCount == 1 && !process.Disposed && fixture.App.Session.Snapshot.State == PlaybackState.Streaming,
+                "shell Quit rejects replacement Play, Pair and automatic work while retaining the owned transport during cleanup", checks);
+            var row = fixture.App.Receivers.Single(candidate => candidate.Receiver.Id == receiver.Id);
+            Check(fixture.App.StopCommand.CanExecute(null) && row.ToggleCommand.CanExecute(null),
+                "shell Quit keeps the owned transport's normal Stop commands enabled while engine cleanup waits", checks);
+            row.ToggleCommand.Execute(null);
+            await StateAsync(fixture, PlaybackState.Idle); await process.DisposalCompleted.Task.WaitAsync(Limit);
+            Check(process.Commands.Count(command => command.Name == "stop") == 1 && fixture.Engine.OpenCount == 1 && !fixture.Audio.HasSavedBit && !fixture.Audio.MuteBit && !shutdown.IsCompleted,
+                "the existing receiver Stop command remains usable during shell Quit and restores the exact prior mute bit", checks);
+            await DrainAsync();
+            Check(fixture.App.Snapshot.State == PlaybackState.Idle && !fixture.App.StopCommand.CanExecute(null) && !row.Active && !row.ToggleCommand.CanExecute(null) && !shutdown.IsCompleted,
+                "shell Quit publishes the completed Stop to the bound idle display and disables stopped receiver commands before engine cleanup finishes", checks);
+        }
+        finally
+        {
+            engineCleanup.Release.TrySetResult(); await shutdown.WaitAsync(Limit);
+        }
+    }
+    private static async Task ShellShutdownDuringActiveApplyAsync(List<string> checks)
+    {
+        var receiver = Pod("shell-active-apply"); var settings = Settings();
+        settings.MuteWhileStreaming = true; SeedAliases(settings, receiver);
+        await using var fixture = await Fixture.CreateAsync(settings, [receiver]);
+        await fixture.App.ToggleAsync(receiver); await StateAsync(fixture, PlaybackState.Streaming);
+        var process = fixture.Engine.Connections.Single(); var owner = fixture.App.Session.Capture().Owner;
+        using var editor = new SettingsViewModel(fixture.App);
+        editor.Draft.LatencyMode = "buffered";
+        var save = fixture.Store.Hold(); var engineCleanup = new Gate();
+        Task<bool> apply = Task.FromResult(false); Task shutdown = Task.CompletedTask;
+        try
+        {
+            apply = editor.ApplyAsync(); await save.Entered.Task.WaitAsync(Limit);
+            Check(editor.IsApplying && !apply.IsCompleted, "shell Quit fixture holds a real signature-changing Apply during owned playback", checks);
+            shutdown = ShellShutdown.RunAsync(fixture.App, () => editor.ApplicationCompleted, editor.Dispose,
+                () => new ValueTask(engineCleanup.WaitAsync()));
+            save.Release.TrySetResult(); await apply.WaitAsync(Limit); await engineCleanup.Entered.Task.WaitAsync(Limit);
+            // Join an incorrectly restarted fake worker so a red assertion observes
+            // replacement, not just a pending controller state change.
+            if (fixture.App.Session.Capture().Owner != owner) await StateAsync(fixture, PlaybackState.Streaming);
+            Check(fixture.Engine.OpenCount == 1 && !process.Disposed && fixture.App.Session.Capture().Owner == owner && fixture.App.Session.Snapshot.State == PlaybackState.Streaming,
+                "shell Quit prevents an accepted signature-changing Apply from replacing the owned worker after persistence", checks);
+            Check(await apply && fixture.Store.Saved.LatencyMode == "buffered" && fixture.App.Settings.LatencyMode == "buffered" && fixture.Store.Saved.LastReceiverId == receiver.Id,
+                "shell Quit still commits the accepted latency preference without starting its replacement transport", checks);
+            var row = fixture.App.Receivers.Single();
+            Check(row.ToggleCommand.CanExecute(null), "a held active Apply during shell Quit retains the bound Stop command", checks);
+            row.ToggleCommand.Execute(null);
+            await StateAsync(fixture, PlaybackState.Idle); await process.DisposalCompleted.Task.WaitAsync(Limit);
+            Check(process.Commands.Count(command => command.Name == "stop") == 1 && fixture.Engine.OpenCount == 1 && !fixture.Audio.HasSavedBit && !fixture.Audio.MuteBit && !shutdown.IsCompleted,
+                "bound Stop cleans the original worker during shell Quit after the latency preference is saved", checks);
+            await DrainAsync();
+            Check(fixture.App.Snapshot.State == PlaybackState.Idle && !fixture.App.StopCommand.CanExecute(null) && !row.Active && !row.ToggleCommand.CanExecute(null) && !shutdown.IsCompleted,
+                "shell Quit updates the bound idle state and disables stopped receiver commands after the accepted Apply while engine cleanup remains held", checks);
+        }
+        finally
+        {
+            save.Release.TrySetResult(); engineCleanup.Release.TrySetResult();
+            await Task.WhenAll(apply, shutdown).WaitAsync(Limit);
+        }
+    }
+    private static async Task ShellShutdownFailuresAsync(List<string> checks)
+    {
+        foreach (var original in new[] { false, true })
+        foreach (var failing in new[] { "apply", "close", "engine", "multiple" })
+        {
+            var receiver = Pod("shell-failure-" + failing); var settings = Settings();
+            settings.MuteWhileStreaming = true; SeedAliases(settings, receiver);
+            await using var fixture = await Fixture.CreateAsync(settings, [receiver], original);
+            await fixture.App.ToggleAsync(receiver); await StateAsync(fixture, PlaybackState.Streaming);
+            var process = fixture.Engine.Connections.Single(); var stages = new List<string>();
+            var errors = new[] { new IOException("synthetic Apply completion failure"), new IOException("synthetic window cleanup failure"), new IOException("synthetic engine cleanup failure") };
+            bool Fails(string stage) => failing == stage || failing == "multiple";
+            Exception? observed = null;
+            try
+            {
+                try
+                {
+                    await ShellShutdown.RunAsync(fixture.App,
+                        () => { stages.Add("apply"); return Fails("apply") ? Task.FromException(errors[0]) : Task.CompletedTask; },
+                        () => { stages.Add("close"); if (Fails("close")) throw errors[1]; },
+                        () => { stages.Add("engine"); return Fails("engine") ? ValueTask.FromException(errors[2]) : ValueTask.CompletedTask; }).WaitAsync(Limit);
+                }
+                catch (Exception error) { observed = error; }
+                Check(process.Disposed && process.Commands.Count(command => command.Name == "stop") == 1 && fixture.App.Session.Snapshot.State == PlaybackState.Idle && fixture.Audio.MuteBit == original && !fixture.Audio.HasSavedBit,
+                    "shell Quit cleans owned playback and restores the exact prior " + original + " mute bit despite " + failing + " failure", checks);
+                Check(stages.SequenceEqual(new[] { "apply", "close", "engine" }) && fixture.App.IsClosing,
+                    "shell Quit attempts every cleanup stage in order despite " + failing + " failure (prior mute " + original + ")", checks);
+                if (failing == "multiple")
+                    Check(observed is AggregateException aggregate && aggregate.InnerExceptions.SequenceEqual(errors),
+                        "shell Quit preserves all stage failures in order after cleanup (prior mute " + original + ")", checks);
+                else
+                {
+                    var expected = errors[Array.IndexOf(new[] { "apply", "close", "engine" }, failing)];
+                    Check(ReferenceEquals(observed, expected),
+                        "shell Quit preserves the original " + failing + " exception after cleanup (prior mute " + original + ")", checks);
+                }
+            }
+            finally { await fixture.App.DisposeAsync().AsTask().WaitAsync(Limit); }
+        }
     }
     public static async Task RunEngineAdmissionAsync(List<string> checks)
     {
