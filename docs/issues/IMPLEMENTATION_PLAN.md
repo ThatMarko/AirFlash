@@ -1,5 +1,11 @@
 # AirFlash completed implementation and publication plan
 
+## Continuation preparation — 2026-10-18
+
+All reports were implemented in the starting fork. The remaining B/G/H standalone SDK preparation and G/H diagnostic culture/report/exact-catalog gaps are now repaired and independently reviewed. Prepared heads are B `002c4e1`, G `f3afb9a` and H `1396c55`, still independently based on original stable `cf420d9`; [current acceptance](README.md#continuation-qualification--2026-10-18) binds actual suites, observed matrices and limits. Fork merge `36cd87f` integrates these tips while preserving Main's existing equivalent implementation and all cross-group fixtures; code/build trees are unchanged from freshly tested starting `ed418c6`. Earlier dated sections below retain historical heads/counts, not remaining work.
+
+The original D failure has controlled fixture diagnosis/corrections, independently rechecked against source and red/mutation/fixed artifacts. No unexplained green rerun is treated as repair. E/F are already implemented with existing open PRs; no duplicate implementation or new publication occurs. Current external work is review of the four open PRs and separately selected publication for another prepared group; B reopen/replacement, upstream merges and releases still require explicit authorization. Preserve all branches, useful artifacts and original evidence.
+
 ## Discovery preparation update — 2026-10-13
 
 D `b8ee79511e2fa41ee02651dad83d50e008f9f680` is refreshed and independently reviewed against original `cf420d97700463c56adc31408510e8336e99e51c`: shared SDK consistency, full TXT notification, helper TXT-key semantics/LF, joined fixture cleanup and actual WPF dispatcher coverage are qualified. Fork Main `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` integrates it. [D acceptance](GROUP-D-ACCEPTANCE.md) binds 303 Core on each SDK, six observed WPF cells × 580 and source-exact hosted checks; [draft index](upstream-drafts/README.md) holds unpublished issue/PR drafts. Earlier dated plans/status below retain their original snapshots. No new upstream publication or release is authorized/performed.

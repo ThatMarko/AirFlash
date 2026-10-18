@@ -1,5 +1,13 @@
 # Current fork Main acceptance — 2026-10-12
 
+## Continuation verification — 2026-10-18
+
+The older unversioned continuation prompt was superseded by current source and the dated October 18 handoff: all seventeen reports were already implemented. Live original stable remains `cf420d97700463c56adc31408510e8336e99e51c`; starting fork Main/origin are `ed418c6b1409938b22de845c37447f43c879d688`, with code equal to `c5ddb89`. Windows boot on October 16 satisfies the old execution gate. All 29 local branches and 21 clean worktrees were preserved; no release/tag operation or upstream publication is authorized by this continuation.
+
+Fresh starting-Main SDK 10.0.402 forced locked restore, consumed ILLink analyzer/unchanged lock checks, warning-free Release build, **113 focused discovery / 677 owning Core**, **138 Python**, and one isolated full **1,075-assertion zh-TW/zh-CN WPF** run pass. Independent audit also rereads the original D failed log, controlled old-source failure and mutation/corrected results. The original fake self-join and later premature cancellation count have explained fixture corrections; a later green alone is not the repair evidence and no production deadlock is claimed. D remains unchanged at `b8ee795`, with its historical standalone qualification preserved below.
+
+The active preparation changes and final source/results are recorded in [B](GROUP-B-ACCEPTANCE.md), [G](GROUP-G-ACCEPTANCE.md), [H](GROUP-H-ACCEPTANCE.md) and the [SDK supplement](SDK-LOCK-ACCEPTANCE.md). Raw logs, red controls, source/binary bindings and fresh reports use the new ignored `artifacts/implementation-2026-10-18` folder. Native tooling remains unavailable locally; exact-source hosted native results are identified separately. No personal configuration, credentials, receiver, capture, endpoint mutation or local MSI installation is used.
+
 ## Standalone preparation update — 2026-10-13
 
 Current integrated code is `892a458078930b7b25d973d773e0a93e356ef36b`; later documentation-only heads retain its code trees. [Draft/branch index](upstream-drafts/README.md) records the eight independently based, clean, pushed branches, every outgoing-commit privacy check and final peer review. Original stable remains `cf420d97700463c56adc31408510e8336e99e51c`. A/scroll are already merged; B reuses issue #14 and excludes PR #19's integrated overlap. No upstream publishing/reopen/merge or release is authorized/performed.

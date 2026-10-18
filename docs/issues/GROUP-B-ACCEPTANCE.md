@@ -1,5 +1,13 @@
 # Group B acceptance — session ownership and receiver selection
 
+## Standalone SDK preparation — 2026-10-18
+
+Prepared `codex/fix-session-lifecycle` is now `002c4e133e43f8332015b4bde44d7a75660eedcc`, based on original stable `cf420d97700463c56adc31408510e8336e99e51c`. The unchanged previous head `442e8d8` reproduces SDK 10.0.402 locked-restore NU1004. The shared two-file dependency/CI correction preserves the existing ILLink 10.0.12 lock and actual analyzer consumption, SDK roll-forward, host selection and publishing flags; no runtime source changes.
+
+Fresh isolated 10.0.402 verification passes forced locked restore, a Release solution build with zero warnings/errors, **166 focused / 304 owning Core tests** without skips, and **764 WPF assertions each** for en-US/en-US and zh-TW/zh-CN catalog/formatting cells. Both reports verify observed cultures and exact tray catalog restoration. The earlier six-cell qualification remains bound to its original source/SDK; this supplement does not relabel it. Three lock hashes remain unchanged. Independent final source/evidence review is clear; the branch is normally pushed to origin and complete diff/all ten outgoing commit trees exclude private planning. Evidence is under ignored `artifacts/implementation-2026-10-18/b-sdk`.
+
+Canonical issue #14 remains open and PR #15 remains closed without merge at its frozen old head. No reopen/replacement, upstream publication or release occurred. Fork Main already contains the equivalent dependency correction; updated branch ancestry and diagnostic preparation are recorded separately from upstream integration.
+
 ## Current Main integration — 2026-10-12
 
 Reviewed fork runtime baseline is `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, with source trees equal to qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`. The feature head below is an ancestor of Main and is pushed to origin. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`. Public complete diffs and every outgoing commit exclude private planning. This is fork implementation acceptance, not upstream integration. [Combined Main acceptance](CONTINUATION-ACCEPTANCE.md) records 667 Core/124 Python/native/package/UI qualification and limits.

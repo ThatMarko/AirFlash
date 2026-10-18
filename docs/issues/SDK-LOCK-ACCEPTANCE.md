@@ -1,5 +1,11 @@
 # SDK and locked analyzer dependency consistency
 
+## Remaining standalone preparation completed — 2026-10-18
+
+B `002c4e133e43f8332015b4bde44d7a75660eedcc`, G `f3afb9a3ba301205a261afbb72c0074722a8adb0` and H `1396c55eb6cd4c314a95a94a94adb213e381755e` now include the same public two-file correction, without changing SDK roll-forward, host precedence, lock contents, analyzer consumption or publishing flags. Unchanged B `442e8d8` reproduces NU1004 on 10.0.402; fixed B passes forced locked restore, zero-warning/error build and **304 Core / 166 focused**, plus two observed full WPF cells ×764. G passes **287 / 85** and H **233 / 43** independently on **both 10.0.401 and 10.0.402**, with unchanged locks and actual ILLink 10.0.12 analyzer items. Their additional diagnostic-only corrections supply six observed full cells ×630/×603 and exact catalog restoration; no mute/accounting runtime change is introduced. [B](GROUP-B-ACCEPTANCE.md), [G](GROUP-G-ACCEPTANCE.md) and [H](GROUP-H-ACCEPTANCE.md) retain raw failure/fix/source/host evidence.
+
+Fresh starting Main `ed418c6` also passes 677 Core / 113 focused discovery, a warning-free 10.0.402 build and unchanged lock/analyzer checks. Integration merges include all new tips with code/build trees identical to that already-qualified source. All branch pushes are normal own-fork updates; no private planning enters their full diffs or any outgoing commit tree, and no upstream publication/reopen/merge or release occurs. Earlier references to B/G/H awaiting SDK preparation below are historical and superseded by this supplement.
+
 ## Later D preparation — 2026-10-13
 
 Standalone D `b8ee79511e2fa41ee02651dad83d50e008f9f680` now includes SDK consistency `03432df` and passes 303 Core / 113 focused on both SDKs; [D acceptance](GROUP-D-ACCEPTANCE.md) records its additional metadata/fixture corrections, six actual culture cells and hosted source qualification. Main `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` contains it and passes 677 Core locally and in complete SDK 10.0.402 hosted/package validation; the linked D acceptance binds its actual UI/MSI results separately. Thus the remaining branches awaiting SDK 10.0.402 preparation are B/G/H; the D limitation recorded at the earlier repair completion below is historical, not a current blocker.
