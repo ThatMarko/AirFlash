@@ -101,7 +101,7 @@ internal static class UiSmoke
             {
                 var initialIdentity = tray.Identity.ToString();
                 await VerifyTrayLifecycleAsync(tray, app, trayGuid, () => menuOpened, () => quitRequestedFromTray, checks, windowIdentityForVerification);
-                App.WriteOutput(args, new { ok = true, checks, tray_guid = trayGuid, identity = initialIdentity, window_identity_for_verification = windowIdentityForVerification, path = Environment.ProcessPath, note = "Isolated tray verification; engine/audio/discovery/autostart services are simulated." });
+                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name, tray_guid = trayGuid, identity = initialIdentity, window_identity_for_verification = windowIdentityForVerification, path = Environment.ProcessPath, note = "Isolated tray verification; engine/audio/discovery/autostart services are simulated." });
                 return 0;
             }
             var mode = Descendants(panel).OfType<ComboBox>().Single(); mode.IsDropDownOpen = true; await Pump();
@@ -248,10 +248,10 @@ internal static class UiSmoke
             await VerifyStartupFailureAsync(checks, directory);
             await UiScrolling.RunAsync(checks, directory);
             await VerifyTrayLifecycleAsync(tray, app, trayGuid, () => menuOpened, () => quitRequestedFromTray, checks);
-            App.WriteOutput(args, new { ok = true, checks, icon_environment = iconEnvironment, note = "All engine/audio/discovery/autostart services are simulated. DPI renders do not replace physical multimonitor QA." });
+            App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name, icon_environment = iconEnvironment, note = "All engine/audio/discovery/autostart services are simulated. DPI renders do not replace physical multimonitor QA." });
             return 0;
         }
-        catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name, error = error.ToString() }); return 1; }
         finally { settings?.Close(); panel.ShutdownPanel(); }
     }
     private static async Task VerifyStartupFailureAsync(List<string> checks, string directory)
@@ -328,6 +328,8 @@ internal static class UiSmoke
         tray.Dispose();
         Check(!tray.IsRegistered && !tray.TryGetRectangle(out _), "disposed tray stops registration", checks);
         Check(!TrayRectangleExists(guid, tray.Identity, window), "disposed tray is removed from shell", checks);
+        var originalLanguage = CultureInfo.CurrentUICulture.Name;
+        var originalLabel = L.Get("Settings");
         var originallyChinese = L.IsChinese;
         try
         {
@@ -341,7 +343,9 @@ internal static class UiSmoke
             }
             finally { rebuilt.Dispose(); replacement.ShutdownPanel(); }
         }
-        finally { L.Initialize([originallyChinese ? "zh-CN" : "en-US"]); }
+        finally { L.Initialize([originalLanguage]); }
+        Check(CultureInfo.CurrentUICulture.Name == originalLanguage && L.Get("Settings") == originalLabel,
+            "tray language verification restores the exact original catalog", checks);
     }
     [StructLayout(LayoutKind.Sequential)] private struct TrayIdentifier { public uint Size; public IntPtr Window; public uint Id; public Guid Guid; }
     private static bool TrayRectangleExists(Guid guid, TrayIdentity identity, IntPtr window)
