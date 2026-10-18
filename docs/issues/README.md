@@ -1,5 +1,11 @@
 # AirFlash implementation backlog
 
+## Comprehensive recheck — 2026-10-18
+
+[The source/fixture/publication audit](COMPREHENSIVE-VERIFICATION-2026-10-18.md) found and repaired a remaining B shutdown gap that earlier direct-VM-disposal tests missed. Actual shell Quit now closes admission before waiting for Settings Apply or engine-probe cleanup. Accepted saves persist; owned Stop remains usable and publishes Idle; earlier shutdown-stage failures cannot skip VM cleanup. B `d7782a3` passes 304 Core on both SDKs, 51 focused shell assertions each, six observed full WPF cells ×810 on SDK 10.0.402 and another full 810 on 10.0.401. Independent final and integration reviews are clear. Fork runtime merge `a1182b0` passes 677 Core / 113 focused discovery on both SDKs and 1,121 full WPF assertions locally. The report binds current hosted qualification separately from the successful pre-correction baseline.
+
+All seventeen report contracts were rechecked; the new B evidence supersedes earlier blanket shutdown acceptance. D's old intermittent failure retains controlled fixture/red/mutation diagnosis, rather than an unexplained rerun. Stale C/E/F publication prose and D lifetime overclaims are corrected. Existing PRs #21/#23/#25/#27 remain open with successful CI and no submitted maintainer reviews; B #15 remains closed/unmerged. Upstream issues #16 and #28 lack evidence to assign a cause. No upstream publication, reopen, merge, release or real-device test occurred. Earlier dated heads/counts below remain historical.
+
 ## Continuation qualification — 2026-10-18
 
 All seventeen reports were already implemented before this continuation. The old unversioned handoff's reboot/E–H/D to-do state is historical. Boot on October 16 satisfies the execution gate; upstream stable remains `cf420d9`. Fresh starting Main `ed418c6` passes **677 Core / 113 focused discovery, 138 Python**, a warning-free SDK 10.0.402 Release build and one observed **1,075-assertion zh-TW/zh-CN WPF** run. Independent review confirms the explained D fixture corrections using retained red/mutation/fixed evidence; no production deadlock is claimed.

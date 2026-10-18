@@ -4,6 +4,10 @@
 
 **Group:** E — Authentication inputs. **Feature head:** `0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a`. [Plan](IMPLEMENTATION_PLAN.md#issue-08), [group acceptance](GROUP-E-ACCEPTANCE.md), [authentication map](../analysis/auth.md).
 
+## Publication status — 2026-10-18
+
+Published with credential lookup classification as [issue #24](https://github.com/Ding-Kyoma/AirFlash/issues/24) and [PR #25](https://github.com/Ding-Kyoma/AirFlash/pull/25). Both remain open; the PR is unmerged at current standalone head `234167b31092339b2e909bfa2cbee5748b6006e1`. Earlier feature/main hashes, source links and verification counts below retain their recorded provenance; [E acceptance](GROUP-E-ACCEPTANCE.md) records later qualification separately.
+
 ## Current behavior and source trace
 
 [PairingPin.Normalize](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/PairingPin.cs#L3) removes permitted ASCII dashes, requires 4–8 ASCII digits and enforces the 16-character editing bound. [PinDialog](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.App/Ui/PinDialog.cs#L10) uses it for both button enablement and returned submission; typing filters characters and paste cannot bypass submission validation.
@@ -22,7 +26,7 @@ Exact-main CI passed 667 Core, 124 Python and 69 native tests (recording-device 
 
 ## Remaining work
 
-Upstream publication remains separately authorized. Real receiver PIN policy/success is unqualified; normalizing a valid representation does not guarantee authentication.
+The published upstream PR awaits maintainer review and integration. Real receiver PIN policy/success is unqualified; normalizing a valid representation does not guarantee authentication.
 
 ## Historical finding
 

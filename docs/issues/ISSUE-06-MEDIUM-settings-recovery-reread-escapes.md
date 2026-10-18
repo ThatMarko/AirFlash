@@ -7,6 +7,10 @@
 - **Plan / evidence**: [ISSUE-06](IMPLEMENTATION_PLAN.md#issue-06), [C acceptance](GROUP-C-ACCEPTANCE.md), [current acceptance](CONTINUATION-ACCEPTANCE.md).
 - **Related**: [07 loaded validation](ISSUE-07-MEDIUM-invalid-loaded-settings-reach-runtime.md), [Settings](../analysis/settings.md).
 
+## Publication status — 2026-10-18
+
+Published as [issue #22](https://github.com/Ding-Kyoma/AirFlash/issues/22) and [PR #23](https://github.com/Ding-Kyoma/AirFlash/pull/23). Both remain open; the PR is unmerged at current standalone head `107c7dfcb192e8bc37648b9f324d2c030247f893`. Earlier feature/main hashes, source links and verification counts below retain their recorded provenance; [C acceptance](GROUP-C-ACCEPTANCE.md) records later qualification separately.
+
 ## 1. Current behavior
 
 [SettingsStore.Load](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/SettingsStore.cs) captures readable original bytes once under its guarded read, decodes BOMs compatibly and never rereads a failing path unguarded in recovery. Genuine initial absence differs from unreadable/uncertain presence. Both normal startup Loads share pending preservation; defaults/repeated Load/later disappearance cannot silently discharge an unreadable-original obligation.
@@ -36,4 +40,4 @@ C's narrower 129 focused/300 Core/build results and current integrated **667 Cor
 
 ## 5. Limits and publication
 
-Schema 2, supported extension fields and separate identity backup remain compatible. The store lock does not coordinate arbitrary external writers; ordinary save after valid Load does not inspect every later external schema edit. Replacement/backup is not physical power-loss qualification. C is integrated/pushed to the fork and remains a separate unpublished upstream package.
+Schema 2, supported extension fields and separate identity backup remain compatible. The store lock does not coordinate arbitrary external writers; ordinary save after valid Load does not inspect every later external schema edit. Replacement/backup is not physical power-loss qualification. C is integrated/pushed to the fork; its published upstream PR still awaits review and integration.

@@ -1,5 +1,11 @@
 # AirFlash completed implementation and publication plan
 
+## Comprehensive audit correction — 2026-10-18
+
+The original B shutdown contract was incomplete despite earlier direct-disposal acceptance: actual shell Quit left admission open during its preceding Settings/probe waits. [Current B acceptance](GROUP-B-ACCEPTANCE.md#comprehensive-audit-correction--2026-10-18) now records a failed unchanged-order control, correction `d7782a3`, both-SDK managed/focused verification and seven full standalone UI runs. Integration `a1182b0` preserves G/H behavior and adds the actual shared shell fixture to the full combined harness. [The comprehensive verification report](COMPREHENSIVE-VERIFICATION-2026-10-18.md) binds final source/results, all seventeen assertion owners, current issue/PR information and limits. This supersedes any earlier claim that the first shell-Quit await remained outside B's scope; it does not expand F into terminal handling inside an already open PIN prompt.
+
+Keep the four existing upstream PRs in their current review queue. B reopen/replacement, D/G/H publication, upstream merges and releases still require explicit authorization. No new implementation of already-completed E-H is needed; further work follows concrete contrary source or test evidence.
+
 ## Continuation preparation — 2026-10-18
 
 All reports were implemented in the starting fork. The remaining B/G/H standalone SDK preparation and G/H diagnostic culture/report/exact-catalog gaps are now repaired and independently reviewed. Prepared heads are B `002c4e1`, G `f3afb9a` and H `1396c55`, still independently based on original stable `cf420d9`; [current acceptance](README.md#continuation-qualification--2026-10-18) binds actual suites, observed matrices and limits. Fork merge `36cd87f` integrates these tips while preserving Main's existing equivalent implementation and all cross-group fixtures; code/build trees are unchanged from freshly tested starting `ed418c6`. Earlier dated sections below retain historical heads/counts, not remaining work.

@@ -4,6 +4,10 @@
 
 **Group:** F — JSONL control contracts. **Feature head:** `421e1ea8159803fbc339dff3782b1858e8a797d4`. [Plan](IMPLEMENTATION_PLAN.md#issue-14), [acceptance](GROUP-F-ACCEPTANCE.md), [EQ map](../analysis/equalizer.md).
 
+## Publication status — 2026-10-18
+
+Published with process-owned IPC routing as [issue #26](https://github.com/Ding-Kyoma/AirFlash/issues/26) and [PR #27](https://github.com/Ding-Kyoma/AirFlash/pull/27). Both remain open; the PR is unmerged at current standalone head `28cb83e55eda2e4b50847aafd783e75244697d23`. Earlier feature/main hashes, source links and verification counts below retain their recorded provenance; [F acceptance](GROUP-F-ACCEPTANCE.md) records later qualification separately.
+
 ## Current behavior and source trace
 
 [Control::set](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/equalizer.rs#L151) returns Accepted/Idempotent/Stale/Conflict plus retained sequence/Prepared. Replay identity is equality of **full Prepared**, including coefficients, gain, bypass and both headroom fields.
@@ -27,7 +31,7 @@ Exact-main CI passed 667 Core, 124 Python and 69 native tests (recording-device 
 
 ## Remaining work
 
-Upstream publication is separate. No acoustic mismatch, hardware cause, completed DSP/receiver response or arbitrary-input no-clipping claim is made.
+The published upstream PR awaits maintainer review and integration. No acoustic mismatch, hardware cause, completed DSP/receiver response or arbitrary-input no-clipping claim is made.
 
 ## Historical finding
 

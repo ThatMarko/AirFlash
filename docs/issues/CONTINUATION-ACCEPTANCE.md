@@ -1,5 +1,9 @@
 # Current fork Main acceptance — 2026-10-12
 
+## Comprehensive audit correction — 2026-10-18
+
+[The current comprehensive report](COMPREHENSIVE-VERIFICATION-2026-10-18.md) supersedes the earlier blanket shutdown acceptance below. A shared actual-shell fixture reproduced admission during Quit's pre-disposal waits; B `d7782a3` fixes it and fork runtime merge `a1182b0` integrates it. The report separately binds both-SDK Core/build checks, current WPF/native/package evidence, live issue/PR information, review and limits. Original dated receipts and branch heads below remain historical; they do not acquire the newly added 46 shell assertions.
+
 ## Continuation verification — 2026-10-18
 
 The older unversioned continuation prompt was superseded by current source and the dated October 18 handoff: all seventeen reports were already implemented. Live original stable remains `cf420d97700463c56adc31408510e8336e99e51c`; starting fork Main/origin are `ed418c6b1409938b22de845c37447f43c879d688`, with code equal to `c5ddb89`. Windows boot on October 16 satisfies the old execution gate. All 29 local branches and 21 clean worktrees were preserved; no release/tag operation or upstream publication is authorized by this continuation.

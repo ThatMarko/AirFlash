@@ -1,5 +1,9 @@
 # AirFlash on the fork's main branch
 
+## Comprehensive recheck — 2026-10-18
+
+The maps below retain their pinned historical source. [Current verification](../issues/COMPREHENSIVE-VERIFICATION-2026-10-18.md) traces all seventeen report contracts and public issue/PR state at runtime merge `a1182b0`. The [desktop shell](desktop-shell.md#shutdown-correction--2026-10-18) and [verification](verification.md#comprehensive-audit-supplement--2026-10-18) supplements record B's newly reproduced/repaired first-Quit-await admission gap and actual shared-path assertions. Browse lifetime prose distinguishes tracked calls/managed consumer sections from unobserved native return stacks. Other historical source/measurement limits remain explicit.
+
 ## Current source and verification
 
 This map reviews fork **`main` at `06237873dcb6394eb35e97a017c536843bd7743d`**, on **2026-10-12**. Its desktop, native engine, scripts, installer, tests and workflow trees match runtime `8989b3609dd1294f4d1d6eb1502f345cc22bc382` and qualified code `4ae1db4f01dcf7857482dd136ea8d9dffa3aa8a1`. Documentation-only updates do not change that runtime baseline. Every original analysis file receives a new source review; three additional maps cover previously scattered shell, build and verification behavior.

@@ -4,6 +4,10 @@
 
 **Group:** F — JSONL control contracts. **Feature head:** `421e1ea8159803fbc339dff3782b1858e8a797d4`. [Plan](IMPLEMENTATION_PLAN.md#issue-12), [acceptance](GROUP-F-ACCEPTANCE.md), [IPC map](../analysis/credentials-and-ipc.md), [failures](../analysis/failures.md).
 
+## Publication status — 2026-10-18
+
+Published with EQ preparation replies as [issue #26](https://github.com/Ding-Kyoma/AirFlash/issues/26) and [PR #27](https://github.com/Ding-Kyoma/AirFlash/pull/27). Both remain open; the PR is unmerged at current standalone head `28cb83e55eda2e4b50847aafd783e75244697d23`. Earlier feature/main hashes, source links and verification counts below retain their recorded provenance; [F acceptance](GROUP-F-ACCEPTANCE.md) records later qualification separately.
+
 ## Current behavior and source trace
 
 [native envelope](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/main.rs#L22) stamps rejected malformed/oversized command envelopes as v1 error/command_error/ipc/retryable false/null host/explicit empty id and session_id. [IsProcessRejection](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/EngineEvents.cs#L8) recognizes only that exact shape, before [ordinary session filtering](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/SessionController.cs#L625) and in [startup hello](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/desktop/AirFlash.Core/EngineHandshake.cs#L6).
@@ -25,7 +29,7 @@ Exact-main CI passed 667 Core, 124 Python and 69 native tests (recording-device 
 
 ## Remaining work
 
-Upstream publication remains separately authorized. Worker liveness and generalized bounded desktop reads remain outside the implemented group.
+The published upstream PR awaits maintainer review and integration. Worker liveness and generalized bounded desktop reads remain outside the implemented group.
 
 ## Historical finding
 

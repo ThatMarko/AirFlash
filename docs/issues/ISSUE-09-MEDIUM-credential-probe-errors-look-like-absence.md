@@ -4,6 +4,10 @@
 
 **Group:** E — Authentication inputs. **Feature head:** `0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a`. [Plan](IMPLEMENTATION_PLAN.md#issue-09), [acceptance](GROUP-E-ACCEPTANCE.md), [credentials/IPC](../analysis/credentials-and-ipc.md), [authentication](../analysis/auth.md).
 
+## Publication status — 2026-10-18
+
+Published with PIN normalization as [issue #24](https://github.com/Ding-Kyoma/AirFlash/issues/24) and [PR #25](https://github.com/Ding-Kyoma/AirFlash/pull/25). Both remain open; the PR is unmerged at current standalone head `234167b31092339b2e909bfa2cbee5748b6006e1`. Earlier feature/main hashes, source links and verification counts below retain their recorded provenance; [E acceptance](GROUP-E-ACCEPTANCE.md) records later qualification separately.
+
 ## Current behavior and source trace
 
 [load/load_with](https://github.com/ThatMarko/AirFlash/blob/8989b3609dd1294f4d1d6eb1502f345cc22bc382/native/airflash-engine/src/credentials.rs#L106) opens the accessory-keyed file once and maps **only initial open NotFound** to absence. It reads the opened object with a 16 KiB+1 bound; later NotFound/read/permission/I/O, oversize, magic, DPAPI, JSON and empty-identity failures remain errors.
@@ -25,7 +29,7 @@ Exact-main CI passed 667 Core, 124 Python and 69 native tests (recording-device 
 
 ## Remaining work
 
-Upstream publication and real-device qualification are separate. No plaintext backup, catalog-key migration or verify-to-transient fallback was introduced.
+The published upstream PR awaits maintainer review and integration; real-device qualification remains separate. No plaintext backup, catalog-key migration or verify-to-transient fallback was introduced.
 
 ## Historical finding
 
