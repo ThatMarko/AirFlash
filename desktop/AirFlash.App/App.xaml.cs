@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Windows;
 using AirFlash.App.Services;
@@ -9,6 +10,7 @@ namespace AirFlash.App;
 
 public partial class App : Application
 {
+    private readonly Exception? _verificationCultureError;
     public App()
     {
         DispatcherUnhandledException += (_, eventArgs) =>
@@ -29,6 +31,22 @@ public partial class App : Application
                 Shutdown(1);
             }
         };
+        var args = Environment.GetCommandLineArgs();
+        if (!args.Any(a => a is "--ui-smoke" or "--tray-smoke" or "--ui-perf")) return;
+        try
+        {
+            var cultureIndex = Array.IndexOf(args, "--ui-culture");
+            if (cultureIndex < 0) return;
+            if (cultureIndex + 1 >= args.Length) throw new ArgumentException("--ui-culture requires a culture name.");
+            var culture = CultureInfo.GetCultureInfo(args[cultureIndex + 1]);
+            // Set before Run and async startup capture their dispatcher execution contexts.
+            // These verification cultures affect this process, never Windows regional settings.
+            CultureInfo.CurrentCulture = culture;
+            CultureInfo.CurrentUICulture = culture;
+            CultureInfo.DefaultThreadCurrentCulture = culture;
+            CultureInfo.DefaultThreadCurrentUICulture = culture;
+        }
+        catch (Exception error) { _verificationCultureError = error; }
     }
     private SingleInstance? _instance;
     private ThemeService? _theme;
@@ -49,6 +67,11 @@ public partial class App : Application
             ? new[] { args.Args[languageIndex + 1] } : null;
         try
         {
+            if (_verificationCultureError is { } cultureError)
+            {
+                WriteOutput(args.Args, new { ok = false, error = cultureError.ToString() });
+                Shutdown(1); return;
+            }
             L.Initialize(smokeLanguage);
             base.OnStartup(args);
             Resources["LatencyChoices"] = Choices.Latencies;
