@@ -154,7 +154,7 @@ public sealed class AppSettings : ObservableObject
         var members = new HashSet<string>(StringComparer.Ordinal);
         foreach (var group in SoftwareGroups)
         {
-            if (!group.Id.StartsWith("software:", StringComparison.Ordinal) || !groupIds.Add(group.Id) || string.IsNullOrWhiteSpace(group.Name) || !SampleRates.Contains(group.SampleRate)) return L.Get("Invalid software stereo group.");
+            if (string.IsNullOrWhiteSpace(group.Id) || !group.Id.StartsWith("software:", StringComparison.Ordinal) || !groupIds.Add(group.Id) || string.IsNullOrWhiteSpace(group.Name) || !SampleRates.Contains(group.SampleRate)) return L.Get("Invalid software stereo group.");
             foreach (var id in new[] { group.LeftId, group.RightId })
                 if (string.IsNullOrWhiteSpace(id) || id.StartsWith("software:", StringComparison.Ordinal) || id.StartsWith("stereo:", StringComparison.Ordinal) || !members.Add(ReceiverIdentity.Resolve(id, ReceiverAliases))) return L.Get("Stereo groups require two distinct independent receivers.");
             if (group.LeftOffsetMs is < -500 or > 500 || group.RightOffsetMs is < -500 or > 500) return L.Get("Synchronization offset must be between -500 and 500 ms.");
