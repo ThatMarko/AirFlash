@@ -87,10 +87,11 @@ internal static class UiPairing
             foreach (var password in new[] { " ", "\t", " \t ", "\u00a0", "  raw-pässword-12-34 \t",
                 new string('界', 85), new string('é', 128), string.Concat(Enumerable.Repeat("😀", 64)) })
                 await CaseAsync(password, password, checks, password: true);
-            // PasswordBox.Password reads a null-terminated BSTR. Its getter
-            // returns this prefix after assignment, so validate and submit the
-            // actual control value; raw NUL input remains invalid in the helper.
-            await CaseAsync("before\0after", "before", checks, password: true, inserted: "before");
+            // The plaintext getter loses the NUL suffix, while SecurePassword
+            // retains all assigned units. Neither enablement nor a forced
+            // submission may silently authenticate with that shortened secret.
+            await CaseAsync("before\0after", null, checks, password: true, inserted: "before");
+            await CaseAsync("before\0after", null, checks, password: true, inserted: "before", forceSubmit: true);
             foreach (var password in new[] { "", "before\rafter", "before\nafter", "\ud800", "\udc00" })
                 await CaseAsync(password, null, checks, password: true);
             await CaseAsync(new string('x', 128), new string('x', 128), checks, password: true, input: InputMode.Typed);
@@ -168,13 +169,17 @@ internal static class UiPairing
                     }
                     else box.Password = text;
                     var actual = box.Password;
+                    using var secure = box.SecurePassword;
                     // PasswordBox can transform assigned text. Record only
                     // shape metadata for these synthetic values when an
                     // assertion fails; never infer its returned text from the
                     // original assignment or change the expected contract.
-                    passwordObservation = $"assigned[{PasswordShape(text)}]; control[{PasswordShape(actual)}]; retained={actual == text}; enabled={pair.IsEnabled}; expected_enabled={expected is not null}";
+                    passwordObservation = $"assigned[{PasswordShape(text)}]; control[{PasswordShape(actual)}]; secure_units={secure.Length}; retained={actual == text}; enabled={pair.IsEnabled}; expected_enabled={expected is not null}";
                     if (input == InputMode.Assigned)
+                    {
                         Check(actual == (inserted ?? text), label + " actual password control value matches its explicit assignment expectation", checks, passwordObservation);
+                        Check(secure.Length == text.Length, label + " secure password copy retains every assigned UTF-16 unit", checks, passwordObservation);
+                    }
                 }
                 else
                 {
