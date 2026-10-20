@@ -37,6 +37,9 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private string? _defaultEndpoint;
     private long _editRevision;
     private long _automaticEligibilityRevision;
+    private bool _controlledScheduling;
+    internal Func<Task>? BeforeAutomaticAdmission { get; set; }
+    internal void UseControlledScheduling() { _controlledScheduling = true; _volumeTimer.Stop(); _autoTimer.Stop(); }
     private Task _startup = Task.CompletedTask;
     private Task? _disposeTask;
     private bool _monitorVisible;
@@ -314,7 +317,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
                 if (_closing || _resetting) return;
                 await ReconcileDiscoveryAsync(list);
             }
-            finally { _settingsGate.Release(); if (_volumeDirty && !_closing) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
+            finally { _settingsGate.Release(); if (_volumeDirty && !_closing && !_controlledScheduling) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
         }
         catch (Exception error) { ShowError(error); }
     }
@@ -506,7 +509,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     }
     private Receiver ResolvePlayback(Receiver receiver) => ReceiverSelection.ResolvePlayback(receiver, AllReceivers)
         ?? throw new InvalidOperationException(L.Get("The receiver selection is ambiguous."));
-    private void ScheduleAutoConnect() { _autoTimer.Stop(); if (!_closing && !_resetting) _autoTimer.Start(); }
+    private void ScheduleAutoConnect() { _autoTimer.Stop(); if (!_closing && !_resetting && !_controlledScheduling) _autoTimer.Start(); }
     private async Task SaveSettingsAsync(AppSettings settings, bool? identityBackup = null)
     {
         var warning = (_store as SettingsStore)?.LoadWarning;
@@ -522,6 +525,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         var selected = ReceiverSelection.SelectAutoConnect(AllReceivers, _settings, _autoAttempted);
         if (selected is null) return;
         await FlushVolumeAsync();
+        if (BeforeAutomaticAdmission is { } beforeAdmission) await beforeAdmission();
         await _settingsGate.WaitAsync();
         try
         {
@@ -555,7 +559,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         else await Session.SetDeviceVolumeAsync(id, 0);
     }
     public Task SetReceiverVolumeAsync(string id, int value) => Session.SetDeviceVolumeAsync(id, value);
-    private void VolumeChanged() { Interlocked.Increment(ref _automaticEligibilityRevision); _editRevision++; _volumeDirty = true; _volumeTimer.Stop(); if (!_closing) _volumeTimer.Start(); }
+    private void VolumeChanged() { Interlocked.Increment(ref _automaticEligibilityRevision); _editRevision++; _volumeDirty = true; _volumeTimer.Stop(); if (!_closing && !_controlledScheduling) _volumeTimer.Start(); }
     public async Task FlushVolumeAsync()
     {
         _volumeTimer.Stop();
@@ -573,7 +577,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             if (revision == _editRevision) _volumeDirty = false;
             if (!_closing) await Session.TryUpdateSettingsAsync(current, owner);
         }
-        finally { _settingsGate.Release(); if (saved && _volumeDirty && !_closing) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
+        finally { _settingsGate.Release(); if (saved && _volumeDirty && !_closing && !_controlledScheduling) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
     }
     public async Task<SettingsApplyResult> ApplyAsync(AppSettings baseline, AppSettings draft, Action<string>? progress = null)
     {
@@ -661,7 +665,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             ScheduleAutoConnect();
             return new(merged, audioError);
         }
-        finally { _settingsGate.Release(); if (_volumeDirty && !_closing) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
+        finally { _settingsGate.Release(); if (_volumeDirty && !_closing && !_controlledScheduling) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
     }
     public void ShowError(Exception error) { AppPaths.Log(error.ToString()); Notice = error.Message; }
     public async Task ResetAsync()
