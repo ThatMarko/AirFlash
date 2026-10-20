@@ -1,7 +1,8 @@
 # Discovery CPU and resource verification
 
 AirFlash browses `_airplay._tcp.local` and `_raop._tcp.local` only while a receiver
-list is visible, or during the ten-second automatic-connection startup window.
+list is visible, during the ten-second automatic-connection startup window, or
+while an active software stereo group needs topology conflict detection.
 It admits one current resolve attempt per service instance and stops every browse
 and resolve attempt on suspension. Device removals and PTR TTL expiry retire
 individual resolvers. Cached records survive suspension and
@@ -12,6 +13,13 @@ retire that exact request and retry with bounded backoff while its advertisement
 remains valid. A successful copied result schedules a fresh query after twenty
 seconds; the existing catalog stays visible during refresh or retry until its PTR
 expires. Native calls and helper startup run off the UI dispatcher.
+
+Copied results retain every TXT value and case-insensitive key lookup. A change
+to any TXT field publishes an updated catalog, including `features`/`ft`, `pw`,
+`osvers` and `pgid`, which affect receiver profiles, password requirements and
+clock-following capability. Obsolete request tokens and epochs cannot replace
+newer metadata. These announcements describe availability and future connection
+options; they do not prove an existing transport has failed.
 
 Cancellation success does not establish callback quiescence. Browse cancellation
 has a [documented final status 1223](https://learn.microsoft.com/windows/win32/api/windns/nf-windns-dnsservicebrowsecancel);

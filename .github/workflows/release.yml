@@ -43,13 +43,12 @@ jobs:
           NEW_RELEASE_VERSION: ${{ inputs.version }}
         run: |
           git checkout -B $env:GITHUB_REF_NAME
-          if ($env:NEW_RELEASE_VERSION -match '^([0-9]+\.[0-9]+\.[0-9]+)\.[0-9]+$') {
-            Write-Host "Normalizing four-part version '$env:NEW_RELEASE_VERSION' to '$($Matches[1])'."
-            $env:NEW_RELEASE_VERSION = $Matches[1]
-          }
           . ./scripts/release-version.ps1
           $version = Reserve-ReleaseVersion (Get-Location).Path '' $env:RELEASE_CHANNEL -NewVersion $env:NEW_RELEASE_VERSION
           "version=$version" >> $env:GITHUB_OUTPUT
+          . ./scripts/build-package.ps1
+          $artifactVersion = Get-AirFlashReleaseArtifactVersion -Version $version -ReleaseChannel $env:RELEASE_CHANNEL
+          "artifact_version=$artifactVersion" >> $env:GITHUB_OUTPUT
       - name: Verify generated icons
         shell: pwsh
         run: pwsh -NoProfile -STA -File scripts/generate-icons.ps1 -Check
@@ -77,8 +76,8 @@ jobs:
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          ./scripts/build.ps1 -ReservedVersion $env:RELEASE_VERSION -ReleaseChannel $env:RELEASE_CHANNEL
-          ./scripts/verify-release.ps1 -Version $env:RELEASE_VERSION
+          ./scripts/build-release.ps1 -ReservedVersion $env:RELEASE_VERSION -ReleaseChannel $env:RELEASE_CHANNEL
+          ./scripts/verify-release.ps1 -Version $env:RELEASE_VERSION -ReleaseChannel $env:RELEASE_CHANNEL
       - name: Installer lifecycle in disposable runner
         shell: pwsh
         env:
@@ -123,7 +122,7 @@ jobs:
           name: airflash-preview-${{ steps.version.outputs.version }}-${{ github.sha }}
           path: |
             dist/AirFlash.exe
-            dist/AirFlash-${{ steps.version.outputs.version }}.msi
+            dist/AirFlash-${{ steps.version.outputs.artifact_version }}.msi
             dist/SHA256SUMS.txt
           retention-days: 14
       - name: Preserve failure diagnostics

@@ -1,7 +1,5 @@
-using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
-using System.Threading.Channels;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -22,8 +20,8 @@ internal static class UiSettingsRecovery
         foreach (var (name, invalid) in new[]
         {
             ("null-manual", "\"manual_receivers\":[null]"),
-            ("invalid-rate", "\"stream_sample_rate\":\"invalid\""),
-            ("null-rate", "\"stream_sample_rate\":null")
+            ("invalid-rate", "\"receivers\":{\"fixture\":{\"sample_rate\":\"invalid\"}}"),
+            ("numeric-rate", "\"receivers\":{\"fixture\":{\"sample_rate\":44100}}")
         })
         {
             var original = Encoding.UTF8.GetBytes("{\"schema_version\":2,\"auto_connect_on_discover\":true,\"start_at_login\":true,\"mute_while_streaming\":true," + invalid + "}");
@@ -33,13 +31,11 @@ internal static class UiSettingsRecovery
         await VerifyReadableRecoveryAsync("malformed-utf16-bom", malformed, checks, fixtures);
         await VerifyLockedRecoveryAsync(checks, fixtures);
         await VerifyCompatibleSettingsAsync(checks, fixtures);
-        await VerifyAutomaticRecoveryOwnershipAsync(checks, fixtures);
-        await VerifyDeferredFailureNoticeAsync(checks, fixtures);
         VerifyFutureSchema(checks, fixtures);
         File.WriteAllText(Path.Combine(directory, "settings-recovery-report.json"), JsonSerializer.Serialize(new
         {
             ok = true,
-            cases = new[] { "null-manual", "invalid-rate", "null-rate", "malformed-utf16-bom", "locked-double-load-save-retry", "legacy-compatible-offline-interface", "automatic-recovery-lock-and-new-intent", "deferred-endpoint-error-notice-precedence", "future-schema" },
+            cases = new[] { "null-manual", "invalid-rate", "numeric-rate", "malformed-utf16-bom", "locked-double-load-save-retry", "legacy-compatible-offline-interface", "future-schema" },
             scope = "Synthetic files, concrete SettingsStore, the two production Load calls, and mock WPF startup. No production configuration, registry, discovery, audio, native engine, or receivers are used. Normal production startup's read-only native hello is outside this fixture."
         }, AppSettings.JsonOptions));
     }
@@ -56,7 +52,7 @@ internal static class UiSettingsRecovery
         var panel = new ControlPanel(app);
         try
         {
-            Check(app.Settings.Validate() is null && app.Settings.ManualReceivers.Count == 0 && app.Settings.StreamSampleRate == "44100", name + ": second constructor load cannot expose invalid manual entries or rates", checks);
+            Check(app.Settings.Validate() is null && app.Settings.ManualReceivers.Count == 0 && app.Settings.Receivers.Count == 0, name + ": second constructor load cannot expose invalid manual entries or rates", checks);
             app.Start(); await app.Startup.WaitAsync(TimeSpan.FromSeconds(5));
             Check(discovery.StartCount == 0, name + ": recovered defaults do not request a background startup browse", checks);
             panel.ShowPanel();
@@ -128,7 +124,7 @@ internal static class UiSettingsRecovery
              "equalizer":{"enabled":true,"preamp_db":-3.5,"band_gains_db":[7.5,0,0,0,0,0,0,0,0,0],"unknown_eq":{"keep":"eq"}}}
             """);
         File.WriteAllBytes(path, original); var store = new SettingsStore(path); var initial = store.Load();
-        Check(initial.Validate() is null && initial.SchemaVersion == 2 && initial.CustomBufferMs == 2000 && initial.StreamSampleRate == "48000", "valid settings: legacy migration validates while retaining supported playback values", checks);
+        Check(initial.Validate() is null && initial.SchemaVersion == 4 && initial.CustomBufferMs == 2000 && initial.Extra?.ContainsKey("stream_sample_rate") != true, "valid settings: legacy migration validates, retires the global rate, and clamps the buffer", checks);
         var discovery = new FixtureDiscovery(); var audio = new FixtureAudio(); var engine = new UiSmoke.MockFactory();
         await using var app = new AppViewModel(store, discovery, new FixtureAutostart(), audio, engine, Application.Current.Dispatcher);
         app.Start(); await app.Startup.WaitAsync(TimeSpan.FromSeconds(5)); await Pump();
@@ -145,123 +141,9 @@ internal static class UiSettingsRecovery
         Check(saved.Extra!["unknown_root"].GetProperty("keep").GetString() == "root" && saved.Equalizer.Extra!["unknown_eq"].GetProperty("keep").GetString() == "eq" && saved.Equalizer.BandGainsDb[0] == 7.5 && engine.CreatedCount == 0 && engine.Commands.IsEmpty && audio.MuteCount == 0, "valid settings: extensions and equalizer survive persistence without playback", checks);
     }
 
-    private static async Task VerifyAutomaticRecoveryOwnershipAsync(List<string> checks, string directory)
-    {
-        foreach (var action in new[] { "pair", "stop" })
-        {
-            var path = Path.Combine(directory, "automatic-recovery-" + action + ".json");
-            var original = Encoding.Unicode.GetPreamble().Concat(Encoding.Unicode.GetBytes("{ malformed automatic recovery source }")).ToArray();
-            var changed = Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes("{\"schema_version\":2,\"auto_connect_on_discover\":true,\"start_at_login\":true,\"master_volume\":73}")).ToArray();
-            File.WriteAllBytes(path, original); var store = new SettingsStore(path); _ = store.Load();
-            var discovery = new FixtureDiscovery(); var autostart = new FixtureAutostart(); var audio = new FixtureAudio(); var engine = new UiSmoke.MockFactory();
-            await using var app = new AppViewModel(store, discovery, autostart, audio, engine, Application.Current.Dispatcher);
-            app.UseControlledScheduling(); app.Start(); await app.Startup.WaitAsync(TimeSpan.FromSeconds(5));
-            Check(discovery.StartCount == 0 && engine.CreatedCount == 0 && audio.MuteCount == 0,
-                "cross-group recovery: safe defaults keep hidden startup browsing and playback paused: " + action, checks);
-            app.SetPanelVisible(true);
-            await Until(() => app.AllReceivers.Count == 1);
-            var receiver = app.AllReceivers.Single(); var before = app.Session.Capture();
-            // An explicit per-receiver edit makes this candidate eligible; rejected source flags never do.
-            app.Settings.Options(receiver.Id).AutoConnect = true; app.MasterVolume = 29;
-            File.WriteAllBytes(path, changed);
-            using (var locked = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
-            {
-                var failed = false;
-                try { await app.TryAutoConnectAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { failed = true; }
-                var captured = new byte[changed.Length]; locked.ReadExactly(captured);
-                Check(failed && engine.CreatedCount == 0 && app.Settings.LastReceiverId is null && app.Session.Capture().Owner == before.Owner && audio.MuteCount == 0,
-                    "cross-group recovery: locked automatic preflush fails before engine admission, mute, last-used or ownership changes: " + action, checks);
-                Check(captured.SequenceEqual(changed) && !File.Exists(path + ".pre-wpf.bak") && app.Notice == store.LoadWarning,
-                    "cross-group recovery: a changed and relocked source stays intact with the pending recovery notice: " + action, checks);
-            }
-            var admission = new Gate(); app.BeforeAutomaticAdmission = admission.WaitAsync;
-            var automatic = app.TryAutoConnectAsync();
-            try
-            {
-                await admission.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                var saved = new SettingsStore(path).Load();
-                Check(saved.MasterVolume == 29 && !saved.AutoConnectOnDiscover && !saved.StartAtLogin && saved.LastReceiverId is null && saved.ReadOptions(receiver.Id).AutoConnect == true,
-                    "cross-group recovery: retry persists the real edit without importing external startup flags or claiming an automatic attempt: " + action, checks);
-                var backups = Directory.GetFiles(directory, Path.GetFileName(path) + ".pre-wpf*.bak");
-                Check(backups.Length == 2 && backups.Any(backup => File.ReadAllBytes(backup).SequenceEqual(original)) && backups.Any(backup => File.ReadAllBytes(backup).SequenceEqual(changed)) && app.Notice == store.LoadWarning,
-                    "cross-group recovery: automatic preflush preserves both exact encodings and updates the completed recovery notice: " + action, checks);
-                if (action == "pair")
-                {
-                    await app.PairAsync(receiver, (_, cancellation) => Task.FromResult<string?>(null));
-                    await Until(() => app.Session.Snapshot.State == PlaybackState.Pairing && engine.Commands.Any(command => command.Text("command") == "pair"));
-                }
-                else await app.StopAsync();
-                var owned = app.Session.Capture(); var opens = engine.CreatedCount; var commands = engine.Commands.Count;
-                admission.Release.TrySetResult(); await automatic.WaitAsync(TimeSpan.FromSeconds(5)); await Pump();
-                Check(app.Session.Capture().Owner == owned.Owner && app.Session.Capture().AutomaticIntent == owned.AutomaticIntent && engine.CreatedCount == opens && engine.Commands.Count == commands && app.Settings.LastReceiverId is null && new SettingsStore(path).Load().LastReceiverId is null,
-                    "cross-group recovery: a delayed eligible automatic candidate cannot override newer " + action + " or mark it last used", checks);
-                app.BeforeAutomaticAdmission = null; await app.StopAsync(false);
-                if (action == "pair")
-                {
-                    await app.TryAutoConnectAsync().WaitAsync(TimeSpan.FromSeconds(5)); await Until(() => app.Session.Snapshot.State == PlaybackState.Streaming);
-                    Check(engine.CreatedCount == opens + 1 && app.Settings.LastReceiverId == receiver.Id && new SettingsStore(path).Load().LastReceiverId == receiver.Id,
-                        "cross-group recovery: a rejected stale admission did not mark the receiver attempted and a fresh automatic request still starts once", checks);
-                }
-                else
-                {
-                    await app.TryAutoConnectAsync().WaitAsync(TimeSpan.FromSeconds(5));
-                    Check(engine.CreatedCount == 0 && app.Settings.LastReceiverId is null,
-                        "cross-group recovery: user Stop remains automatically suppressed after the real preservation save", checks);
-                }
-                Check(autostart.Values.SequenceEqual(new[] { false }), "cross-group recovery: external file changes never enable autostart: " + action, checks);
-            }
-            finally { admission.Release.TrySetResult(); app.BeforeAutomaticAdmission = null; await automatic.WaitAsync(TimeSpan.FromSeconds(5)); }
-        }
-    }
-
-    private static async Task VerifyDeferredFailureNoticeAsync(List<string> checks, string directory)
-    {
-        var path = Path.Combine(directory, "deferred-failure-recovery.json"); var original = Encoding.UTF8.GetBytes("{ malformed before deferred endpoint failure }");
-        File.WriteAllBytes(path, original); var store = new SettingsStore(path); _ = store.Load();
-        var discovery = new FixtureDiscovery(); var audio = new FixtureAudio(); var engine = new FaultEngine();
-        await using var app = new AppViewModel(store, discovery, new FixtureAutostart(), audio, engine, Application.Current.Dispatcher);
-        app.UseControlledScheduling(); app.Start(); await app.Startup.WaitAsync(TimeSpan.FromSeconds(5));
-        Check(discovery.StartCount == 0 && engine.CreatedCount == 0 && audio.MuteCount == 0,
-            "cross-group recovery: deferred-failure fixture starts paused until explicit panel browse demand", checks);
-        app.SetPanelVisible(true); await Until(() => app.AllReceivers.Count == 1);
-        var recoveryWarning = app.Notice;
-        // Start the owned synthetic transport directly so no explicit panel action clears the recovery notice.
-        await app.Session.StartAsync(app.AllReceivers.Single(), app.Settings.Clone());
-        await Until(() => app.Session.Snapshot.State == PlaybackState.Streaming);
-        var first = audio.HoldNextRestore(); Gate? final = null;
-        try
-        {
-            audio.FailRestore = true; engine.Connection.Emit(new { @event = "error", message = "synthetic receiver fault", retryable = false });
-            await first.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5)); final = audio.HoldNextRestore(); first.Release.TrySetResult();
-            await final.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5)); await Until(() => app.Session.Snapshot.State == PlaybackState.Error);
-            var owned = app.Session.Capture(); var restores = audio.RestoreCount;
-            await EndpointChangedAsync(app);
-            Check(audio.RestoreCount == restores && app.Notice == recoveryWarning && File.ReadAllBytes(path).SequenceEqual(original),
-                "cross-group recovery: endpoint return queues behind worker cleanup while pending configuration recovery remains untouched", checks);
-            var failed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            app.Session.EndpointRecoveryFailed += _ => failed.TrySetResult(); final.Release.TrySetResult();
-            await failed.Task.WaitAsync(TimeSpan.FromSeconds(5)); await Pump();
-            Check(app.Notice == "synthetic recovery endpoint restore failure" && app.Session.Capture().Owner == owned.Owner && audio.HasSavedBit && engine.CreatedCount == 1,
-                "cross-group recovery: deferred endpoint failure replaces the older recovery notice without replacing its session owner or saved mute state", checks);
-            audio.FailRestore = false; app.MasterVolume = 31; await app.FlushVolumeAsync().WaitAsync(TimeSpan.FromSeconds(5)); await Pump();
-            Check(File.ReadAllBytes(path + ".pre-wpf.bak").SequenceEqual(original) && new SettingsStore(path).Load().MasterVolume == 31 && store.LoadWarning != recoveryWarning,
-                "cross-group recovery: a later real-store flush preserves the exact original and commits the panel edit after deferred audio failure", checks);
-            Check(app.Notice == "synthetic recovery endpoint restore failure" && app.Session.Capture().Owner == owned.Owner && app.Session.Snapshot.State == PlaybackState.Error && engine.CreatedCount == 1,
-                "cross-group recovery: completed backup notice cannot erase the newer deferred endpoint error or restart the inactive transport", checks);
-            await EndpointChangedAsync(app); await Pump();
-            Check(!audio.HasSavedBit && !audio.MuteBit && engine.CreatedCount == 1,
-                "cross-group recovery: later endpoint cleanup restores the original false mute bit without admitting playback", checks);
-        }
-        finally { audio.FailRestore = false; first.Release.TrySetResult(); final?.Release.TrySetResult(); }
-    }
-
-    private static Task EndpointChangedAsync(AppViewModel app)
-        => (Task)typeof(AppViewModel).GetMethod("OnEndpointsChangedAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(app, null)!;
-
     private static void VerifyFutureSchema(List<string> checks, string directory)
     {
-        var path = Path.Combine(directory, "future-schema.json"); var original = Encoding.UTF8.GetBytes("{\"schema_version\":3,\"auto_connect_on_discover\":true,\"start_at_login\":true}");
+        var path = Path.Combine(directory, "future-schema.json"); var original = Encoding.UTF8.GetBytes("{\"schema_version\":5,\"auto_connect_on_discover\":true,\"start_at_login\":true}");
         File.WriteAllBytes(path, original); var rejected = false;
         try { _ = new SettingsStore(path).Load(); }
         catch (NotSupportedException) { rejected = true; }
@@ -284,60 +166,12 @@ internal static class UiSettingsRecovery
     }
     private sealed class FixtureAudio : IAudioService
     {
-        private readonly ConcurrentQueue<Gate> _restores = new();
-        private bool? _savedBit;
         public int MuteCount { get; private set; }
-        public int RestoreCount { get; private set; }
-        public bool MuteBit { get; private set; }
-        public bool HasSavedBit => _savedBit is not null;
-        public bool FailRestore { get; set; }
-        public Gate HoldNextRestore() { var gate = new Gate(); _restores.Enqueue(gate); return gate; }
         public event Action? EndpointsChanged { add { } remove { } }
         public Task<IReadOnlyList<AudioEndpoint>> GetEndpointsAsync() => Task.FromResult<IReadOnlyList<AudioEndpoint>>([new("fixture-endpoint", "Fixture output")]);
         public Task<string?> GetDefaultEndpointIdAsync() => Task.FromResult<string?>("fixture-endpoint");
-        public Task MuteAsync(string? endpointId) { MuteCount++; _savedBit ??= MuteBit; MuteBit = true; return Task.CompletedTask; }
-        public async Task RestoreAsync()
-        {
-            RestoreCount++;
-            if (_restores.TryDequeue(out var gate)) await gate.WaitAsync();
-            if (FailRestore) throw new IOException("synthetic recovery endpoint restore failure");
-            if (_savedBit is { } bit) { MuteBit = bit; _savedBit = null; }
-        }
-    }
-    private sealed class Gate
-    {
-        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public async Task WaitAsync() { Entered.TrySetResult(); await Release.Task; }
-    }
-    private sealed class FaultEngine : IEngineFactory
-    {
-        public FaultConnection Connection { get; } = new();
-        public int CreatedCount { get; private set; }
-        public IEngineConnection Open() { CreatedCount++; return Connection; }
-    }
-    private sealed class FaultConnection : IEngineConnection
-    {
-        private readonly Channel<JsonElement> _events = Channel.CreateUnbounded<JsonElement>();
-        private string _session = "";
-        public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
-        {
-            cancellation.ThrowIfCancellationRequested();
-            if (command == "start") { _session = session; Emit(new { @event = "streaming" }); }
-            if (command == "stop") _events.Writer.TryComplete();
-            return Task.CompletedTask;
-        }
-        public void Emit(object payload)
-        {
-            var value = JsonSerializer.SerializeToNode(payload)!.AsObject(); value["version"] = 1; value["session_id"] = _session;
-            if (!_events.Writer.TryWrite(JsonSerializer.SerializeToElement(value))) throw new InvalidOperationException("Recovery fixture emitted after disposal.");
-        }
-        public async ValueTask<JsonElement?> ReadAsync(CancellationToken cancellation)
-        {
-            try { return await _events.Reader.ReadAsync(cancellation); }
-            catch (ChannelClosedException) { return null; }
-        }
-        public ValueTask DisposeAsync() { _events.Writer.TryComplete(); return ValueTask.CompletedTask; }
+        public Task MuteAsync(string? endpointId) { MuteCount++; return Task.CompletedTask; }
+        public Task RestoreAsync() => Task.CompletedTask;
     }
     private sealed class FixtureDiscovery : IDiscoveryService
     {

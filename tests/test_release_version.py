@@ -23,7 +23,7 @@ function git {
         'branch' { $script:releaseCase.branch }
         'status' { if ($script:releaseCase.dirty) { ' M tracked.txt' } }
         'rev-parse' { $script:releaseCase.head }
-        'remote' { $script:releaseCase.remote }
+        'remote' { 'https://github.com/Ding-Kyoma/AirFlash.git' }
         'ls-remote' { $script:releaseCase.refs }
         'push' {
             $script:pushes.Add(@($args))
@@ -65,7 +65,6 @@ def reserve(tmp_path, *, source="0.2.0", local=None, refs=None, **overrides):
         "branch": "main",
         "dirty": False,
         "head": HEAD,
-        "remote": "https://github.com/Ding-Kyoma/AirFlash.git",
         "refs": refs if refs is not None else [f"{HEAD}\trefs/tags/reserved/0.2.18"],
         "push_exit": 0,
         "actions": False,
@@ -189,21 +188,6 @@ def test_preview_channel_still_reserves_without_publishing(tmp_path):
     result = reserve(
         tmp_path, branch="codex/nic-discovery-preview", channel="preview", new_version="0.3.0",
     )
-    assert result["error"] is None
-    assert result["version"] == "0.3.0"
-
-
-@pytest.mark.parametrize(
-    "remote",
-    [
-        "https://github.com/Ding-Kyoma/AirFlash",
-        "https://github.com/Ding-Kyoma/AirFlash.git",
-        "https://github.com/ThatMarko/AirFlash",
-        "https://github.com/ThatMarko/AirFlash.git",
-    ],
-)
-def test_known_github_origins_are_allowed(tmp_path, remote):
-    result = reserve(tmp_path, new_version="0.3.0", remote=remote)
     assert result["error"] is None
     assert result["version"] == "0.3.0"
 

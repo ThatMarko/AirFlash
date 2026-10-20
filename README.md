@@ -40,17 +40,23 @@ or a similar tool, and route the audio you want to stream to that endpoint.
 
 - Streams Windows system audio to HomePod over AirPlay 2.
 - Supports synchronized playback on existing two-device HomePod stereo pairs.
+- Adds experimental two-receiver software stereo groups, independent hardware volume,
+  per-receiver PCM/ALAC and UDP/TCP profiles, and 5 ms continuity transitions.
 - Offers automatic device discovery, PIN pairing, and manual device setup.
 - Lets you filter device discovery by selecting a network adapter in Settings.
 - Includes selectable latency modes, tray operation, mute restoration,
   automatic reconnection, and connection diagnostics.
 - Provides a ten-band equalizer with presets and live preview in Settings.
-- Captures playback or recording endpoints, including virtual audio devices.
-- Available as a portable Windows x64 app with English, Simplified Chinese, and Traditional Chinese UI.
+- Captures a selected application or playback/recording endpoints, including virtual audio devices.
+- Releases AirPlay sessions after configurable silence and reconnects when audio returns.
+- Available as a portable Windows x64 app with English, Simplified Chinese, Traditional Chinese, and German UI.
 
 ## Feature plan
 
-- [ ] Select an application as the audio source ([#18](https://github.com/Ding-Kyoma/AirFlash/issues/18)).
+See [audio continuity and schema v4](docs/audio-stereo-v3.md) for setup, protocol details,
+simulation results and remaining hardware acceptance. Samsung, Mac and mixed-brand
+playback and acoustic synchronization have not been qualified by this implementation.
+
 - [ ] Dolby Atmos support.
 
 ## Usage
@@ -62,6 +68,29 @@ or a similar tool, and route the audio you want to stream to that endpoint.
 5. Choose the capture endpoint and latency profile in Settings when the defaults
    are not suitable.
 
+Stream formats are configured in **Settings > Receivers** for each receiver:
+codec, sample rate, UDP/TCP transport, and clock strategy. Choices are filtered by
+the receiver's `/info` capabilities without starting playback or pairing. Automatic
+prefers a supported 44.1 kHz profile, then 48 kHz. Its label shows the expected
+selection before playback and the negotiated selection while playing; unapplied
+edits continue to show predictions. Offline or undetected receivers offer Automatic
+and retain existing explicit settings as pending verification. Native stereo pairs
+use their members' common capabilities. Software stereo groups control both members'
+common sample rate and default to 44.1 kHz.
+
+The control panel's **Global latency mode** changes the shared default. While the
+current connecting, playing, or standby receiver uses an independent latency mode,
+including either software stereo member, the control is disabled and points to
+**Settings > Receivers**. Stopping playback restores it; the global default remains
+editable in Settings.
+
+**Settings > General > Reset and restart** asks once before clearing all settings
+and receiver pairing. AirFlash stops playback and discovery, restores local mute,
+disables startup at login, deletes `config.json` and `native-credentials`, and restarts
+with defaults. Unsaved edits are discarded; logs and engine caches are retained.
+Schema v4 removes the global sample rate: v1–v3 inherited rates become Automatic,
+while explicit receiver and software group rates are preserved.
+
 In **Settings > Audio capture**, **Specific audio endpoint** lists active playback
 and recording devices with their type. For Voicemeeter, select the recording
 endpoint corresponding to its B1/B2/B3 bus (for example, Voicemeeter Output)
@@ -69,8 +98,33 @@ and enable that bus for the desired audio in Voicemeeter. Playback devices use
 loopback; recording devices capture their input directly. Automatic local mute
 applies only to playback devices and never mutes a recording input.
 
+**Specific application** captures the selected application and its child processes;
+browsers include the complete process tree, not individual tabs. This native mode
+requires Windows build 20348 or later. Older Windows versions retain endpoint
+capture. The application selection is saved by executable path and follows a
+restart when exactly one matching instance is running. If several independent
+instances match, select an instance again. A missing application never falls back
+to system audio.
+
+To hear the target application only on HomePod while games and notifications stay
+on your headphones, install a virtual cable such as [VB-CABLE](https://vb-audio.com/Cable/)
+and use **Open Windows volume mixer** to route only that application's output to
+**CABLE Input**. Select the application, or use **Specific audio endpoint → CABLE
+Output · Recording**. Disable **Listen to this device** and any local monitoring.
+Application capture never mutes your entire playback device. The manual Windows
+routing remains after AirFlash stops; change it back when local playback is needed.
+Virtual routing cannot guarantee capture of DRM-protected content, and capture,
+resampling, and stream-format conversion do not guarantee bit-perfect output.
+
+Enable **AirFlash streaming → Standby** to release the complete AirPlay session
+after 5–300 seconds of silence (default duration: 10 seconds; disabled by default).
+Capture continues locally, and detected audio automatically starts a new session.
+Reconnection resumes current audio; its opening or short notification sounds may
+be missed. HomePod manages its own power state after the session is released.
+
 Receiver discovery runs while the control panel or **Settings > Receivers** is
-visible, and pauses when both are hidden. Previous results remain available;
+visible, and remains active for software stereo topology changes during playback.
+Otherwise it pauses when both are hidden. Previous results remain available;
 pausing discovery does not interrupt playback. If automatic connection is enabled
 globally or for a receiver, AirFlash also discovers devices for ten seconds at
 startup. Open a receiver list to resume discovery afterwards.
@@ -110,15 +164,22 @@ uv sync --locked
 pwsh scripts/build-native.ps1 -Check
 pwsh scripts/dotnet.ps1 restore AirFlash.sln --locked-mode
 pwsh scripts/dotnet.ps1 run --project AirFlash.App/AirFlash.App.csproj
-pwsh scripts/build.ps1
+pwsh scripts/build-dev.ps1
 ```
 
-The build produces:
+The development build produces:
 
-- `dist/AirFlash.exe`
-- `dist/AirFlash-X.Y.Z.msi`
+- `dist/dev/AirFlash.exe`
+- `dist/dev/AirFlash-X.Y.Z-dev.<commit>.msi`
 
-Run `AirFlash-X.Y.Z.msi` directly. It installs the self-contained executable and provides optional desktop and Start menu shortcuts.
+The development package is labeled from the latest stable `vX.Y.Z` tag and the
+current commit. It does not reserve a release version or push a tag. Uninstall an
+existing same-version AirFlash package before installing a development MSI.
+
+Use `pwsh scripts/build-release.ps1` only when performing a release; it requires a
+clean release branch, reserves the next numeric version, and writes `dist/`.
+
+Run the MSI directly. It installs the self-contained executable and provides optional desktop and Start menu shortcuts.
 AirFlash uses the Windows DNS-SD API and does not require Bonjour or install a background service.
 The Rust engine is embedded in the WPF executable and extracted to a content-addressed cache under `%LOCALAPPDATA%/AirFlash/engine/<hash>` at runtime.
 

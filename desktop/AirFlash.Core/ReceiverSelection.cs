@@ -10,7 +10,7 @@ public static class ReceiverSelection
         var id = ReceiverIdentity.Normalize(selected.Id);
         if (id.Length == 0) return selected;
         var broadcast = ReceiverIdentity.IsBroadcast(id);
-        var owners = catalog.Where(root => root.Online && !root.IsManual)
+        var owners = catalog.Where(root => root.Online && !root.IsManual && !root.IsSoftwareGroup)
             .SelectMany(root => root.Peers.Where(member => member.Online && !member.IsManual).Select(member => (Root: root, Member: member)))
             .Where(owner => ReceiverIdentity.Normalize(owner.Member.Id) == id
                 || broadcast && owner.Member.Aliases.Any(alias => ReceiverIdentity.IsBroadcast(alias) && ReceiverIdentity.Normalize(alias) == id))

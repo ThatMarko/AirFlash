@@ -33,6 +33,17 @@ public sealed class ReceiverSelectionTests
     }
 
     [Fact]
+    public void SoftwareGroupsDoNotClaimImplicitOwnershipOfPhysicalClicks()
+    {
+        var selected = Member();
+        var software = Group("software", selected, Member("member-b", "192.0.2.11")) with { IsSoftwareGroup = true };
+        Assert.Same(selected, ReceiverSelection.ResolvePlayback(selected, [software]));
+        var native = Group("native", selected, Member("member-c", "192.0.2.12"));
+        Assert.Same(native, ReceiverSelection.ResolvePlayback(selected, [software, native]));
+        Assert.Same(software, ReceiverSelection.ResolvePlayback(software, [native, software]));
+    }
+
+    [Fact]
     public void CanonicalMemberResolvesItsUniqueGroup()
     {
         var selected = Member();

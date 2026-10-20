@@ -17,6 +17,7 @@ HARNESS = r"""
 $ErrorActionPreference = 'Stop'
 $global:airflashTestCase = $env:AIRFLASH_PREFLIGHT_CASE | ConvertFrom-Json
 $global:airflashTestEvents = [Collections.Generic.List[object]]::new()
+$global:airflashTestPathMatches = @()
 $global:airflashTestRoot = $env:AIRFLASH_PREFLIGHT_ROOT
 $global:airflashTestIntegration = $env:AIRFLASH_PREFLIGHT_INTEGRATION
 $global:PSNativeCommandUseErrorActionPreference = [bool]$global:airflashTestCase.native_errors
@@ -31,6 +32,14 @@ function global:Get-Command {
     [CmdletBinding()]
     param([string[]]$Name, $CommandType)
     if ($Name.Count -eq 1 -and $Name[0] -eq 'dotnet') {
+        if ($global:airflashTestCase.real_path_lookup) {
+            # Preserve the real cmdlet's ordered ApplicationInfo results. Full-path
+            # functions intercept invocation only, never native PATH discovery.
+            $matches = @(Microsoft.PowerShell.Core\Get-Command @PSBoundParameters)
+            $global:airflashTestPathMatches = @($matches | ForEach-Object Source)
+            $matches
+            return
+        }
         if ($global:airflashTestCase.hosts.path) {
             [pscustomobject]@{ Source = $global:airflashTestCase.hosts.path.path }
         }
@@ -119,6 +128,7 @@ try {
 [pscustomobject]@{
     error = $errorMessage; exit = $capturedExit; output = $capturedOutput; resolved = $resolved
     events = $global:airflashTestEvents.ToArray(); cwd = (Get-Location).Path
+    path_matches = $global:airflashTestPathMatches
     cli_home = $env:DOTNET_CLI_HOME; nuget = $env:NUGET_PACKAGES
     telemetry = $env:DOTNET_CLI_TELEMETRY_OPTOUT
 } | ConvertTo-Json -Depth 10 -Compress | Set-Content -LiteralPath $env:AIRFLASH_PREFLIGHT_REPORT
@@ -134,6 +144,7 @@ function Reserve-ReleaseVersion {
 """
 
 NATIVE_STUB = r"""
+param([string]$CompatibilityArtifacts)
 $global:airflashTestEvents.Add([pscustomobject]@{ operation = 'native' })
 if ($global:airflashTestCase.add_checkout_host) {
     $path = $global:airflashTestCase.hosts.checkout.path
@@ -144,11 +155,24 @@ $global:LASTEXITCODE = [int]$global:airflashTestCase.native_exit
 """
 
 INSTALLER_STUB = r"""
-param($PublishPath, $OutputPath, $DotnetPath)
+param($PublishPath, $OutputPath, $DotnetPath, $ProductVersion, $ArtifactVersion)
 $global:airflashTestEvents.Add([pscustomobject]@{
     operation = 'installer'; path = $DotnetPath
 })
 throw 'Fixture stopped after installer admission.'
+"""
+
+DEV_VERSION_STUB = r"""
+function Get-DevelopmentVersion {
+    param($Root)
+    [pscustomobject]@{
+        Numeric = '0.4.0'
+        Informational = '0.4.0-dev.3f2a9c1e'
+        BaseTag = 'v0.4.0'
+        Commit = '3f2a9c1e'
+        Dirty = $false
+    }
+}
 """
 
 
@@ -170,6 +194,7 @@ class Fixture:
             RESERVATION_STUB, encoding="utf-8"
         )
         (self.root / "scripts" / "build-native.ps1").write_text(NATIVE_STUB, encoding="utf-8")
+        (self.root / "scripts" / "dev-version.ps1").write_text(DEV_VERSION_STUB, encoding="utf-8")
         self.hosts = {}
 
     def host(self, name, *, version="10.0.301", resolve_exit=0, command_exit=0, **details):
@@ -277,7 +302,7 @@ def side_effects(result):
 def test_failed_selected_sdk_precedes_all_release_and_build_operations(fixture, details):
     selected = fixture.host("checkout", **details)
     fixture.host("path")
-    result = fixture.run("build.ps1", native_errors=True)
+    result = fixture.run("build-release.ps1", native_errors=True)
     assert result["error"]
     assert side_effects(result) == []
     assert [call["path"] for call in host_calls(result)] == [str(selected)]
@@ -306,6 +331,83 @@ def test_preflight_checks_the_selected_host_in_desktop(fixture, available, selec
     assert calls[0]["path"] == str(paths[selected])
     assert calls[0]["cwd"] == str(fixture.root / "desktop")
     assert calls[0]["arguments"] == ["--version"]
+
+
+def ordered_path_environment(*hosts):
+    return {"PATH": os.pathsep.join([*(str(host.parent) for host in hosts), os.environ["PATH"]])}
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows executable PATH discovery")
+def test_real_ordered_path_lookup_selects_and_invokes_only_first_compatible_host(fixture):
+    first = fixture.host("first PATH installation", version="10.0.402")
+    second = fixture.host("second PATH installation", version="", resolve_exit=42)
+    result = fixture.run(
+        "check-dotnet.ps1",
+        real_path_lookup=True,
+        environment=ordered_path_environment(first, second),
+    )
+    assert result["path_matches"][:2] == [str(first), str(second)]
+    assert result["error"] is None, result
+    assert result["exit"] == 0
+    assert side_effects(result) == []
+    assert [(call["path"], call["arguments"], call["cwd"]) for call in host_calls(result)] == [
+        (str(first), ["--version"], str(fixture.root / "desktop"))
+    ]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows executable PATH discovery")
+def test_real_ordered_path_lookup_rejects_first_incompatible_host_without_fallback(fixture):
+    first = fixture.host(
+        "first PATH installation",
+        version="",
+        resolve_exit=42,
+        error="Synthetic preferred PATH installation has no compatible SDK.",
+    )
+    second = fixture.host("second PATH installation", version="10.0.402")
+    result = fixture.run(
+        "build-release.ps1",
+        real_path_lookup=True,
+        native_errors=True,
+        environment=ordered_path_environment(first, second),
+    )
+    assert result["path_matches"][:2] == [str(first), str(second)]
+    assert result["error"], result
+    assert side_effects(result) == []
+    assert [(call["path"], call["arguments"], call["cwd"]) for call in host_calls(result)] == [
+        (str(first), ["--version"], str(fixture.root / "desktop"))
+    ]
+    for expected in (str(first), "Synthetic preferred PATH", "10.0.100", "latestFeature"):
+        assert expected in result["error"]
+    assert not (fixture.root / "artifacts/release.lock").exists()
+    for directory in ("build", "dist"):
+        assert (fixture.root / directory / "preserve.txt").read_text() == "keep fixture output"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Requires Windows executable PATH discovery")
+@pytest.mark.parametrize("preferred", ["checkout", "integration", "override"])
+def test_multiple_actual_path_hosts_do_not_override_deliberate_host_precedence(fixture, preferred):
+    first = fixture.host("first PATH installation", version="", resolve_exit=42)
+    second = fixture.host("second PATH installation", version="10.0.402")
+    fixture.host("integration", version="10.0.402")
+    if preferred in ("checkout", "override"):
+        fixture.host("checkout", version="10.0.402")
+    if preferred == "override":
+        fixture.host("override", version="10.0.402")
+    selected = fixture.hosts[preferred]["path"]
+    parameters = {"override": selected} if preferred == "override" else {}
+    result = fixture.run(
+        mode="context",
+        real_path_lookup=True,
+        environment=ordered_path_environment(first, second),
+        **parameters,
+    )
+    assert result["error"] is None, result
+    assert result["resolved"] == "10.0.402"
+    assert result["path_matches"] == []  # Preferred installations avoid PATH lookup entirely.
+    assert side_effects(result) == []
+    assert [(call["path"], call["arguments"]) for call in host_calls(result)] == [
+        (selected, ["--version"])
+    ]
 
 
 @pytest.mark.parametrize("version", ["10.0.100", "10.0.301", "10.0.400"])
@@ -345,7 +447,7 @@ def test_unresolved_selected_host_has_actionable_policy_diagnostics(fixture, det
 
 
 def test_missing_host_is_distinct_from_failed_sdk_resolution(fixture):
-    result = fixture.run("build.ps1")
+    result = fixture.run("build-release.ps1")
     assert "No .NET host" in result["error"]
     assert "https://dotnet.microsoft.com/download/dotnet/10.0" in result["error"]
     assert result["events"] == []
@@ -509,6 +611,22 @@ def test_installer_success_checks_and_builds_the_same_override(fixture):
     assert len(list(output.glob("AirFlash-*.msi"))) == 1
 
 
+def test_installer_rejects_a_numeric_version_that_differs_from_the_exe(fixture):
+    fixture.host("override", installer_output=True)
+    publish, output = fixture.installer()
+    result = fixture.run(
+        "build-installer.ps1",
+        parameters={
+            "PublishPath": str(publish),
+            "OutputPath": str(output),
+            "ProductVersion": "9.9.9",
+        },
+    )
+    assert "EXE version mismatch" in result["error"]
+    assert not output.exists()
+    assert result["events"] == []
+
+
 def test_build_keeps_the_preflight_host_when_checkout_host_appears_later(fixture):
     later_host = fixture.host("checkout", version="", resolve_exit=42)
     later_host.unlink()
@@ -518,7 +636,7 @@ def test_build_keeps_the_preflight_host_when_checkout_host_appears_later(fixture
     audit = fixture.root / "artifacts/compatibility/bundle-audit.json"
     audit.parent.mkdir(parents=True)
     audit.write_text(json.dumps({"ok": True}), encoding="utf-8")
-    result = fixture.run("build.ps1", add_checkout_host=True)
+    result = fixture.run("build-release.ps1", add_checkout_host=True)
     assert result["error"] == "Fixture stopped after installer admission."
     assert [call["path"] for call in host_calls(result)] == [str(selected), str(selected)]
     calls = host_calls(result)
@@ -541,7 +659,7 @@ def test_build_keeps_the_preflight_host_when_checkout_host_appears_later(fixture
 
 def test_later_publish_failure_retains_its_build_error(fixture):
     fixture.host("checkout", command_exit=51)
-    result = fixture.run("build.ps1")
+    result = fixture.run("build-release.ps1")
     assert result["error"] == "WPF publish failed; do not use residual dist files"
     assert host_calls(result)[0]["arguments"] == ["--version"]
     assert host_calls(result)[1]["arguments"][0] == "publish"
@@ -549,7 +667,7 @@ def test_later_publish_failure_retains_its_build_error(fixture):
 
 def test_later_native_failure_prevents_publish_and_retains_its_build_error(fixture):
     fixture.host("checkout")
-    result = fixture.run("build.ps1", native_exit=61)
+    result = fixture.run("build-release.ps1", native_exit=61)
     assert result["error"] == "Native build failed"
     assert [event["operation"] for event in result["events"]] == [
         "host",
@@ -558,6 +676,40 @@ def test_later_native_failure_prevents_publish_and_retains_its_build_error(fixtu
         "cleanup",
         "native",
     ]
+
+
+def test_dev_build_never_reserves_a_release_version(fixture):
+    selected = fixture.host("checkout", publish_output=True)
+    fixture.stop_after_installer()
+    for relative in ("build/dev", "dist/dev"):
+        directory = fixture.root / relative
+        directory.mkdir(parents=True)
+        (directory / "preserve.txt").write_text("keep fixture output", encoding="utf-8")
+    audit = fixture.root / "artifacts/dev/compatibility/bundle-audit.json"
+    audit.parent.mkdir(parents=True)
+    audit.write_text(json.dumps({"ok": True}), encoding="utf-8")
+    result = fixture.run("build-dev.ps1")
+    assert result["error"] == "Fixture stopped after installer admission."
+    assert [call["path"] for call in host_calls(result)] == [str(selected), str(selected)]
+    calls = host_calls(result)
+    assert calls[0]["arguments"] == ["--version"]
+    assert calls[1]["arguments"][0] == "publish"
+    assert "-p:InformationalVersion=0.4.0-dev.3f2a9c1e" in calls[1]["arguments"]
+    assert "-p:Version=0.4.0" in calls[1]["arguments"]
+    assert "-p:CompatibilityArtifacts=" + str(audit.parent) in calls[1]["arguments"]
+    assert calls[1]["arguments"][calls[1]["arguments"].index("-o") + 1] == str(
+        fixture.root / "build/dev/wpf-publish"
+    )
+    assert [event["operation"] for event in result["events"]] == [
+        "host",
+        "cleanup",
+        "cleanup",
+        "native",
+        "host",
+        "command",
+        "installer",
+    ]
+    assert not (fixture.root / "artifacts/release-version.txt").exists()
 
 
 def test_release_workflow_prepares_and_checks_sdk_before_reserving_version():

@@ -31,6 +31,7 @@ internal static class UiMuteRecovery
         await MutatingFailureAsync(checks, Path.Combine(root, "setter-failure"));
         await DisposeFailureAsync(checks, Path.Combine(root, "dispose-failure"));
         await StartupAndRecoveryAsync(checks, Path.Combine(root, "startup"));
+        await ApplicationCaptureAsync(checks, Path.Combine(root, "application"));
         await PairDuringSaveAsync(checks, Path.Combine(root, "pair-during-save"));
         await QuitDuringStartupAsync(checks, Path.Combine(root, "quit-startup"));
         await ActiveStopAsync(checks, Path.Combine(root, "active-stop"));
@@ -176,7 +177,7 @@ internal static class UiMuteRecovery
         using (var interrupted = new MuteRecoveryCoordinator(backend, journal)) { interrupted.Initialize(); interrupted.Mute(null); }
         backend.Calls.Clear(); using var release = new ManualResetEventSlim(); backend.OpenGate = release;
         var audio = Audio(backend, journal); var factory = new Factory();
-        var app = new AppViewModel(new Store(), new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, factory, Application.Current.Dispatcher);
+        var app = new AppViewModel(new Store(), new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, factory, Application.Current.Dispatcher, receiverCapabilities: new Capabilities());
         var panel = new ControlPanel(app) { MenuOpen = true };
         MuteRecoveryWindow? recoveryWindow = null;
         SettingsWindow? settings = null;
@@ -240,7 +241,7 @@ internal static class UiMuteRecovery
             ManualReceivers = [new("synthetic-manual", "Synthetic receiver", "192.0.2.20", 7000)] });
         var factory = new Factory();
         var app = new AppViewModel(store, new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(),
-            audio, factory, Application.Current.Dispatcher);
+            audio, factory, Application.Current.Dispatcher, receiverCapabilities: new Capabilities());
         var release = Signal(); store.SaveGate = release; store.SaveEntered = Signal();
         Task? persistence = null, pairing = null;
         var pinRequested = false;
@@ -284,13 +285,40 @@ internal static class UiMuteRecovery
             "releasing held persistence preserves the pending edit after Pair cleanup", checks);
     }
 
+    private static async Task ApplicationCaptureAsync(List<string> checks, string directory)
+    {
+        var backend = new Backend(false); var journal = new Journal(directory);
+        byte[] saved;
+        using (var interrupted = new MuteRecoveryCoordinator(backend, journal))
+        { interrupted.Initialize(); interrupted.Mute(null); saved = journal.Read()!; }
+        var setters = backend.Setters; var writes = journal.Writes;
+        var audio = Audio(backend, journal); var factory = new Factory();
+        await using var app = new AppViewModel(new Store(application: true), new UiSmoke.MockDiscovery { Items = [] },
+            new UiSmoke.MockAutostart(), audio, factory, Application.Current.Dispatcher, receiverCapabilities: new Capabilities());
+        app.Start(); await app.Startup;
+        Check(app.MuteReady && app.HasMuteRecovery && app.Receivers.Single().CanPlay,
+            "application capture remains available while a differing saved output recovery stays visible", checks);
+        var streaming = State(app.Session, PlaybackState.Streaming);
+        await app.ToggleAsync(app.Receivers.Single().Receiver); await streaming;
+        Check(factory.Start is { } start && start.Text("source") == "application"
+            && backend.Setters == setters && journal.Writes == writes && saved.SequenceEqual(journal.Read()!),
+            "application start preserves exact unresolved journal without changing the endpoint mute bit", checks);
+        await app.PairAsync(app.Receivers.Single().Receiver, (_, _) =>
+            throw new InvalidOperationException("This fixture holds Pair before pin_required."));
+        await factory.PairEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await app.StopAsync();
+        Check(app.HasMuteRecovery && app.MuteReady && backend.Bit && backend.Setters == setters
+            && journal.Writes == writes && saved.SequenceEqual(journal.Read()!),
+            "application Pair and Stop preserve pending output recovery without endpoint mutation", checks);
+    }
+
     private static async Task QuitDuringStartupAsync(List<string> checks, string directory)
     {
         var backend = new Backend(false); var journal = new Journal(directory);
         using (var interrupted = new MuteRecoveryCoordinator(backend, journal)) { interrupted.Initialize(); interrupted.Mute(null); }
         using var release = new ManualResetEventSlim(); backend.OpenGate = release;
         var audio = Audio(backend, journal); var factory = new Factory();
-        var app = new AppViewModel(new Store(), new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, factory, Application.Current.Dispatcher);
+        var app = new AppViewModel(new Store(), new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, factory, Application.Current.Dispatcher, receiverCapabilities: new Capabilities());
         Task? closing = null;
         try
         {
@@ -311,7 +339,7 @@ internal static class UiMuteRecovery
     private static async Task ActiveStopAsync(List<string> checks, string directory)
     {
         var backend = new Backend(false); var journal = new Journal(directory); var audio = Audio(backend, journal);
-        var app = new AppViewModel(new Store(), new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, new Factory(), Application.Current.Dispatcher);
+        var app = new AppViewModel(new Store(), new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, new Factory(), Application.Current.Dispatcher, receiverCapabilities: new Capabilities());
         var panel = new ControlPanel(app) { MenuOpen = true };
         MuteRecoveryWindow? recoveryWindow = null;
         try
@@ -445,16 +473,26 @@ internal static class UiMuteRecovery
         public void Write(byte[] bytes) { Interlocked.Increment(ref Writes); if (FailWrites) throw new IOException("Synthetic journal write failure."); _inner.Write(bytes); }
         public void Archive(byte[] bytes) => _inner.Archive(bytes);
     }
-    private sealed class Store : ISettingsStore
+    private sealed class Store(bool application = false) : ISettingsStore
     {
         private AppSettings _settings = new() { AutoConnectOnDiscover = false, MuteWhileStreaming = true,
+            CaptureMode = application ? "application" : "loopback", CaptureApplicationPath = application ? "synthetic-application.exe" : null,
             ManualReceivers = [new("synthetic-manual", "Synthetic receiver", "192.0.2.20", 7000)] };
         public AppSettings Load() => _settings.Clone();
         public void Save(AppSettings settings) => _settings = settings.Clone();
     }
+    private sealed class Capabilities : IReceiverCapabilityCatalog
+    {
+        public Task<ReceiverCapabilitySet> QueryAsync(Receiver receiver, CancellationToken cancellation = default)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            return Task.FromResult(ReceiverCapabilitySet.Unknown);
+        }
+    }
     private sealed class Factory : IEngineFactory
     {
         public int Opened;
+        public JsonElement? Start;
         public TaskCompletionSource PairEntered { get; } = Signal();
         public IEngineConnection Open() { Interlocked.Increment(ref Opened); return new Connection(this); }
         private sealed class Connection(Factory factory) : IEngineConnection
@@ -462,8 +500,14 @@ internal static class UiMuteRecovery
             private readonly Channel<JsonElement> _events = Channel.CreateUnbounded<JsonElement>();
             public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
             {
+                cancellation.ThrowIfCancellationRequested();
+                if (command == "hello") _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, session_id = session, @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "application_capture" } }));
                 if (command == "pair") factory.PairEntered.TrySetResult();
-                if (command == "start") _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, session_id = session, @event = "streaming" }));
+                if (command == "start")
+                {
+                    factory.Start = JsonSerializer.SerializeToElement(parameters);
+                    _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, session_id = session, @event = "streaming" }));
+                }
                 if (command == "stop") _events.Writer.TryComplete();
                 return Task.CompletedTask;
             }

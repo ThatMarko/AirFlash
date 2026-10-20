@@ -1,4 +1,5 @@
 using AirFlash.Core;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Channels;
 using Xunit;
@@ -59,6 +60,108 @@ public sealed class MuteRecoveryAdmissionTests
         Assert.Equal(1, factory.Count); Assert.Equal(0, audio.Mutes); Assert.Equal(PlaybackState.Idle, controller.Snapshot.State);
     }
 
+    [Theory]
+    [InlineData(MuteRecoveryStatus.NotInitialized)]
+    [InlineData(MuteRecoveryStatus.Pending)]
+    [InlineData(MuteRecoveryStatus.Busy)]
+    [InlineData(MuteRecoveryStatus.Unreadable)]
+    [InlineData(MuteRecoveryStatus.Unrecognized)]
+    public async Task Application_capture_preserves_unresolved_recovery_without_muting_an_endpoint(MuteRecoveryStatus status)
+    {
+        var audio = new RecoveryAudio(status); var factory = new StreamingFactory();
+        await using var controller = new SessionController(factory, audio);
+        var settings = new AppSettings { CaptureMode = "application", CaptureApplicationPath = "synthetic-application.exe", MuteWhileStreaming = true };
+        var streaming = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        controller.Changed += value => { if (value.State == PlaybackState.Streaming) streaming.TrySetResult(); };
+        await controller.StartAsync(new("synthetic", "Synthetic", "192.0.2.1"), settings);
+        await streaming.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(1, factory.Count); Assert.Equal(0, audio.Mutes); Assert.Equal(status, audio.Recovery.Status);
+        Assert.False(settings.ShouldMuteEndpoint);
+        await controller.StopAsync();
+        Assert.Equal(0, audio.Mutes); Assert.Equal(status, audio.Recovery.Status); Assert.Equal(1, factory.Disposed);
+    }
+
+    [Theory]
+    [InlineData("loopback")]
+    [InlineData("endpoint")]
+    public async Task Endpoint_capture_including_a_selected_recording_input_still_requires_ready_recovery(string mode)
+    {
+        var audio = new RecoveryAudio(MuteRecoveryStatus.Pending); var factory = new StreamingFactory();
+        await using var controller = new SessionController(factory, audio);
+        var settings = new AppSettings { CaptureMode = mode, CaptureEndpoint = "synthetic-recording", MuteWhileStreaming = true };
+        Assert.True(settings.ShouldMuteEndpoint);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => controller.StartAsync(new("synthetic", "Synthetic", "192.0.2.1"), settings));
+        Assert.Equal(0, factory.Count); Assert.Equal(0, audio.Mutes); Assert.Equal(MuteRecoveryStatus.Pending, audio.Recovery.Status);
+    }
+
+    [Fact]
+    public async Task Application_capture_pairing_does_not_discard_or_mutate_pending_recovery()
+    {
+        var audio = new RecoveryAudio(MuteRecoveryStatus.Pending); var factory = new StreamingFactory();
+        await using var controller = new SessionController(factory, audio);
+        await controller.PairAsync(new("synthetic", "Synthetic", "192.0.2.1"),
+            new() { CaptureMode = "application", CaptureApplicationPath = "synthetic-application.exe", MuteWhileStreaming = true },
+            (_, _) => throw new InvalidOperationException("Pair remains before the PIN prompt."));
+        await factory.PairEntered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(PlaybackState.Pairing, controller.Snapshot.State);
+        Assert.Equal(0, audio.Mutes); Assert.Equal(MuteRecoveryStatus.Pending, audio.Recovery.Status);
+        await controller.StopAsync();
+        Assert.Equal(1, factory.Count); Assert.Equal(1, factory.Disposed); Assert.Equal(MuteRecoveryStatus.Pending, audio.Recovery.Status);
+    }
+
+    [Theory]
+    [InlineData("settings")]
+    [InlineData("receiver")]
+    [InlineData("start")]
+    public async Task Rejected_endpoint_replacement_keeps_the_application_worker_receiver_and_settings(string operation)
+    {
+        var audio = new RecoveryAudio(MuteRecoveryStatus.Pending); var factory = new StreamingFactory();
+        await using var controller = new SessionController(factory, audio);
+        var original = new Receiver("original", "Original application capture", "192.0.2.1");
+        var settings = new AppSettings { CaptureMode = "application", CaptureApplicationPath = "synthetic-application.exe", MuteWhileStreaming = true };
+        var streaming = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        controller.Changed += value => { if (value.State == PlaybackState.Streaming) streaming.TrySetResult(); };
+        await controller.StartAsync(original, settings);
+        await streaming.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        var proposed = settings.Clone(); proposed.CaptureMode = "loopback"; proposed.MasterVolume = 13;
+        var replacement = new Receiver("replacement", "Replacement", "192.0.2.2");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => operation switch
+        {
+            "settings" => controller.UpdateSettingsAsync(proposed),
+            "receiver" => controller.UpdateReceiverAsync(replacement, proposed),
+            _ => controller.StartAsync(replacement, proposed)
+        });
+        Assert.Equal(PlaybackState.Streaming, controller.Snapshot.State); Assert.Equal(original, controller.Snapshot.Receiver);
+        Assert.Equal(1, factory.Count); Assert.Equal(0, factory.Disposed); Assert.Equal(0, audio.Mutes);
+        // A harmless edit using the original capture settings must remain hot.
+        // Assigning rejected settings early would instead restart this worker.
+        var hot = settings.Clone(); hot.MasterVolume = 37;
+        await controller.UpdateSettingsAsync(hot);
+        Assert.Equal(1, factory.Count); Assert.Equal(0, factory.Disposed); Assert.Equal(0, audio.Mutes);
+        Assert.Equal("application", factory.Commands.Single(c => c.Name == "start").Parameters.Text("source"));
+        Assert.Equal(0.37, factory.Commands.Last(c => c.Name == "set_gain").Parameters.GetProperty("gain").GetDouble(), 8);
+        Assert.Equal(MuteRecoveryStatus.Pending, audio.Recovery.Status);
+    }
+
+    [Fact]
+    public async Task Replacement_cleanup_that_becomes_pending_ends_the_old_application_worker_without_starting_endpoint_capture()
+    {
+        var audio = new RecoveryAudio(MuteRecoveryStatus.Ready); var factory = new StreamingFactory();
+        await using var controller = new SessionController(factory, audio);
+        var settings = new AppSettings { CaptureMode = "application", CaptureApplicationPath = "synthetic-application.exe", MuteWhileStreaming = true };
+        var receiver = new Receiver("original", "Original", "192.0.2.1");
+        var streaming = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        controller.Changed += value => { if (value.State == PlaybackState.Streaming) streaming.TrySetResult(); };
+        await controller.StartAsync(receiver, settings); await streaming.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        audio.OnRestore = (value, _) => value.Status = MuteRecoveryStatus.Pending;
+        var replacement = settings.Clone(); replacement.CaptureMode = "loopback";
+        await Assert.ThrowsAsync<InvalidOperationException>(() => controller.UpdateSettingsAsync(replacement));
+        Assert.Equal(1, factory.Count); Assert.Equal(1, factory.Disposed); Assert.Equal(0, audio.Mutes);
+        Assert.Equal(PlaybackState.Idle, controller.Snapshot.State); Assert.Null(controller.Snapshot.Receiver);
+        Assert.Equal("application", factory.Commands.Single(c => c.Name == "start").Parameters.Text("source"));
+        Assert.Equal(MuteRecoveryStatus.Pending, audio.Recovery.Status);
+    }
+
     [Fact]
     public async Task Failed_cleanup_blocks_a_new_retry_before_another_process()
     {
@@ -86,12 +189,18 @@ public sealed class MuteRecoveryAdmissionTests
     private sealed class StreamingFactory : IEngineFactory
     {
         public int Count, Disposed;
+        public TaskCompletionSource PairEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public ConcurrentQueue<(string Name, JsonElement Parameters)> Commands { get; } = new();
         public IEngineConnection Open() { ++Count; return new Connection(this); }
         private sealed class Connection(StreamingFactory factory) : IEngineConnection
         {
             private readonly Channel<JsonElement> _events = Channel.CreateUnbounded<JsonElement>();
             public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
             {
+                cancellation.ThrowIfCancellationRequested();
+                factory.Commands.Enqueue((command, JsonSerializer.SerializeToElement(parameters)));
+                if (command == "hello") _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, session_id = session, @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "application_capture" } }));
+                if (command == "pair") factory.PairEntered.TrySetResult();
                 if (command == "start") _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, id = "synthetic", session_id = session, @event = "streaming" }));
                 return Task.CompletedTask;
             }

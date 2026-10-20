@@ -10,17 +10,6 @@ namespace AirFlash.App;
 
 public partial class App : Application
 {
-    private SingleInstance? _instance;
-    private ThemeService? _theme;
-    private AppViewModel? _viewModel;
-    private ControlPanel? _panel;
-    private SettingsWindow? _settings;
-    private MuteRecoveryWindow? _muteRecovery;
-    private TrayService? _tray;
-    private EngineInitialization? _engine;
-    private bool _quitting;
-    private string _uiLanguage = "system";
-    private string _uiTheme = "system";
     private readonly Exception? _verificationCultureError;
     public App()
     {
@@ -50,8 +39,8 @@ public partial class App : Application
             if (cultureIndex < 0) return;
             if (cultureIndex + 1 >= args.Length) throw new ArgumentException("--ui-culture requires a culture name.");
             var culture = CultureInfo.GetCultureInfo(args[cultureIndex + 1]);
-            // Set before Run and async startup capture their dispatcher execution contexts.
-            // These verification cultures affect this process, never Windows regional settings.
+            // Capture the requested verification culture before async startup.
+            // This process-local selection never changes Windows regional settings.
             CultureInfo.CurrentCulture = culture;
             CultureInfo.CurrentUICulture = culture;
             CultureInfo.DefaultThreadCurrentCulture = culture;
@@ -59,6 +48,17 @@ public partial class App : Application
         }
         catch (Exception error) { _verificationCultureError = error; }
     }
+    private SingleInstance? _instance;
+    private ThemeService? _theme;
+    private AppViewModel? _viewModel;
+    private ControlPanel? _panel;
+    private SettingsWindow? _settings;
+    private MuteRecoveryWindow? _muteRecovery;
+    private TrayService? _tray;
+    private EngineInitialization? _engine;
+    private bool _quitting;
+    private string _uiLanguage = "system";
+    private string _uiTheme = "system";
     protected override async void OnStartup(StartupEventArgs args)
     {
         // Initialize before any windows, view models or static choice labels are created.
@@ -86,7 +86,7 @@ public partial class App : Application
             {
                 using var client = new System.Net.Http.HttpClient { MaxResponseContentBufferSize = 1024 * 1024 };
                 var release = await new UpdateService(client).CheckAsync();
-                WriteOutput(args.Args, new { ok = true, version = AppPaths.Version, latest = release?.Version.ToString(3), download = release?.DownloadPage.AbsoluteUri });
+                WriteOutput(args.Args, new { ok = true, version = AppPaths.Version, display_version = AppPaths.DisplayVersion, latest = release?.Version.ToString(3), download = release?.DownloadPage.AbsoluteUri });
                 Shutdown(0); return;
             }
             if (args.Args.Contains("--self-check")) { Shutdown(await SelfCheckAsync(args.Args)); return; }
@@ -111,6 +111,7 @@ public partial class App : Application
             var factory = new ExtractingEngineFactory();
             _engine = new(token => QueryEngineAsync(factory, token), AppPaths.Log);
             _viewModel = new(store, new WindowsDiscovery(log: AppPaths.Log), new Autostart(), audio, factory, Dispatcher, _engine);
+            _viewModel.ResetCompleted += Quit;
             _panel = new(_viewModel); MainWindow = _panel;
             _panel.SettingsRequested += ShowSettings; _panel.QuitRequested += Quit;
             _tray = new(_panel, _viewModel, ShowSettings, Quit); _panel.Tray = _tray;
@@ -177,10 +178,11 @@ public partial class App : Application
         if (_quitting) return; _quitting = true;
         try
         {
-            await ShellShutdown.RunAsync(_viewModel,
+            await ShellShutdown.RunAsync(() => _viewModel?.BeginShutdown(),
                 () => _settings?.ViewModel.ApplicationCompleted ?? Task.CompletedTask,
-                () => { _settings?.Close(); _muteRecovery?.Close(); },
-                () => _engine?.DisposeAsync() ?? ValueTask.CompletedTask);
+                () => { try { _settings?.Close(); } finally { _muteRecovery?.Close(); } },
+                () => _engine?.DisposeAsync() ?? ValueTask.CompletedTask,
+                () => _viewModel?.DisposeAsync() ?? ValueTask.CompletedTask);
             _tray?.Dispose(); _panel?.ShutdownPanel();
             if (_instance is not null) await _instance.DisposeAsync();
             _theme?.Dispose();
@@ -212,7 +214,7 @@ public partial class App : Application
             var executable = AppPaths.ExtractEngine();
             stage = "engine-hello";
             var hello = await QueryHelloAsync(new ProcessEngineFactory(executable, AppPaths.Log));
-            WriteOutput(args, new { ok = capabilities.Supported && capabilities.DnsSdAvailable, version = AppPaths.Version, capabilities,
+            WriteOutput(args, new { ok = capabilities.Supported && capabilities.DnsSdAvailable, version = AppPaths.Version, display_version = AppPaths.DisplayVersion, capabilities,
                 requirement = WindowsCompatibility.Requirement, native = hello,
                 qualification = "Win10 execution pending; this check does not exercise discovery, pairing or playback." });
             return capabilities.Supported && capabilities.DnsSdAvailable ? 0 : 1;
@@ -220,14 +222,14 @@ public partial class App : Application
         catch (Exception error)
         {
             AppPaths.Log($"Compatibility stage={stage} failed {error}");
-            WriteOutput(args, new { ok = false, version = AppPaths.Version, capabilities, stage, error = error.ToString(), hresult = $"0x{error.HResult:X8}" });
+            WriteOutput(args, new { ok = false, version = AppPaths.Version, display_version = AppPaths.DisplayVersion, capabilities, stage, error = error.ToString(), hresult = $"0x{error.HResult:X8}" });
             return 1;
         }
     }
     private static async Task<int> SelfCheckAsync(string[] args)
     {
         var hello = await QueryHelloAsync(new ProcessEngineFactory(AppPaths.ExtractEngine()));
-        WriteOutput(args, new { ok = true, host = "wpf", version = AppPaths.Version, native = hello });
+        WriteOutput(args, new { ok = true, host = "wpf", version = AppPaths.Version, display_version = AppPaths.DisplayVersion, native = hello });
         return 0;
     }
     private static async Task<int> AudioCheckAsync(string[] args)

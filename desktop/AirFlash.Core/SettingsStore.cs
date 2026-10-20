@@ -9,6 +9,7 @@ public interface ISettingsStore
     void Save(AppSettings settings);
     Task SaveAsync(AppSettings settings) => Task.Run(() => Save(settings));
     Task SaveReceiverIdentityAsync(AppSettings settings, bool backup) => SaveAsync(settings);
+    Task ResetAsync() => throw new NotSupportedException("This settings store does not support reset.");
 }
 public sealed class SettingsStore : ISettingsStore
 {
@@ -20,6 +21,7 @@ public sealed class SettingsStore : ISettingsStore
     private bool _unsupportedSchema;
     private string? _recoveryError;
     private readonly List<byte[]> _pendingSources = [];
+    private readonly List<byte[]> _migrationSources = [];
     private readonly List<(byte[] Bytes, string Path)> _backups = [];
     public string? LoadWarning { get; private set; }
     public SettingsStore(string path) : this(path, new SettingsFileSystem()) { }
@@ -36,24 +38,34 @@ public sealed class SettingsStore : ISettingsStore
                 var text = Decode(bytes);
                 var version = ReadVersion(text);
                 var json = JsonNode.Parse(text) as JsonObject ?? throw new JsonException(L.Get("Configuration must be a JSON object."));
-                if (version < 2)
+                if (version < AppSettings.CurrentSchemaVersion)
                 {
-                    PreserveOnSave(bytes);
-                    if (json["receivers"] is JsonObject receivers)
-                        foreach (var value in receivers.Select(p => p.Value).OfType<JsonObject>())
-                            if (value["auto_connect"]?.GetValue<bool>() == false) value["auto_connect"] = null;
-                    if (json["capture_mode"]?.GetValue<string>() == "virtual")
+                    if (version < 2)
                     {
-                        json["capture_mode"] = "endpoint";
-                        json["capture_endpoint"] = json["virtual_output_device"]?.DeepClone() ?? json["capture_endpoint"]?.DeepClone();
+                        if (json["receivers"] is JsonObject receivers)
+                            foreach (var value in receivers.Select(p => p.Value).OfType<JsonObject>())
+                                if (value["auto_connect"]?.GetValue<bool>() == false) value["auto_connect"] = null;
+                        if (json["capture_mode"]?.GetValue<string>() == "virtual")
+                        {
+                            json["capture_mode"] = "endpoint";
+                            json["capture_endpoint"] = json["virtual_output_device"]?.DeepClone() ?? json["capture_endpoint"]?.DeepClone();
+                        }
+                        // Only schema 1 allowed the wider legacy buffer range.
+                        ClampBuffer(json);
+                        if (json["receivers"] is JsonObject items)
+                            foreach (var value in items.Select(p => p.Value).OfType<JsonObject>()) ClampBuffer(value);
                     }
-                    foreach (var key in json.Select(p => p.Key).Where(k => k.Equals("schema_version", StringComparison.OrdinalIgnoreCase)).ToArray()) json.Remove(key);
-                    json["schema_version"] = 2;
-                    ClampBuffer(json);
-                    if (json["receivers"] is JsonObject items)
-                        foreach (var value in items.Select(p => p.Value).OfType<JsonObject>()) ClampBuffer(value);
+                    PreserveOnSave(bytes);
+                    TrackMigration(bytes);
                 }
+                // Inherited rates became explicit per-receiver/group values in schema 4.
+                // A stray legacy key is removed so it can never reach playback again.
+                foreach (var key in json.Select(p => p.Key).Where(k => k.Equals("stream_sample_rate", StringComparison.OrdinalIgnoreCase)).ToArray()) json.Remove(key);
+                foreach (var key in json.Select(p => p.Key).Where(k => k.Equals("schema_version", StringComparison.OrdinalIgnoreCase)).ToArray()) json.Remove(key);
+                json["schema_version"] = AppSettings.CurrentSchemaVersion;
                 var settings = json.Deserialize<AppSettings>(AppSettings.JsonOptions) ?? throw new JsonException(L.Get("Empty configuration."));
+                settings.SoftwareGroups ??= [];
+                settings.SoftwareGroups = new(settings.SoftwareGroups.Where(group => group is not null));
                 settings.Receivers ??= [];
                 settings.Receivers = settings.Receivers.Where(pair => pair.Value is not null).ToDictionary(pair => pair.Key, pair => pair.Value);
                 settings.ManualReceivers ??= [];
@@ -88,6 +100,10 @@ public sealed class SettingsStore : ISettingsStore
         _original ??= bytes;
         if (!_pendingSources.Any(source => source.AsSpan().SequenceEqual(bytes))) _pendingSources.Add(bytes);
     }
+    private void TrackMigration(byte[] bytes)
+    {
+        if (!_migrationSources.Any(source => source.AsSpan().SequenceEqual(bytes))) _migrationSources.Add(bytes);
+    }
     private void UpdateWarning()
     {
         if (_recoveryError is null) return;
@@ -118,10 +134,11 @@ public sealed class SettingsStore : ISettingsStore
     {
         if (value.ValueKind != JsonValueKind.Number) return false;
         var token = value.GetRawText();
-        // JSON forbids leading zeroes. Compare positive integer tokens without a bounded
-        // numeric conversion, so a future schema cannot become recoverable through overflow.
-        // Fractional/exponent spellings still follow the existing integer validation below.
-        return (token.Length > 1 || token[0] > '2') && token.All(char.IsAsciiDigit);
+        if (!token.All(char.IsAsciiDigit)) return false;
+        // Compare positive integer tokens without a bounded numeric conversion so a
+        // future schema cannot become recoverable through overflow.
+        var current = AppSettings.CurrentSchemaVersion.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return token.Length > current.Length || token.Length == current.Length && string.CompareOrdinal(token, current) > 0;
     }
     private static void ClampBuffer(JsonObject json)
     {
@@ -131,6 +148,11 @@ public sealed class SettingsStore : ISettingsStore
     private void SaveLocked(AppSettings settings)
     {
         if (_unsupportedSchema) throw new NotSupportedException(L.Get("This configuration is from a newer version. Update the app first."));
+        if (settings.SchemaVersion > AppSettings.CurrentSchemaVersion) throw new NotSupportedException(L.Get("This configuration is from a newer version. Update the app first."));
+        var saved = settings.Clone();
+        saved.SchemaVersion = AppSettings.CurrentSchemaVersion;
+        if (saved.Extra is { } extra)
+            foreach (var key in extra.Keys.Where(k => k.Equals("stream_sample_rate", StringComparison.OrdinalIgnoreCase)).ToArray()) extra.Remove(key);
         _files.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
         if (_preservationPending)
         {
@@ -142,17 +164,21 @@ public sealed class SettingsStore : ISettingsStore
                 // Keep every captured revision if preservation or replacement later fails.
                 PreserveOnSave(current);
                 // A previously unreadable file may turn out to belong to a newer app.
-                try { ReadVersion(Decode(current)); }
+                try
+                {
+                    if (ReadVersion(Decode(current)) < AppSettings.CurrentSchemaVersion) TrackMigration(current);
+                }
                 catch (NotSupportedException) { _unsupportedSchema = true; throw; }
                 catch (JsonException) { }
             }
             if (_original is null && current is null) throw new IOException(L.Get("The previous configuration could not be preserved. Saving has been blocked."));
             foreach (var source in _pendingSources) PreserveBytes(source);
         }
+        foreach (var source in _migrationSources) PreserveMigrationBytes(source);
         var temp = _path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            _files.WriteNewBytes(temp, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(settings, AppSettings.JsonOptions)));
+            _files.WriteNewBytes(temp, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(saved, AppSettings.JsonOptions)));
             try { _files.Replace(temp, _path); }
             catch (FileNotFoundException) { _files.Move(temp, _path); }
         }
@@ -163,7 +189,17 @@ public sealed class SettingsStore : ISettingsStore
         }
         if (_preservationPending && _recoveryError is not null)
             LoadWarning = L.Format("The previous configuration was preserved in a recovery backup: {0}", string.Join(", ", _backups.Select(b => b.Path).Distinct()));
-        _preservationPending = false; _original = null; _recoveryError = null; _pendingSources.Clear(); _backups.Clear();
+        _preservationPending = false; _original = null; _recoveryError = null;
+        _pendingSources.Clear(); _migrationSources.Clear(); _backups.Clear();
+    }
+    private void PreserveMigrationBytes(byte[] bytes)
+    {
+        foreach (var suffix in new[] { ".pre-v3.bak", ".pre-v4.bak" })
+        {
+            var target = _path + suffix;
+            if (File.Exists(target)) continue;
+            _files.WriteNewBytes(target, bytes);
+        }
     }
     private void PreserveBytes(byte[] bytes)
     {
@@ -208,7 +244,10 @@ public sealed class SettingsStore : ISettingsStore
                         if (_preservationPending)
                         {
                             PreserveOnSave(bytes);
-                            try { ReadVersion(Decode(bytes)); }
+                            try
+                            {
+                                if (ReadVersion(Decode(bytes)) < AppSettings.CurrentSchemaVersion) TrackMigration(bytes);
+                            }
                             catch (NotSupportedException) { _unsupportedSchema = true; throw; }
                             catch (JsonException) { }
                         }
@@ -217,6 +256,35 @@ public sealed class SettingsStore : ISettingsStore
                 }
             }
             SaveLocked(settings);
+        }
+    });
+    public Task ResetAsync() => Task.Run(() =>
+    {
+        lock (_gate)
+        {
+            var config = Path.GetFullPath(_path);
+            var root = Path.GetDirectoryName(config)!;
+            var credentials = Path.GetFullPath(Path.Combine(root, "native-credentials"));
+            if (!credentials.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) throw new IOException("Invalid credentials path.");
+            if (Directory.Exists(credentials))
+            {
+                var directories = new Stack<string>(); directories.Push(credentials);
+                while (directories.TryPop(out var directory))
+                {
+                    if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0) throw new IOException(L.Get("Cannot reset pairing data through a linked directory."));
+                    foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
+                    {
+                        var attributes = File.GetAttributes(entry);
+                        if ((attributes & FileAttributes.ReparsePoint) != 0) throw new IOException(L.Get("Cannot reset pairing data through a linked directory."));
+                        if ((attributes & FileAttributes.Directory) != 0) directories.Push(entry);
+                    }
+                }
+                Directory.Delete(credentials, true);
+            }
+            _files.Delete(config);
+            _preservationPending = false; _original = null; _recoveryError = null; _unsupportedSchema = false;
+            _pendingSources.Clear(); _migrationSources.Clear(); _backups.Clear();
+            LoadWarning = null;
         }
     });
 }

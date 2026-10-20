@@ -10,6 +10,29 @@ public sealed class ResolveWireTests
     private const string Type = "_raop._tcp.local", Name = "Synthetic._raop._tcp.local";
     private static readonly ResolveRequest Request = new(Name, Type, 42);
 
+    [Theory]
+    [InlineData("FeAtUrEs", "27.0", "", true)]
+    [InlineData("Ft", "27.0", "", true)]
+    [InlineData("FeAtUrEs", "26.0", "", false)]
+    [InlineData("Ft", "27.0", "synthetic-native-group", false)]
+    public void CopiedMixedCaseProfileTxtStillDrivesCurrentReceiverConsumers(string featureKey, string osVersion, string groupId, bool followsClock)
+    {
+        var original = new ServiceRecord(Name, Type, "192.0.2.1", 7000, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["DeViCeId"] = "synthetic-profile", ["MoDeL"] = "AudioAccessory5,1", ["IgL"] = "1",
+            [featureKey] = "0x1,0x200", ["Pw"] = "TrUe", ["OsVeRs"] = osVersion, ["PgId"] = groupId
+        });
+        var copied = Assert.IsType<ServiceRecord>(ResolveWire.Parse(JsonSerializer.Serialize(new ResolveReply(1, 0, original)), Request).Record);
+        Assert.Equal("TrUe", copied.Txt["pw"]);
+        Assert.Equal(osVersion, copied.Txt["osvers"]);
+        Assert.Equal(groupId, copied.Txt["pgid"]);
+        Assert.Equal("0x1,0x200", copied.Txt[featureKey.ToLowerInvariant()]);
+        var receiver = Assert.Single(ReceiverAggregator.Build([copied]));
+        Assert.Equal((1ul << 41) | 1, receiver.Features);
+        Assert.True(receiver.RequiresPassword);
+        Assert.Equal(followsClock, receiver.FollowReceiverClock);
+    }
+
     [Fact]
     public void SerializedTxtPreservesNativeCaseInsensitiveKeysAndOrdinalValues()
     {

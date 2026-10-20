@@ -67,16 +67,23 @@ Restoring/Intent record again requires conservative inspection. Ordinary Restore
 and disposal never apply a stale record's endpoint choice.
 
 Playback with local muting disabled can continue while recovery is unresolved.
-While the local-muting option is enabled, admission conservatively requires a
-resolved recovery journal even for a selected recording source. Turning local
-muting off permits that source without discarding saved recovery information.
+Application capture never mutes an endpoint and can also continue without
+discarding saved recovery information, even when the local-muting preference is
+enabled. For loopback or selected-endpoint capture with local muting enabled,
+admission conservatively requires a resolved journal, including a selected
+recording input. The actual opened direction still prevents muting that input.
 Muting admission is checked before/after old-attempt cleanup and before a retry
 opens another engine; the audio service also checks before any endpoint mutation.
+Rejected capture changes retain the current worker, receiver and runtime
+settings. If old-attempt cleanup has already completed and then exposes pending
+recovery, replacement is rejected with inactive controls.
 
 ## Verification limits
 
-The state machine, file lease, interruption windows, MTA queue, dispatcher,
-controls, and failures are tested with synthetic endpoints and temporary stores.
+The state machine, file lease, interruption windows, admission and capture
+settings have headless tests using synthetic endpoints and temporary stores.
+The MTA queue, dispatcher, modeless controls and their failure paths have an
+isolated WPF verification harness; compiling it does not qualify its execution.
 These fixtures do not prove Windows endpoint mute persistence after a physical
 reboot or power loss. Recovery cannot reconstruct a bit lost before a journal
 existed. The lease coordinates cooperating AirFlash instances; checking the

@@ -17,7 +17,7 @@ internal static class Program
     public static int Main(string[] args)
     {
         // DNS children must not initialize WPF or touch application data. Keep
-        // this dispatch before logging, platform probes, or any App construction.
+        // this dispatch before restart coordination, logging or App construction.
         if (args.Length > 0 && args[0] == "--dns-resolve-helper") return DnsResolveHelper.Run(args);
         if (args.Length > 0 && args[0] == "--dns-resolve-helper-check") return DnsResolveHelperCheck.Run(args);
         var diagnostic = NeedsDiagnosticIsolation(args);
@@ -35,6 +35,7 @@ internal static class Program
         var stage = "platform";
         try
         {
+            RestartService.WaitForPreviousProcess(args);
             // All diagnostics keep startup failures alongside their isolated output.
             if (diagnostic)
             {
@@ -44,7 +45,7 @@ internal static class Program
                         args.Contains("--compat-check") ? "compat-logs" : "isolated-data");
                 DiagnosticStartupDataDirectory = AppPaths.DataDirectory;
             }
-            AppPaths.Log($"Startup stage={stage} version={AppPaths.Version} os={Environment.OSVersion.Version} architecture={RuntimeInformation.ProcessArchitecture}");
+            AppPaths.Log($"Startup stage={stage} version={AppPaths.DisplayVersion} os={Environment.OSVersion.Version} architecture={RuntimeInformation.ProcessArchitecture}");
             if (!WindowsCapabilities.Current.Supported) throw new PlatformNotSupportedException(WindowsCompatibility.Requirement);
             stage = "wpf-resources";
             var app = new App();

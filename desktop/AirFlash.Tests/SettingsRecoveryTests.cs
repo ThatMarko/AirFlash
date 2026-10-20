@@ -69,7 +69,7 @@ public sealed class SettingsRecoveryTests
         var store = new SettingsStore(fixture.Path);
         var settings = store.Load();
         Assert.Null(settings.Validate());
-        Assert.Equal(2, settings.SchemaVersion);
+        Assert.Equal(4, settings.SchemaVersion);
         Assert.Equal(39, settings.MasterVolume);
         Assert.Equal("endpoint", settings.CaptureMode);
         Assert.Equal("Old endpoint", settings.CaptureEndpoint);
@@ -337,8 +337,8 @@ public sealed class SettingsRecoveryTests
     }
 
     [Theory]
-    [InlineData("3", false)]
-    [InlineData("3", true)]
+    [InlineData("5", false)]
+    [InlineData("5", true)]
     [InlineData("2147483648", false)]
     [InlineData("2147483648", true)]
     [InlineData("18446744073709551615", false)]
@@ -415,7 +415,7 @@ public sealed class SettingsRecoveryTests
         File.WriteAllText(fixture.Path, """{"schema_version":99}""");
         var store = new SettingsStore(fixture.Path);
         Assert.Throws<NotSupportedException>(() => store.Load());
-        File.WriteAllText(fixture.Path, """{"schema_version":2,"master_volume":31}""");
+        File.WriteAllText(fixture.Path, """{"schema_version":4,"master_volume":31}""");
         var settings = store.Load();
         Assert.Equal(31, settings.MasterVolume);
         settings.MasterVolume = 21;
@@ -431,7 +431,7 @@ public sealed class SettingsRecoveryTests
         File.WriteAllText(fixture.Path, "{ recoverable malformed source }");
         var store = new SettingsStore(fixture.Path);
         AssertDefaults(store.Load());
-        var future = Encoding.UTF8.GetBytes("""{"SCHEMA_VERSION":3}""");
+        var future = Encoding.UTF8.GetBytes("""{"SCHEMA_VERSION":5}""");
         File.WriteAllBytes(fixture.Path, future);
         Assert.Throws<NotSupportedException>(() => store.Save(new()));
         Assert.Equal(future, File.ReadAllBytes(fixture.Path));
@@ -541,10 +541,11 @@ public sealed class SettingsRecoveryTests
         """{"schema_version":2,"manual_receivers":{}}""",
         """{"schema_version":2,"receivers":[]}""",
         """{"schema_version":2,"receiver_aliases":[]}""",
-        """{"schema_version":2,"stream_sample_rate":null}""",
-        """{"schema_version":2,"stream_sample_rate":"invalid"}""",
-        """{"schema_version":2,"stream_sample_rate":"96000"}""",
-        """{"schema_version":2,"stream_sample_rate":44100}""",
+        """{"schema_version":2,"receivers":{"one":{"sample_rate":"invalid"}}}""",
+        """{"schema_version":2,"receivers":{"one":{"sample_rate":"96000"}}}""",
+        """{"schema_version":2,"receivers":{"one":{"sample_rate":44100}}}""",
+        """{"schema_version":2,"software_groups":[{"id":"software:one","name":"Stereo","left_id":"left","right_id":"right","sample_rate":"invalid"}]}""",
+        """{"schema_version":2,"software_groups":[{"id":"software:one","name":"Stereo","left_id":"left","right_id":"right","sample_rate":null}]}""",
         """{"schema_version":2,"ui_language":null}""",
         """{"schema_version":2,"theme":"invalid"}""",
         """{"schema_version":2,"discovery_interface_id":"invalid"}""",
@@ -570,7 +571,7 @@ public sealed class SettingsRecoveryTests
     [InlineData("receivers-null")]
     [InlineData("receiver-entry-null")]
     [InlineData("aliases-null")]
-    [InlineData("rate-null")]
+    [InlineData("rate-invalid")]
     public void ValidationReturnsADiagnosticForInvalidNullableShapes(string shape)
     {
         var settings = new AppSettings();
@@ -581,7 +582,7 @@ public sealed class SettingsRecoveryTests
             case "receivers-null": settings.Receivers = null!; break;
             case "receiver-entry-null": settings.Receivers["one"] = null!; break;
             case "aliases-null": settings.ReceiverAliases = null!; break;
-            case "rate-null": settings.StreamSampleRate = null!; break;
+            case "rate-invalid": settings.Options("one").SampleRate = "96000"; break;
             default: throw new ArgumentException(shape);
         }
         Assert.False(string.IsNullOrWhiteSpace(settings.Validate()));
@@ -591,7 +592,7 @@ public sealed class SettingsRecoveryTests
     public void NormalizedNullCollectionsAndReceiverOptionsRemainCompatible()
     {
         using var fixture = new Fixture();
-        File.WriteAllText(fixture.Path, """{"schema_version":2,"manual_receivers":null,"receiver_aliases":null,"receivers":{"removed":null,"kept":{"auto_connect":false}}}""");
+        File.WriteAllText(fixture.Path, """{"schema_version":4,"manual_receivers":null,"receiver_aliases":null,"receivers":{"removed":null,"kept":{"auto_connect":false}}}""");
         var store = new SettingsStore(fixture.Path);
         var settings = store.Load();
         Assert.Null(settings.Validate());
@@ -603,7 +604,7 @@ public sealed class SettingsRecoveryTests
         store.Save(settings);
         Assert.False(new SettingsStore(fixture.Path).Load().ReadOptions("kept").AutoConnect);
         Assert.Empty(fixture.Backups());
-        File.WriteAllText(fixture.Path, """{"schema_version":2,"receivers":null}""");
+        File.WriteAllText(fixture.Path, """{"schema_version":4,"receivers":null}""");
         Assert.Empty(store.Load().Receivers);
         Assert.Null(store.LoadWarning);
     }
@@ -613,7 +614,7 @@ public sealed class SettingsRecoveryTests
     {
         using var fixture = new Fixture();
         const string adapter = "01db7c77-1016-49cb-8f5c-f5c194425d15";
-        const string json = """{"schema_version":2,"discovery_interface_id":"01db7c77-1016-49cb-8f5c-f5c194425d15","manual_receivers":[{"id":"manual","name":null,"host":"speaker.local","port":7000},{"id":"MANUAL","name":"","host":"192.0.2.10","port":7001}],"receivers":{"manual":{"auto_connect":false,"volume":null,"latency_mode":null,"custom_buffer_ms":null,"standby_seconds":null}},"future_root":{"enabled":true},"equalizer":{"future_equalizer":[1,2,3]},"receiver_aliases":{"AA:BB:CC:DD:EE:01":"AA-BB-CC-DD-EE-02","endpoint:192.0.2.10:7000":"aabbccddee01"}}""";
+        const string json = """{"schema_version":4,"discovery_interface_id":"01db7c77-1016-49cb-8f5c-f5c194425d15","manual_receivers":[{"id":"manual","name":null,"host":"speaker.local","port":7000},{"id":"MANUAL","name":"","host":"192.0.2.10","port":7001}],"receivers":{"manual":{"auto_connect":false,"volume":null,"latency_mode":null,"custom_buffer_ms":null,"standby_seconds":null}},"future_root":{"enabled":true},"equalizer":{"future_equalizer":[1,2,3]},"receiver_aliases":{"AA:BB:CC:DD:EE:01":"AA-BB-CC-DD-EE-02","endpoint:192.0.2.10:7000":"aabbccddee01"}}""";
         File.WriteAllText(fixture.Path, json);
         var store = new SettingsStore(fixture.Path);
         var settings = store.Load();
@@ -638,9 +639,8 @@ public sealed class SettingsRecoveryTests
     private static void AssertDefaults(AppSettings settings)
     {
         Assert.Null(settings.Validate());
-        Assert.Equal(2, settings.SchemaVersion);
+        Assert.Equal(4, settings.SchemaVersion);
         Assert.Equal(100, settings.MasterVolume);
-        Assert.Equal("44100", settings.StreamSampleRate);
         Assert.False(settings.AutoConnectOnDiscover);
         Assert.False(settings.ForceReconnect);
         Assert.False(settings.StartAtLogin);

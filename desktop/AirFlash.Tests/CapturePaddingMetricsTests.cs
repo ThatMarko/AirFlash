@@ -133,23 +133,51 @@ public sealed class CapturePaddingMetricsTests
         Assert.Equal(1UL, before.Metrics.FullyPaddedPackets);
     }
 
-    [Fact]
-    public async Task CaptureMetricsBeforeStreamingDoNotPopulateLiveSnapshot()
+    [Theory]
+    [InlineData("connecting")]
+    [InlineData("standby")]
+    [InlineData("resuming")]
+    public async Task CaptureMetricsBeforeOrBetweenStreamingKeepNativeLifecycleState(string phase)
     {
         var connection = new Connection(autoStreaming: false);
         await using var controller = new SessionController(new Factory(connection), new Audio(), timing: Timing);
         using var snapshots = new Snapshots(controller);
         await controller.StartAsync(Receiver(), Settings());
         await connection.Started.Task.WaitAsync(Deadline);
+        if (phase != "connecting") connection.Emit(new { @event = "standby", reason = "application_unavailable" });
+        if (phase == "resuming") connection.Emit(new { @event = "resuming" });
         connection.Capture(new { underrun_packets = 99, padded_frames = 999UL, fully_padded_packets = 9UL });
+        var current = await snapshots.NextAsync(snapshot => snapshot.Metrics?.Underruns == 99);
+        Assert.Equal(phase == "standby" ? PlaybackState.Standby : PlaybackState.Connecting, current.State);
+        Assert.Equal(999UL, current.Metrics!.PaddedFrames);
+        Assert.Equal(9UL, current.Metrics.FullyPaddedPackets);
         connection.Emit(new { @event = "streaming" });
-        // The streaming publication is a processing barrier after the preceding event.
         var streaming = await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming);
-        Assert.Null(streaming.Metrics);
-        connection.Capture(new { underrun_packets = 1, padded_frames = 1UL, fully_padded_packets = 0UL });
-        var current = await snapshots.NextAsync(snapshot => snapshot.Metrics?.Underruns == 1);
-        Assert.Equal(1UL, current.Metrics!.PaddedFrames);
-        Assert.Equal(0UL, current.Metrics.FullyPaddedPackets);
+        Assert.Same(current.Metrics, streaming.Metrics);
+    }
+
+    [Fact]
+    public async Task ReplacedApplicationCaptureWorkerCanResetCountersWithinOneEngineSession()
+    {
+        var connection = new Connection(); var factory = new Factory(connection);
+        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        using var snapshots = new Snapshots(controller);
+        var settings = Settings(); settings.CaptureMode = "application"; settings.CaptureApplicationPath = @"C:\Synthetic\Player.exe";
+        await controller.StartAsync(Receiver(), settings);
+        await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming);
+        connection.Capture(new { underrun_packets = 3, padded_frames = 705UL, fully_padded_packets = 2UL });
+        var prior = await snapshots.NextAsync(snapshot => snapshot.Metrics?.Underruns == 3);
+        var session = connection.Session;
+        connection.Emit(new { @event = "standby", reason = "application_unavailable" });
+        connection.Capture(new { underrun_packets = 0, padded_frames = 0UL, fully_padded_packets = 0UL, input_rate = 0 });
+        var absent = await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Standby && snapshot.Metrics?.Underruns == 0);
+        Assert.Equal(0UL, absent.Metrics!.PaddedFrames); Assert.Equal(0UL, absent.Metrics.FullyPaddedPackets);
+        connection.Emit(new { @event = "resuming" }); connection.Emit(new { @event = "streaming" });
+        connection.Capture(new { underrun_packets = 1, padded_frames = 1UL, fully_padded_packets = 0UL, input_rate = 48000 });
+        var replaced = await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming && snapshot.Metrics?.Underruns == 1);
+        Assert.Equal(1UL, replaced.Metrics!.PaddedFrames); Assert.Equal(0UL, replaced.Metrics.FullyPaddedPackets);
+        Assert.Equal(705UL, prior.Metrics!.PaddedFrames); Assert.Equal(2UL, prior.Metrics.FullyPaddedPackets);
+        Assert.Equal(session, connection.Session); Assert.Equal(1, factory.OpenCount);
     }
 
     [Fact]
@@ -308,12 +336,13 @@ public sealed class CapturePaddingMetricsTests
     }
 
     private static Receiver Receiver(string id = "synthetic-capture") => new(id, "Synthetic receiver", "198.51.100.10");
-    private static AppSettings Settings(int rate = 48000, bool reconnect = false) => new()
+    private static AppSettings Settings(int rate = 48000, bool reconnect = false)
     {
-        StreamSampleRate = rate.ToString(System.Globalization.CultureInfo.InvariantCulture),
-        ForceReconnect = reconnect, MaxReconnectAttempts = 2, StandbyEnabled = false,
-        AutoConnectOnDiscover = false, MuteWhileStreaming = false
-    };
+        var settings = new AppSettings { ForceReconnect = reconnect, MaxReconnectAttempts = 2,
+            StandbyEnabled = false, AutoConnectOnDiscover = false, MuteWhileStreaming = false };
+        settings.Options("synthetic-capture").SampleRate = rate.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        return settings;
+    }
 
     private sealed class Snapshots : IDisposable
     {
@@ -363,7 +392,12 @@ public sealed class CapturePaddingMetricsTests
         public async Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
         {
             cancellation.ThrowIfCancellationRequested();
-            if (command == "start")
+            if (command == "hello")
+            {
+                Session = session;
+                Emit(new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "application_capture", "member_volume" } });
+            }
+            else if (command == "start")
             {
                 Session = session; Started.TrySetResult();
                 if (startGate is not null) await startGate.WaitAsync(cancellation);

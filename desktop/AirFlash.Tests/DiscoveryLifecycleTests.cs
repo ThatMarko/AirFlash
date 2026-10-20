@@ -11,6 +11,73 @@ public sealed class DiscoveryLifecycleTests
     private const string Name = "Office._airplay._tcp.local";
 
     [Theory]
+    [InlineData("features", "0x1,0x200")]
+    [InlineData("ft", "0x1,0x200")]
+    [InlineData("pw", "true")]
+    [InlineData("osvers", "27.0")]
+    [InlineData("pgid", "")]
+    public void CurrentReceiverProfileMetadataRefreshReachesAggregation(string key, string value)
+    {
+        using var fixture = new Fixture();
+        var txt = ProfileTxt();
+        if (key == "ft") { txt.Remove("features"); txt["ft"] = "0x0"; }
+        if (key == "pgid") { txt["osvers"] = "27.0"; txt["pgid"] = "synthetic-old-group"; }
+        var original = Record("192.0.2.1") with { Txt = txt };
+        fixture.StartAndAnnounce();
+        fixture.Dns.Resolves[^1].Resolved(0, original);
+        var initial = Assert.Single(fixture.Catalog);
+        Assert.Equal(0ul, initial.Features);
+        Assert.False(initial.RequiresPassword);
+        Assert.False(initial.FollowReceiverClock);
+        var publications = fixture.EventCount;
+
+        fixture.TickAfter(TimeSpan.FromSeconds(20));
+        fixture.Dns.Resolves[^1].Resolved(0, original with { Txt = new Dictionary<string, string>(txt) { [key] = value } });
+
+        Assert.Equal(publications + 1, fixture.EventCount);
+        var updated = Assert.Single(fixture.Catalog);
+        Assert.Equal(key is "features" or "ft" ? (1ul << 41) | 1 : 0ul, updated.Features);
+        Assert.Equal(key == "pw", updated.RequiresPassword);
+        Assert.Equal(key is "osvers" or "pgid", updated.FollowReceiverClock);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ObsoleteResolveCannotRevertCurrentProfileMetadata(bool previousEpoch)
+    {
+        using var fixture = new Fixture();
+        fixture.Dns.SettleOnCancel = false;
+        fixture.Adapters = [new("wifi", "Synthetic adapter", "Synthetic", "192.0.2.2", true, 17)];
+        fixture.StartAndAnnounce();
+        var obsolete = fixture.Dns.Resolves[^1];
+        if (previousEpoch) { fixture.Discovery.SetInterface("wifi"); fixture.Announce(); }
+        else { fixture.TickAfter(TimeSpan.FromSeconds(5)); fixture.TickAfter(TimeSpan.FromSeconds(1)); }
+        var current = fixture.Dns.Resolves[^1];
+        Assert.NotSame(obsolete, current);
+        var newest = ProfileTxt();
+        newest["features"] = "0x1,0x200"; newest["pw"] = "true"; newest["osvers"] = "27.0";
+        current.Resolved(0, Record("192.0.2.1") with { Txt = newest });
+        var accepted = Assert.Single(fixture.Catalog);
+        Assert.True(accepted.RequiresPassword);
+        Assert.True(accepted.FollowReceiverClock);
+        Assert.Equal((1ul << 41) | 1, accepted.Features);
+        var publications = fixture.EventCount;
+
+        obsolete.Resolved(0, Record("192.0.2.1") with { Txt = ProfileTxt() });
+
+        Assert.Equal(publications, fixture.EventCount);
+        Assert.Same(accepted, Assert.Single(fixture.Catalog));
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+    }
+
+    private static Dictionary<string, string> ProfileTxt() => new()
+    {
+        ["deviceid"] = "synthetic-profile", ["model"] = "AudioAccessory5,1", ["igl"] = "1",
+        ["features"] = "0x0", ["pw"] = "false", ["osvers"] = "26.0", ["pgid"] = ""
+    };
+
+    [Theory]
     [InlineData("gpn", "After")]
     [InlineData("igl", "1")]
     [InlineData("cn", "0,1")]

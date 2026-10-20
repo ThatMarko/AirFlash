@@ -342,6 +342,11 @@ internal static class UiDiagnostics
             public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
             {
                 factory.Commands.Enqueue(command);
+                if (command == "hello")
+                {
+                    _session = session;
+                    Emit(new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release" } });
+                }
                 if (command == "start") { _session = session; Emit(new { @event = "streaming" }); }
                 if (command == "stop") _events.Writer.TryComplete();
                 return Task.CompletedTask;

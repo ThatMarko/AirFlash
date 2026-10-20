@@ -27,6 +27,7 @@ public sealed class IpcFailureTests
         if (phase == "pairing") await controller.PairAsync(Receiver(), Settings(), (_, _) => throw new InvalidOperationException("No PIN request is scripted"));
         else await controller.StartAsync(Receiver(), Settings());
         await connection.Started.Task.WaitAsync(Limit);
+        await connection.Starting.Task.WaitAsync(Limit);
         if (phase == "streaming") { connection.Current("streaming"); await streaming.Task.WaitAsync(Limit); Assert.True(audio.Muted); }
         var restores = audio.Restores;
         connection.Raw(Rejection);
@@ -136,13 +137,19 @@ public sealed class IpcFailureTests
     {
         private readonly Channel<string> _events = Channel.CreateUnbounded<string>();
         public readonly ConcurrentQueue<string> Commands = new();
-        public readonly TaskCompletionSource Started = Signal(), Reading = Signal();
+        public readonly TaskCompletionSource Started = Signal(), Starting = Signal(), Reading = Signal();
         public bool Disposed;
         private string _session = "";
         public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
         {
             cancellation.ThrowIfCancellationRequested(); Commands.Enqueue(command);
-            if (command is "start" or "pair" or "hello") { _session = session; Started.TrySetResult(); }
+            if (command == "hello")
+            {
+                _session = session;
+                Started.TrySetResult();
+                Current("hello", new { capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "member_volume", "receiver_password", "application_capture" } });
+            }
+            if (command is "start" or "pair") { _session = session; Starting.TrySetResult(); }
             if (command == "stop") _events.Writer.TryComplete();
             return Task.CompletedTask;
         }
