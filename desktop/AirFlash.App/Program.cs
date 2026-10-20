@@ -16,6 +16,10 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // DNS children must not initialize WPF or touch application data. Keep
+        // this dispatch before restart coordination, logging or App construction.
+        if (args.Length > 0 && args[0] == "--dns-resolve-helper") return DnsResolveHelper.Run(args);
+        if (args.Length > 0 && args[0] == "--dns-resolve-helper-check") return DnsResolveHelperCheck.Run(args);
         var diagnostic = NeedsDiagnosticIsolation(args);
         if (diagnostic)
         {
