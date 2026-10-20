@@ -669,7 +669,16 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     try
                     {
                         await connection.SendAsync(session, "start", new { peers, group_mode = receiver.IsSoftwareGroup ? "software_stereo" : receiver.IsGroup ? "native_stereo" : "single", group_id = receiver.IsGroup && !receiver.IsSoftwareGroup ? receiver.StereoId : null, source = settings.CaptureMode == "application" ? "application" : "loopback", capture_application_path = settings.CaptureMode == "application" ? settings.CaptureApplicationPath : null, capture_process_id = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.ProcessId : null, capture_process_started_at = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.StartedAt : null, standby = StandbyParameters(settings, receiver.Id), duration_ms = 0, latency_ms = settings.Latency(receiver.Id), gain = Gain(receiver), timing = "ptp", capture_endpoint = settings.EffectiveEndpoint, sample_rate = sampleRate, equalizer = EffectiveEqualizer().WireParameters() }, cancellation).ConfigureAwait(false);
-                        lock (_sync) { if (epoch == _generation) _snapshot = _snapshot with { StreamRate = sampleRate }; }
+                        lock (_sync)
+                        {
+                            if (epoch == _generation)
+                            {
+                                _snapshot = _snapshot with { StreamRate = sampleRate };
+                                // Dispatcher consumers reject superseded snapshot references.
+                                // Every current snapshot must therefore also be published.
+                                Publish(epoch, _snapshot.State, _snapshot.Message);
+                            }
+                        }
                         lock (_sync) { if (epoch == _generation && ReferenceEquals(_connection, connection)) _equalizerReady = true; }
                     }
                     finally { _equalizerWriter.Release(); }
