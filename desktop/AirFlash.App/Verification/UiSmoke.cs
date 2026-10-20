@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Globalization;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -56,6 +57,17 @@ internal static class UiSmoke
             {
                 await UiSettingsRecovery.RunAsync(checks, directory);
                 App.WriteOutput(args, new { ok = true, checks, note = "Concrete settings recovery with synthetic files and simulated services only." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
+        if (args.Contains("--ui-diagnostics-smoke"))
+        {
+            try
+            {
+                await UiDiagnostics.RunAsync(checks, directory, args.Contains("--ui-diagnostics-dpi"));
+                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
+                    ui_culture = CultureInfo.CurrentUICulture.Name, note = "Synthetic capture metrics and injected diagnostics writer only." });
                 return 0;
             }
             catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
@@ -259,6 +271,7 @@ internal static class UiSmoke
             Render(panel, Path.Combine(directory, "panel-icons-stopped.png"), 1);
             Check(engine.DisposedCount == engine.CreatedCount, "stop releases mock engine", checks);
             await UiRegression.RunAsync(checks, directory);
+            await UiDiagnostics.RunAsync(checks, directory);
             await UiSettingsRecovery.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyStartupFailureAsync(checks, directory);
@@ -344,6 +357,8 @@ internal static class UiSmoke
         tray.Dispose();
         Check(!tray.IsRegistered && !tray.TryGetRectangle(out _), "disposed tray stops registration", checks);
         Check(!TrayRectangleExists(guid, tray.Identity, window), "disposed tray is removed from shell", checks);
+        var originalLanguage = CultureInfo.CurrentUICulture.Name;
+        var originalLabel = L.Get("Settings");
         var originallyChinese = L.IsChinese;
         try
         {
@@ -357,7 +372,9 @@ internal static class UiSmoke
             }
             finally { rebuilt.Dispose(); replacement.ShutdownPanel(); }
         }
-        finally { L.Initialize([originallyChinese ? "zh-CN" : "en-US"]); }
+        finally { L.Initialize([originalLanguage]); }
+        Check(CultureInfo.CurrentUICulture.Name == originalLanguage && L.Get("Settings") == originalLabel,
+            "tray language verification restores the exact original catalog", checks);
     }
     [StructLayout(LayoutKind.Sequential)] private struct TrayIdentifier { public uint Size; public IntPtr Window; public uint Id; public Guid Guid; }
     private static bool TrayRectangleExists(Guid guid, TrayIdentity identity, IntPtr window)
