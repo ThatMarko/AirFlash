@@ -18,6 +18,7 @@ pwsh scripts/build-release.ps1
 
 The release directory contains only `AirFlash.exe` and `AirFlash-X.Y.Z.msi`.
 The filename uses the release version, for example `AirFlash-0.3.0.msi`.
+Preview packages use `AirFlash-X.Y.Z-rc.1.msi`; their MSI ProductVersion remains numeric `X.Y.Z`.
 
 For a local development package, run `pwsh scripts/build-dev.ps1`. It writes
 `dist/dev/AirFlash.exe` and a filename such as
