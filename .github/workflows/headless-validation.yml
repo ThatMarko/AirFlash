@@ -1,0 +1,162 @@
+name: Fork exact-source headless validation
+run-name: Headless validation ${{ inputs.source_sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full 40-character own-fork commit SHA to qualify
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.repository == 'ThatMarko/AirFlash'
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      REQUESTED_SOURCE: ${{ inputs.source_sha }}
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
+      CARGO_TERM_COLOR: never
+    steps:
+      - name: Require a full source commit
+        id: requested
+        run: |
+          if ($env:REQUESTED_SOURCE -cnotmatch '\A[0-9a-fA-F]{40}\z') { throw 'A full 40-character commit SHA is required.' }
+          "sha=$($env:REQUESTED_SOURCE.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "DOTNET_INSTALL_DIR=$(Join-Path $env:RUNNER_TEMP 'airflash-headless-dotnet')" >> $env:GITHUB_ENV
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.requested.outputs.sha }}
+          persist-credentials: false
+      - name: Verify and fingerprint the exact source
+        id: source
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $head = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:REQUESTED_SOURCE.ToLowerInvariant()) { throw 'Checkout differs from the requested commit.' }
+          $tree = (git rev-parse 'HEAD^{tree}').Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the source tree.' }
+          $dirty = @(git status --porcelain --untracked-files=no)
+          if ($LASTEXITCODE -ne 0 -or $dirty.Count) { throw 'The source checkout must be clean.' }
+          $output = Join-Path $env:GITHUB_WORKSPACE 'artifacts/headless-validation'
+          New-Item -ItemType Directory -Path $output -Force | Out-Null
+          $names = (git ls-files -z) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot enumerate tracked source files.' }
+          $files = @(foreach ($relative in $names.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries)) {
+            $path = Join-Path $env:GITHUB_WORKSPACE $relative
+            $item = Get-Item -LiteralPath $path -Force
+            if ($item.PSIsContainer) { throw "Expected a tracked source file: $relative" }
+            [ordered]@{ path = $relative; bytes = $item.Length; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
+          })
+          [ordered]@{
+            unofficial = $true; requested_sha = $env:REQUESTED_SOURCE; source_sha = $head; tree_sha = $tree
+            workflow_sha = $env:GITHUB_WORKFLOW_SHA; workflow_ref = $env:GITHUB_WORKFLOW_REF; event_sha = $env:GITHUB_SHA
+            repository = $env:GITHUB_REPOSITORY; run_id = $env:GITHUB_RUN_ID; run_attempt = $env:GITHUB_RUN_ATTEMPT
+            runner_os = $env:RUNNER_OS; runner_arch = $env:RUNNER_ARCH
+            runner_image = $env:ImageOS; runner_image_version = $env:ImageVersion; source_files = $files
+            limits = 'Headless source qualification only. No desktop application, UI/raster, installer, receiver, release reservation or publication qualification.'
+          } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $output 'source-manifest.json') -Encoding utf8
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        id: dotnet
+        with:
+          dotnet-version: '10.0.402'
+      - name: Verify the selected SDK under desktop/global.json
+        id: sdk
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./scripts/dotnet-common.ps1
+          $context = Get-AirFlashDotnetContext -RepoRoot $env:GITHUB_WORKSPACE
+          $expectedHost = [IO.Path]::GetFullPath((Join-Path $env:DOTNET_INSTALL_DIR 'dotnet.exe'))
+          if ([IO.Path]::GetFullPath($context.Path) -ine $expectedHost) { throw 'The selected host differs from the isolated SDK installation.' }
+          $sdk = Assert-AirFlashDotnetSdk -Context $context
+          if ($sdk -cne '10.0.402') { throw "Unexpected selected SDK: $sdk" }
+          [ordered]@{ sdk = $sdk; host = $context.Path; working_directory = $context.WorkingDirectory; resolver_policy = (Get-Content desktop/global.json -Raw | ConvertFrom-Json) } |
+            ConvertTo-Json -Depth 5 | Set-Content artifacts/headless-validation/dotnet.json -Encoding utf8
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        id: uv
+        with:
+          version: '0.8.22'
+          python-version: '3.12'
+          enable-cache: false
+      - name: Install locked Python dependencies and record tool versions
+        id: dependencies
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          uv sync --locked 2>&1 | Tee-Object artifacts/headless-validation/python-sync.log
+          if ($LASTEXITCODE -ne 0) { throw 'Locked Python dependency installation failed.' }
+          rustup component add rustfmt clippy 2>&1 | Tee-Object artifacts/headless-validation/rust-components.log
+          if ($LASTEXITCODE -ne 0) { throw 'Rust formatting and lint components are required.' }
+          [ordered]@{ uv = (uv --version); python = (uv run --locked python --version); rustc = (rustc --version --verbose); cargo = (cargo --version); rustfmt = (cargo fmt --version); clippy = (cargo clippy --version) } |
+            ConvertTo-Json -Depth 4 | Set-Content artifacts/headless-validation/tools.json -Encoding utf8
+      - name: Python fixtures and lint
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          uv run --locked pytest -q -ra --junitxml artifacts/headless-validation/python.xml 2>&1 | Tee-Object artifacts/headless-validation/pytest.log
+          $tests = $LASTEXITCODE
+          uv run --locked ruff check . 2>&1 | Tee-Object artifacts/headless-validation/ruff.log
+          $lint = $LASTEXITCODE
+          if ($tests -ne 0 -or $lint -ne 0) { throw "Python checks failed: pytest=$tests, ruff=$lint" }
+      - name: Native formatting
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          cargo fmt --manifest-path native/airflash-engine/Cargo.toml --all -- --check 2>&1 | Tee-Object artifacts/headless-validation/cargo-fmt.log
+          exit $LASTEXITCODE
+      - name: Native lint
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          cargo clippy --manifest-path native/airflash-engine/Cargo.toml --all-targets --locked -- -D warnings 2>&1 | Tee-Object artifacts/headless-validation/cargo-clippy.log
+          exit $LASTEXITCODE
+      - name: Native tests
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          cargo test --manifest-path native/airflash-engine/Cargo.toml --locked 2>&1 | Tee-Object artifacts/headless-validation/cargo-test.log
+          exit $LASTEXITCODE
+      - name: Native release build and static compatibility inspection
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          # This script builds and inspects the engine; it does not launch it or the desktop app.
+          ./scripts/build-native.ps1 2>&1 | Tee-Object artifacts/headless-validation/native-build.log
+          exit $LASTEXITCODE
+      - name: Compile the managed solution with locked dependencies
+        id: managed_build
+        if: ${{ !cancelled() && steps.sdk.outcome == 'success' && steps.dependencies.outcome == 'success' }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          ./scripts/dotnet.ps1 build AirFlash.sln -c Release '-p:RestoreLockedMode=true' 2>&1 | Tee-Object artifacts/headless-validation/managed-build.log
+          exit $LASTEXITCODE
+      - name: Core tests with isolated results
+        if: ${{ !cancelled() && steps.managed_build.outcome == 'success' }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          $results = Join-Path $env:GITHUB_WORKSPACE 'artifacts/headless-validation/core'
+          ./scripts/dotnet.ps1 test AirFlash.Tests/AirFlash.Tests.csproj -c Release --no-build --no-restore '-p:RestoreLockedMode=true' --logger 'trx;LogFileName=core.trx' --results-directory $results 2>&1 | Tee-Object artifacts/headless-validation/core-tests.log
+          exit $LASTEXITCODE
+      - name: Verify source remained unchanged
+        if: ${{ !cancelled() && steps.source.outcome == 'success' }}
+        run: |
+          $head = (git rev-parse HEAD).Trim()
+          $status = @(git status --porcelain --untracked-files=no)
+          [ordered]@{ source_sha = $head; tracked_changes = $status } | ConvertTo-Json -Depth 3 |
+            Set-Content artifacts/headless-validation/final-source.json -Encoding utf8
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:REQUESTED_SOURCE.ToLowerInvariant() -or $status.Count) { throw 'Qualification changed the tracked source.' }
+      - name: Preserve exact-source logs and test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: headless-${{ steps.requested.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/headless-validation/
+            artifacts/compatibility/engine-audit.json
+          if-no-files-found: warn
+          retention-days: 14
