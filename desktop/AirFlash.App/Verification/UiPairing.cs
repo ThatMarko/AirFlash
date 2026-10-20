@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 using System.Windows;
@@ -47,15 +48,9 @@ internal static class UiPairing
             foreach (var completion in new[] { Completion.Cancel, Completion.Stop, Completion.Timeout })
                 await CaseAsync("1234", "1234", checks, completion: completion);
 
-            await CaseAsync("  raw-pässword-12-34 \t", "  raw-pässword-12-34 \t", checks, password: true);
-            await CaseAsync(new string('x', 128), new string('x', 128), checks, password: true, input: InputMode.Typed);
-            await CaseAsync("", null, checks, password: true);
-            foreach (var completion in new[] { Completion.Cancel, Completion.Stop, Completion.Timeout })
-                await CaseAsync("raw-password", "raw-password", checks, password: true, completion: completion);
-            foreach (var password in new[] { false, true })
             foreach (var completion in new[] { Completion.IpcError, Completion.EndOfStream, Completion.Stopped })
-                await CaseAsync(password ? "raw-password" : "1234", password ? "raw-password" : "1234", checks,
-                    password: password, completion: completion);
+                await CaseAsync("1234", "1234", checks, completion: completion);
+            await RunPasswordAsync(checks, directory);
 
             if (useClipboard)
                 foreach (var (text, inserted, pin) in new (string, string, string?)[]
@@ -75,6 +70,35 @@ internal static class UiPairing
                 else System.Windows.Clipboard.SetDataObject(clipboard, copy: true);
             }
         }
+    }
+
+    public static async Task RunPasswordAsync(List<string> checks, string directory)
+    {
+        _ = directory;
+        try
+        {
+            // This value is inside the unchanged 128-unit edit limit, but its
+            // 258 UTF-8 bytes exceed the native limit. Keep this decisive case
+            // first so a red run cannot be manufactured by later cancellation.
+            await CaseAsync(new string('界', 86), null, checks, password: true);
+            // Bypass only the fake dialog's disabled button to exercise the
+            // final submission guard independently from its enablement rule.
+            await CaseAsync(new string('界', 86), null, checks, password: true, forceSubmit: true);
+            foreach (var password in new[] { " ", "\t", " \t ", "\u00a0", "  raw-pässword-12-34 \t",
+                new string('界', 85), new string('é', 128), string.Concat(Enumerable.Repeat("😀", 64)) })
+                await CaseAsync(password, password, checks, password: true);
+            // PasswordBox.Password reads a null-terminated BSTR. Its getter
+            // returns this prefix after assignment, so validate and submit the
+            // actual control value; raw NUL input remains invalid in the helper.
+            await CaseAsync("before\0after", "before", checks, password: true, inserted: "before");
+            foreach (var password in new[] { "", "before\rafter", "before\nafter", "\ud800", "\udc00" })
+                await CaseAsync(password, null, checks, password: true);
+            await CaseAsync(new string('x', 128), new string('x', 128), checks, password: true, input: InputMode.Typed);
+            foreach (var completion in new[] { Completion.Cancel, Completion.Stop, Completion.Timeout,
+                Completion.IpcError, Completion.EndOfStream, Completion.Stopped })
+                await CaseAsync("raw-password", "raw-password", checks, password: true, completion: completion);
+        }
+        finally { _loaded = null; }
     }
 
     private static async Task PreCancelledAsync(List<string> checks)
@@ -106,7 +130,7 @@ internal static class UiPairing
     { RequiresPassword = password };
 
     private static async Task CaseAsync(string text, string? expected, List<string> checks, bool password = false,
-        Completion completion = Completion.Submit, InputMode input = InputMode.Assigned, string? inserted = null)
+        Completion completion = Completion.Submit, InputMode input = InputMode.Assigned, string? inserted = null, bool forceSubmit = false)
     {
         var factory = new PairingFactory(password); var audio = new Audio();
         var timing = new SessionTiming(Limit, Limit,
@@ -115,7 +139,7 @@ internal static class UiPairing
         var owner = Owner(); owner.Show();
         var handled = Signal(); var terminal = Signal(); var closed = Signal();
         PinDialog? prompt = null; Task? stop = null; var actionStarted = false;
-        var label = (password ? "password" : "PIN") + "/" + input + "/" + completion;
+        var label = (password ? "password" : "PIN") + "/" + input + "/" + completion + (forceSubmit ? "/forced-submit" : "");
         controller.Changed += snapshot =>
         {
             if (Volatile.Read(ref actionStarted) && snapshot.State is PlaybackState.Streaming or PlaybackState.Error or PlaybackState.Idle)
@@ -129,6 +153,7 @@ internal static class UiPairing
             {
                 var pair = UiSmoke.Descendants(dialog).OfType<Button>().Single(button => button.IsDefault);
                 var cancel = UiSmoke.Descendants(dialog).OfType<Button>().Single(button => button.IsCancel);
+                string? passwordObservation = null;
                 if (password)
                 {
                     var box = UiSmoke.Descendants(dialog).OfType<PasswordBox>().Single();
@@ -142,6 +167,14 @@ internal static class UiPairing
                         Check(box.Password == text, "password typing cannot insert a 129th character", checks);
                     }
                     else box.Password = text;
+                    var actual = box.Password;
+                    // PasswordBox can transform assigned text. Record only
+                    // shape metadata for these synthetic values when an
+                    // assertion fails; never infer its returned text from the
+                    // original assignment or change the expected contract.
+                    passwordObservation = $"assigned[{PasswordShape(text)}]; control[{PasswordShape(actual)}]; retained={actual == text}; enabled={pair.IsEnabled}; expected_enabled={expected is not null}";
+                    if (input == InputMode.Assigned)
+                        Check(actual == (inserted ?? text), label + " actual password control value matches its explicit assignment expectation", checks, passwordObservation);
                 }
                 else
                 {
@@ -159,9 +192,10 @@ internal static class UiPairing
                         // actual typing/paste bounds are asserted separately.
                         box.Text = text;
                 }
-                Check(pair.IsEnabled == (expected is not null), label + " enablement follows the resulting input", checks);
+                Check(pair.IsEnabled == (expected is not null), label + " enablement follows the resulting input", checks, passwordObservation);
                 Volatile.Write(ref actionStarted, true);
-                if (completion == Completion.Stop) stop = controller.StopAsync();
+                if (forceSubmit) { pair.IsEnabled = true; Invoke(pair); }
+                else if (completion == Completion.Stop) stop = controller.StopAsync();
                 else if (completion is Completion.IpcError or Completion.EndOfStream or Completion.Stopped)
                     factory.Connections.First().Fail(completion);
                 else if (completion != Completion.Timeout) Invoke(completion == Completion.Cancel || expected is null ? cancel : pair);
@@ -265,8 +299,15 @@ internal static class UiPairing
     }
     private static TaskCompletionSource Signal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
     private static void Invoke(Button button) => ((IInvokeProvider)new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke)).Invoke();
-    private static void Check(bool condition, string message, List<string> checks)
-    { if (!condition) throw new InvalidOperationException(message); checks.Add(message); }
+    private static string PasswordShape(string value)
+    {
+        int? bytes = null, malformedAt = null;
+        try { bytes = new UTF8Encoding(false, true).GetByteCount(value); }
+        catch (EncoderFallbackException error) { malformedAt = error.Index; }
+        return $"utf16={value.Length},utf8={bytes?.ToString() ?? "invalid"},malformed_at={malformedAt?.ToString() ?? "none"},cr={value.Contains('\r')},lf={value.Contains('\n')},nul={value.Contains('\0')},replacement_count={value.Count(character => character == '\ufffd')}";
+    }
+    private static void Check(bool condition, string message, List<string> checks, string? detail = null)
+    { if (!condition) throw new InvalidOperationException(message + (detail is null ? "" : ": " + detail)); checks.Add(message); }
 
     private sealed class Audio : IAudioService
     {
