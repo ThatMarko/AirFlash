@@ -14,6 +14,7 @@
     </PackageReference>
     <ProjectReference Include="../AirFlash.Core/AirFlash.Core.csproj"/>
     <Compile Include="../AirFlash.App/Ui/VolumeSliderMath.cs" Link="VolumeSliderMath.cs"/>
+    <Compile Include="../AirFlash.App/Ui/PinInput.cs" Link="PinInput.cs"/>
     <Compile Include="../AirFlash.App/Services/TrayRegistration.cs" Link="TrayRegistration.cs"/>
     <Compile Include="../AirFlash.App/Services/DnsServiceApi.cs" Link="DnsServiceApi.cs"/>
     <Compile Include="../AirFlash.App/Services/ShellShutdown.cs" Link="ShellShutdown.cs"/>

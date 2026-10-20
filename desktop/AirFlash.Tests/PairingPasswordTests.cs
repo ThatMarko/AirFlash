@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Channels;
+using AirFlash.App.Ui;
 using AirFlash.Core;
 using Xunit;
 
@@ -93,6 +94,87 @@ public sealed class PairingPasswordTests
         Assert.Equal(0, prompts); Assert.Equal(1, factory.OpenCount); Assert.Equal(0, audio.MuteCalls);
         Assert.DoesNotContain(connection.Commands, c => c.Name is "pair" or "pair_pin" or "start");
         Assert.Equal(PlaybackState.Error, controller.Snapshot.State);
+    }
+
+    [Theory]
+    [InlineData("12-34", "1234")]
+    [InlineData("-12--34-", "1234")]
+    [InlineData("12-34-56-78", "12345678")]
+    [InlineData("00-00", "0000")]
+    public async Task NormalizedPinIsTheActualPairPinPayload(string input, string expected)
+    {
+        var connection = new Connection("pin_required"); var factory = new Factory(connection); var audio = new Audio();
+        await using var controller = new SessionController(factory, audio, timing: Timing);
+        Receiver? requested = null;
+        await controller.PairAsync(Receiver(false), Settings(), (member, _) =>
+        {
+            requested = member;
+            return Task.FromResult(PinInput.Normalize(input));
+        });
+        await connection.PinSent.Task.WaitAsync(Limit);
+        Assert.NotNull(requested); Assert.False(requested.RequiresPassword);
+        Assert.False(connection.Commands.Single(command => command.Name == "pair").Parameters.GetProperty("password_required").GetBoolean());
+        Assert.Equal(expected, connection.Commands.Single(command => command.Name == "pair_pin").Parameters.Text("pin"));
+        await controller.StopAsync();
+        Assert.Equal(1, factory.OpenCount); Assert.Equal(0, audio.MuteCalls);
+        Assert.DoesNotContain(connection.Commands, command => command.Name == "start");
+        Assert.True(connection.Disposed.Task.IsCompletedSuccessfully);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("123")]
+    [InlineData("123456789")]
+    [InlineData("1234 ")]
+    [InlineData("１２３４")]
+    [InlineData("١٢٣٤")]
+    [InlineData("12—34")]
+    [InlineData("12a34")]
+    public async Task InvalidOrCancelledPinProducesNoSubmissionPlaybackOrMute(string? input)
+    {
+        var connection = new Connection("pin_required"); var factory = new Factory(connection); var audio = new Audio();
+        var prompts = 0;
+        await using var controller = new SessionController(factory, audio, timing: Timing);
+        await controller.PairAsync(Receiver(false), Settings(), (member, _) =>
+        {
+            ++prompts; Assert.False(member.RequiresPassword);
+            return Task.FromResult(PinInput.Normalize(input));
+        });
+        await connection.Disposed.Task.WaitAsync(Limit);
+        Assert.Equal(1, prompts); Assert.Equal(1, factory.OpenCount); Assert.Equal(0, audio.MuteCalls);
+        Assert.DoesNotContain(connection.Commands, command => command.Name is "pair_pin" or "start");
+        Assert.Equal(PlaybackState.Idle, controller.Snapshot.State);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StopAndPromptTimeoutCancelThePinWaitWithoutSubmission(bool timeout)
+    {
+        var connection = new Connection("pin_required"); var factory = new Factory(connection); var audio = new Audio();
+        var entered = Signal(); var cancelled = Signal(); var fault = Signal();
+        var pending = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var controller = new SessionController(factory, audio, timing: timeout ? Timing with { Pin = TimeSpan.FromMilliseconds(100) } : Timing);
+        controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) fault.TrySetResult(); };
+        try
+        {
+            await controller.PairAsync(Receiver(false), Settings(), async (_, token) =>
+            {
+                entered.TrySetResult();
+                try { return PinInput.Normalize(await pending.Task.WaitAsync(token)); }
+                finally { if (token.IsCancellationRequested) cancelled.TrySetResult(); }
+            });
+            await entered.Task.WaitAsync(Limit);
+            if (timeout) await fault.Task.WaitAsync(Limit);
+            else await controller.StopAsync();
+            await cancelled.Task.WaitAsync(Limit);
+            await connection.Disposed.Task.WaitAsync(Limit);
+            Assert.Equal(timeout ? PlaybackState.Error : PlaybackState.Idle, controller.Snapshot.State);
+            Assert.Equal(1, factory.OpenCount); Assert.Equal(0, audio.MuteCalls);
+            Assert.DoesNotContain(connection.Commands, command => command.Name is "pair_pin" or "start");
+        }
+        finally { pending.TrySetResult(null); await controller.StopAsync(); }
     }
 
     private sealed class Factory(Connection connection) : IEngineFactory
