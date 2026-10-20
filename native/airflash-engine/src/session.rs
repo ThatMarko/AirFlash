@@ -279,6 +279,33 @@ impl Drop for NtpServer {
         }
     }
 }
+fn authenticate_with<C, T>(
+    host: IpAddr,
+    connection: &mut C,
+    load_saved: impl FnOnce() -> Result<Option<auth::Credentials>>,
+    load_password: impl FnOnce() -> Result<Option<zeroize::Zeroizing<String>>>,
+    verify: impl FnOnce(&mut C, &auth::Credentials) -> Result<T>,
+    password: impl FnOnce(&mut C, &str) -> Result<T>,
+    transient: impl FnOnce(&mut C) -> Result<T>,
+) -> Result<T> {
+    // Lookup is lazy and stays outside the authentication-only classification.
+    // A storage or exchange error never selects another method on this connection.
+    let result = if let Some(credentials) = load_saved()? {
+        verify(connection, &credentials)
+    } else if let Some(saved_password) = load_password()? {
+        password(connection, &saved_password)
+    } else {
+        transient(connection)
+    };
+    result.map_err(|error| {
+        let mut fault = Fault::from_error(host, "authentication", &error);
+        if fault.code == "protocol_error" {
+            fault.code = "authentication_failed".into();
+        }
+        fault.into()
+    })
+}
+
 struct Member {
     selection: crate::profile::Selection,
     peer: Peer,
@@ -341,27 +368,21 @@ impl Member {
             .get("deviceID")
             .and_then(Value::as_string)
             .unwrap_or("");
-        let saved = if device_id.is_empty() {
-            None
-        } else {
-            crate::credentials::load(&crate::credentials::directory(), device_id)?
-        };
-        let secret = (if let Some(credentials) = saved {
-            auth::verify(&mut conn, &credentials)
-        } else if let Some(password) =
-            crate::credentials::load_password(&crate::credentials::directory(), device_id)?
-        {
-            auth::transient_password(&mut conn, &password)
-        } else {
-            auth::transient(&mut conn)
-        })
-        .map_err(|error| {
-            let mut fault = Fault::from_error(peer.host, "authentication", &error);
-            if fault.code == "protocol_error" {
-                fault.code = "authentication_failed".into();
-            }
-            fault
-        })?;
+        let secret = authenticate_with(
+            peer.host,
+            &mut conn,
+            || {
+                if device_id.is_empty() {
+                    Ok(None)
+                } else {
+                    crate::credentials::load(&crate::credentials::directory(), device_id)
+                }
+            },
+            || crate::credentials::load_password(&crate::credentials::directory(), device_id),
+            auth::verify,
+            auth::transient_password,
+            auth::transient,
+        )?;
         emit(json!({"event":"phase","host":peer.host,"phase":"authenticated"}));
         let control = UdpSocket::bind(SocketAddr::new(local, 0))?;
         control.set_nonblocking(true)?;
@@ -1283,6 +1304,215 @@ fn offset_deadline(base: Instant, lead: Duration, offset_ms: i32) -> Result<Inst
 #[cfg(test)]
 #[path = "session_simulation.rs"]
 mod simulation;
+
+#[cfg(test)]
+mod credential_selection_tests {
+    use super::*;
+    use std::{cell::RefCell, io};
+    use zeroize::Zeroizing;
+
+    fn credentials() -> auth::Credentials {
+        auth::Credentials {
+            accessory_id: b"synthetic-accessory".to_vec(),
+            accessory_public: [11; 32],
+            controller_id: b"synthetic-controller".to_vec(),
+            controller_secret: [22; 32],
+        }
+    }
+    #[test]
+    fn lookup_and_authentication_are_lazy_ordered_and_mutually_exclusive() {
+        for (hap, saved_password, expected) in [
+            (true, true, "verify"),
+            (true, false, "verify"),
+            (false, true, "password"),
+            (false, false, "transient"),
+        ] {
+            let lookups = RefCell::new(Vec::new());
+            let mut methods = Vec::new();
+            let result = authenticate_with(
+                "127.0.0.1".parse().unwrap(),
+                &mut methods,
+                || {
+                    lookups.borrow_mut().push("hap");
+                    Ok(hap.then(credentials))
+                },
+                || {
+                    lookups.borrow_mut().push("password");
+                    Ok(saved_password.then(|| Zeroizing::new(" raw-päss-12-34 ".into())))
+                },
+                |calls, saved| {
+                    assert_eq!(saved.accessory_id, b"synthetic-accessory");
+                    calls.push("verify");
+                    Ok("verify")
+                },
+                |calls, password| {
+                    assert_eq!(password, " raw-päss-12-34 ");
+                    calls.push("password");
+                    Ok("password")
+                },
+                |calls| {
+                    calls.push("transient");
+                    Ok("transient")
+                },
+            )
+            .unwrap();
+            assert_eq!(result, expected);
+            assert_eq!(methods, [expected]);
+            assert_eq!(
+                *lookups.borrow(),
+                if hap {
+                    vec!["hap"]
+                } else {
+                    vec!["hap", "password"]
+                }
+            );
+        }
+    }
+    #[test]
+    fn storage_errors_abort_without_authentication_or_an_alternate_lookup() {
+        for failing_store in ["hap", "password"] {
+            for kind in [
+                None,
+                Some(io::ErrorKind::NotFound),
+                Some(io::ErrorKind::PermissionDenied),
+                Some(io::ErrorKind::Other),
+            ] {
+                let lookups = RefCell::new(Vec::new());
+                let mut methods = Vec::new();
+                let failure = || -> anyhow::Error {
+                    match kind {
+                        Some(kind) => {
+                            io::Error::new(kind, "synthetic opened storage failure").into()
+                        }
+                        None => anyhow::anyhow!("synthetic invalid stored payload"),
+                    }
+                };
+                let error = authenticate_with(
+                    "127.0.0.1".parse().unwrap(),
+                    &mut methods,
+                    || {
+                        lookups.borrow_mut().push("hap");
+                        if failing_store == "hap" {
+                            Err(failure())
+                        } else {
+                            Ok(None)
+                        }
+                    },
+                    || {
+                        lookups.borrow_mut().push("password");
+                        Err(failure())
+                    },
+                    |calls, _| {
+                        calls.push("verify");
+                        Ok(())
+                    },
+                    |calls, _| {
+                        calls.push("password");
+                        Ok(())
+                    },
+                    |calls| {
+                        calls.push("transient");
+                        Ok(())
+                    },
+                )
+                .unwrap_err();
+                assert!(methods.is_empty());
+                assert_eq!(
+                    *lookups.borrow(),
+                    if failing_store == "hap" {
+                        vec!["hap"]
+                    } else {
+                        vec!["hap", "password"]
+                    }
+                );
+                assert!(error.downcast_ref::<Fault>().is_none());
+                let fault = Fault::from_error("127.0.0.1", "setup", &error);
+                let wire = serde_json::to_string(&fault.event()).unwrap();
+                let event: Json = serde_json::from_str(&wire).unwrap();
+                assert_eq!(event["channel"], "setup");
+                assert_eq!(
+                    event["code"],
+                    if kind.is_some() {
+                        "socket_error"
+                    } else {
+                        "protocol_error"
+                    }
+                );
+                assert_eq!(event["retryable"], kind.is_some());
+                if let Some(kind) = kind {
+                    assert_eq!(error.downcast_ref::<io::Error>().unwrap().kind(), kind);
+                }
+            }
+        }
+    }
+    #[test]
+    fn exchange_failure_never_falls_back_and_retains_authentication_classification() {
+        for selected in ["verify", "password", "transient"] {
+            for io_error in [false, true] {
+                let lookups = RefCell::new(Vec::new());
+                let mut methods = Vec::new();
+                let failure = || -> Result<()> {
+                    if io_error {
+                        Err(
+                            io::Error::new(io::ErrorKind::TimedOut, "synthetic exchange failure")
+                                .into(),
+                        )
+                    } else {
+                        anyhow::bail!("synthetic exchange failure")
+                    }
+                };
+                let error = authenticate_with(
+                    "127.0.0.1".parse().unwrap(),
+                    &mut methods,
+                    || {
+                        lookups.borrow_mut().push("hap");
+                        Ok((selected == "verify").then(credentials))
+                    },
+                    || {
+                        lookups.borrow_mut().push("password");
+                        Ok((selected == "password")
+                            .then(|| Zeroizing::new("synthetic-password".into())))
+                    },
+                    |calls, _| {
+                        calls.push("verify");
+                        failure()
+                    },
+                    |calls, _| {
+                        calls.push("password");
+                        failure()
+                    },
+                    |calls| {
+                        calls.push("transient");
+                        failure()
+                    },
+                )
+                .unwrap_err();
+                assert_eq!(methods, [selected]);
+                assert_eq!(
+                    *lookups.borrow(),
+                    if selected == "verify" {
+                        vec!["hap"]
+                    } else {
+                        vec!["hap", "password"]
+                    }
+                );
+                // This is also how Member::connect's caller classifies setup errors.
+                let fault = Fault::from_error("127.0.0.1", "setup", &error);
+                assert_eq!(fault.channel, "authentication");
+                assert_eq!(
+                    fault.code,
+                    if io_error {
+                        "socket_error"
+                    } else {
+                        "authentication_failed"
+                    }
+                );
+                assert_eq!(fault.retryable, io_error);
+                assert!(fault.message.contains("synthetic exchange failure"));
+            }
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
