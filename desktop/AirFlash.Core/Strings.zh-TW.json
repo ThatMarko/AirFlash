@@ -330,5 +330,8 @@
   "Cannot reset pairing data through a linked directory.": "無法透過連結目錄重設配對資料。",
   "Unsupported group sample rate: {0}": "立體聲群組取樣率不受支援：{0}",
   "Group sample rate: {0} (pending verification)": "立體聲群組取樣率：{0}（待驗證）",
-  "Reset failed and startup settings could not be restored.": "重設失敗，且無法還原開機啟動設定。"
+  "Reset failed and startup settings could not be restored.": "重設失敗，且無法還原開機啟動設定。",
+  "The receiver is unavailable.": "接收裝置目前無法使用。",
+  "The receiver selection is ambiguous.": "無法確定所選接收裝置的唯一歸屬。",
+  "Discovery unavailable": "探索資訊暫時無法使用"
 }

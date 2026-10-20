@@ -347,5 +347,8 @@
   "Cannot reset pairing data through a linked directory.": "Kopplungsdaten können nicht über ein verlinktes Verzeichnis zurückgesetzt werden.",
   "Unsupported group sample rate: {0}": "Nicht unterstützte Abtastrate der Gruppe: {0}",
   "Group sample rate: {0} (pending verification)": "Abtastrate der Gruppe: {0} (Verifizierung ausstehend)",
-  "Reset failed and startup settings could not be restored.": "Das Zurücksetzen ist fehlgeschlagen, und die Starteinstellungen konnten nicht wiederhergestellt werden."
+  "Reset failed and startup settings could not be restored.": "Das Zurücksetzen ist fehlgeschlagen, und die Starteinstellungen konnten nicht wiederhergestellt werden.",
+  "The receiver is unavailable.": "Empfänger ist nicht verfügbar.",
+  "The receiver selection is ambiguous.": "Die Empfängerauswahl ist mehrdeutig.",
+  "Discovery unavailable": "Gerätesuche nicht verfügbar"
 }

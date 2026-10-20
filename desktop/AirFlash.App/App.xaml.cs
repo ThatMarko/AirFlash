@@ -144,10 +144,11 @@ public partial class App : Application
         if (_quitting) return; _quitting = true;
         try
         {
-            if (_settings is { } applying) await applying.ViewModel.ApplicationCompleted;
-            _settings?.Close();
-            if (_engine is not null) await _engine.DisposeAsync();
-            if (_viewModel is not null) await _viewModel.DisposeAsync();
+            await ShellShutdown.RunAsync(() => _viewModel?.BeginShutdown(),
+                () => _settings?.ViewModel.ApplicationCompleted ?? Task.CompletedTask,
+                () => _settings?.Close(),
+                () => _engine?.DisposeAsync() ?? ValueTask.CompletedTask,
+                () => _viewModel?.DisposeAsync() ?? ValueTask.CompletedTask);
             _tray?.Dispose(); _panel?.ShutdownPanel();
             if (_instance is not null) await _instance.DisposeAsync();
             _theme?.Dispose();

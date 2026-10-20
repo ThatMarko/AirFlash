@@ -347,5 +347,8 @@
   "Cannot reset pairing data through a linked directory.": "无法通过链接目录重置配对数据。",
   "Unsupported group sample rate: {0}": "立体声组采样率不受支持：{0}",
   "Group sample rate: {0} (pending verification)": "立体声组采样率：{0}（待验证）",
-  "Reset failed and startup settings could not be restored.": "重置失败，且无法恢复开机启动设置。"
+  "Reset failed and startup settings could not be restored.": "重置失败，且无法恢复开机启动设置。",
+  "The receiver is unavailable.": "接收设备当前不可用。",
+  "The receiver selection is ambiguous.": "无法确定所选接收设备的唯一归属。",
+  "Discovery unavailable": "发现信息暂不可用"
 }
