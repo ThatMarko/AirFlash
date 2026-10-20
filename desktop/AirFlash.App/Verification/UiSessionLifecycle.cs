@@ -596,4 +596,3 @@ internal static class UiSessionLifecycle
         }
     }
 }
-
