@@ -24,6 +24,7 @@ internal static class UiSmoke
         var report = index >= 0 && index + 1 < args.Length ? Path.GetFullPath(args[index + 1]) : Path.Combine(Path.GetTempPath(), "airplay-ui-smoke", "report.json");
         var directory = Path.GetDirectoryName(report)!; Directory.CreateDirectory(directory);
         AppPaths.DataDirectory = Path.Combine(directory, "isolated-data");
+        var options = Program.StartupOptions(args).ToArray();
         var checks = new List<string>();
         Check(!Program.NeedsDiagnosticIsolation([]) && !Program.NeedsDiagnosticIsolation(["--startup"]),
             "ordinary startup arguments preserve the application's normal data directory", checks);
@@ -40,80 +41,60 @@ internal static class UiSmoke
         Check(startupText.Contains("Startup stage=platform", StringComparison.Ordinal)
             && startupText.Contains("Startup stage=wpf-resources ready", StringComparison.Ordinal),
             "both startup stages are recorded in isolated smoke logs", checks);
-        if (args.Contains("--ui-discovery-smoke"))
+        foreach (var arguments in new[] { new[] { "--ui-pairing-smoke" }, new[] { "--ui-pairing-smoek" }, new[] { "--receiver-settings-regression" },
+            new[] { "--ui-smoke", "--ui-perf" }, new[] { "--ui-smoke", "--ui-smoke" }, new[] { "--ui-smoke", "--audio-check" },
+            new[] { "--ui-smoke", "--discovery-check" }, new[] { "--ui-perf", "--ui-pairing-smoke" }, new[] { "--ui-perf", "--ui-unknown" }, new[] { "--ui-perf", "--receiver-settings-regression" } })
         {
-            try
-            {
-                await UiDiscoveryLifecycle.RunAsync(checks);
-                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
-                    ui_culture = CultureInfo.CurrentUICulture.Name, note = "WPF discovery scheduling with injected DNS and simulated engine/audio services." });
-                return 0;
-            }
-            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+            Check(Program.NeedsDiagnosticIsolation(arguments) && Program.IsDiagnostic(arguments),
+                "invalid UI requests retain diagnostic isolation and a nonmodal failure surface: " + string.Join(" ", arguments), checks);
+            var rejected = false;
+            try { Program.ValidateUiVerificationArguments(arguments); } catch (ArgumentException) { rejected = true; }
+            Check(rejected, "unsafe UI invocation is rejected before platform startup: " + string.Join(" ", arguments), checks);
         }
-        if (args.Contains("--ui-regression") || args.Contains("--ui-regression-smoke") || args.Contains("--receiver-settings-regression"))
+        Check(!Program.NeedsDiagnosticIsolation(["--output", "--ui-smoke"])
+            && !Program.StartupOptions(["--output", "--ui-smoke"]).Contains("--ui-smoke"),
+            "an option value cannot select a UI mode", checks);
+        Check(!Program.StartupOptions(["--ui-smoke", "--ui-language", "--audio-check"]).Contains("--audio-check"),
+            "an option value cannot select the real audio diagnostic before UI verification", checks);
+        var focusFlags = new[] { "--ui-discovery-smoke", "--ui-regression", "--ui-regression-smoke", "--receiver-settings-regression",
+            "--ui-mute-recovery-smoke", "--ui-settings-recovery-smoke", "--ui-diagnostics-smoke", "--ui-session-lifecycle-smoke",
+            "--ui-scroll-smoke", "--ui-pairing-smoke" };
+        var focused = options.Where(focusFlags.Contains).ToArray();
+        var verificationMode = focused.FirstOrDefault() ?? "full";
+        void FocusResult(bool ok, Exception? error = null) => App.WriteOutput(args, new
         {
-            try
-            {
-                if (args.Contains("--receiver-settings-regression")) await ReceiverSettingsRegression.RunAsync(checks, directory);
-                else await UiRegression.RunAsync(checks, directory);
-                App.WriteOutput(args, new { ok = true, checks, note = "WPF regression with simulated services. Shell tray and physical DPI are outside this run." });
-                return 0;
-            }
-            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
-        }
-        if (args.Contains("--ui-mute-recovery-smoke"))
+            ok, mode = verificationMode, checks, culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name,
+            error = error?.ToString(), note = "Isolated WPF verification with synthetic services; no real receiver or audio boundary."
+        });
+        try
         {
-            try
+            var knownUiFlags = focusFlags.Concat(new[] { "--ui-smoke", "--ui-culture", "--ui-language", "--ui-scroll-hold",
+                "--ui-diagnostics-dpi", "--ui-pairing-clipboard" }).ToHashSet(StringComparer.Ordinal);
+            var unknown = options.FirstOrDefault(arg => arg.StartsWith("--ui-", StringComparison.Ordinal) && !knownUiFlags.Contains(arg));
+            if (unknown is not null) throw new ArgumentException("Unknown UI verification option: " + unknown);
+            if (focused.Length > 1) throw new ArgumentException("Select exactly one focused UI verification mode.");
+            foreach (var (modifier, owner) in new[] { ("--ui-scroll-hold", "--ui-scroll-smoke"),
+                ("--ui-diagnostics-dpi", "--ui-diagnostics-smoke"), ("--ui-pairing-clipboard", "--ui-pairing-smoke") })
+                if (options.Contains(modifier) && verificationMode != owner) throw new ArgumentException(modifier + " requires " + owner + ".");
+            if (verificationMode != "full")
             {
-                await UiMuteRecovery.RunAsync(checks, directory);
-                App.WriteOutput(args, new { ok = true, checks, note = "Local audio recovery with injected endpoints and temporary stores only." });
-                return 0;
+                await (verificationMode switch
+                {
+                    "--ui-discovery-smoke" => UiDiscoveryLifecycle.RunAsync(checks),
+                    "--ui-regression" or "--ui-regression-smoke" => UiRegression.RunAsync(checks, directory),
+                    "--receiver-settings-regression" => ReceiverSettingsRegression.RunAsync(checks, directory),
+                    "--ui-mute-recovery-smoke" => UiMuteRecovery.RunAsync(checks, directory),
+                    "--ui-settings-recovery-smoke" => UiSettingsRecovery.RunAsync(checks, directory),
+                    "--ui-diagnostics-smoke" => UiDiagnostics.RunAsync(checks, directory, options.Contains("--ui-diagnostics-dpi")),
+                    "--ui-session-lifecycle-smoke" => UiSessionLifecycle.RunAsync(checks, directory),
+                    "--ui-scroll-smoke" => UiScrolling.RunAsync(checks, directory, options.Contains("--ui-scroll-hold")),
+                    "--ui-pairing-smoke" => UiPairing.RunAsync(checks, directory, options.Contains("--ui-pairing-clipboard")),
+                    _ => throw new InvalidOperationException("Unmapped focused UI verification mode.")
+                });
+                FocusResult(true); return 0;
             }
-            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
         }
-        if (args.Contains("--ui-settings-recovery-smoke"))
-        {
-            try
-            {
-                await UiSettingsRecovery.RunAsync(checks, directory);
-                App.WriteOutput(args, new { ok = true, checks, note = "Concrete settings recovery with synthetic files and simulated services only." });
-                return 0;
-            }
-            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
-        }
-        if (args.Contains("--ui-diagnostics-smoke"))
-        {
-            try
-            {
-                await UiDiagnostics.RunAsync(checks, directory, args.Contains("--ui-diagnostics-dpi"));
-                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
-                    ui_culture = CultureInfo.CurrentUICulture.Name, note = "Synthetic capture metrics and injected diagnostics writer only." });
-                return 0;
-            }
-            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
-        }
-        if (args.Contains("--ui-session-lifecycle-smoke"))
-        {
-            try
-            {
-                await UiSessionLifecycle.RunAsync(checks, directory);
-                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
-                    ui_culture = CultureInfo.CurrentUICulture.Name, note = "Isolated dispatcher/session fixtures with synthetic services; visible controls and devices are outside this run." });
-                return 0;
-            }
-            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
-        }
-        if (args.Contains("--ui-scroll-smoke"))
-        {
-            try
-            {
-                await UiScrolling.RunAsync(checks, directory, args.Contains("--ui-scroll-hold"));
-                App.WriteOutput(args, new { ok = true, checks, note = "Settings scrolling with simulated services only." });
-                return 0;
-            }
-            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
-        }
+        catch (Exception error) { FocusResult(false, error); return 1; }
         object? iconEnvironment = null;
         var store = new MemoryStore(); var engine = new MockFactory();
         await using var app = new AppViewModel(store, new MockDiscovery(), new MockAutostart(), new MockAudio(), engine, Application.Current.Dispatcher) { EngineVersion = "0.1.0（模拟）" };
@@ -124,7 +105,7 @@ internal static class UiSmoke
         var trayGuid = guidIndex >= 0 ? Guid.Parse(args[guidIndex + 1]) : Guid.NewGuid();
         if (trayGuid == new Guid("f3f63f27-a6df-4a27-a942-b448e17dcd12")) throw new ArgumentException("Use an isolated verification GUID.");
         var menuOpened = false; var quitRequestedFromTray = false;
-        var windowIdentityForVerification = args.Contains("--tray-window-id");
+        var windowIdentityForVerification = options.Contains("--tray-window-id");
         using var tray = new TrayService(panel, app, () => menuOpened = true, () => quitRequestedFromTray = true, trayGuid, windowIdentityForVerification); panel.Tray = tray;
         try
         {
@@ -150,7 +131,7 @@ internal static class UiSmoke
             Check(!panel.IsVisible, "tray activation hides panel", checks);
             await Task.Delay(280); SendMessage(tray.WindowHandle, 0x8001, clickId, clickParam); await Pump();
             Check(panel.IsVisible, "tray activation opens panel", checks);
-            if (args.Contains("--tray-smoke"))
+            if (options.Contains("--tray-smoke"))
             {
                 var initialIdentity = tray.Identity.ToString();
                 await VerifyTrayLifecycleAsync(tray, app, trayGuid, () => menuOpened, () => quitRequestedFromTray, checks, windowIdentityForVerification);
@@ -255,7 +236,7 @@ internal static class UiSmoke
             Check(app.Settings.ManualReceivers.Count == 1, "manual receiver persists", checks);
             var firstId = app.Snapshot.Receiver?.Id ?? throw new InvalidOperationException("The mock receiver must still be streaming.");
             settings.ViewModel.Draft.Options(firstId).Hidden = true; await settings.ViewModel.ApplyAsync();
-            Check(app.Receivers.All(r => r.Receiver.Id != firstId) && settings.ViewModel.Receivers.Any(r => r.Receiver.Id == firstId), "hidden receiver stays recoverable", checks);
+            Check(app.Receivers.Single(r => r.Receiver.Id == firstId) is { Active: true, CanPlay: true } activeHidden && activeHidden.ToggleCommand.CanExecute(null) && settings.ViewModel.Receivers.Any(r => r.Receiver.Id == firstId), "hidden active receiver retains Stop and stays recoverable in Settings", checks);
             settings.ViewModel.Draft.Options(firstId).Hidden = false; await settings.ViewModel.ApplyAsync();
             Check(app.Receivers.Any(r => r.Receiver.Id == firstId), "unhide receiver", checks);
             settings.Close(); settings = new(app); settings.Show(); await Pump();
@@ -305,6 +286,7 @@ internal static class UiSmoke
             await UiRegression.RunAsync(checks, directory);
             await UiDiagnostics.RunAsync(checks, directory);
             await UiSettingsRecovery.RunAsync(checks, directory);
+            await UiPairing.RunAsync(checks, directory);
             await UiSessionLifecycle.RunAsync(checks, directory);
             await UiMuteRecovery.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
@@ -312,11 +294,11 @@ internal static class UiSmoke
             await UiDiscoveryLifecycle.RunAsync(checks);
             await UiScrolling.RunAsync(checks, directory);
             await VerifyTrayLifecycleAsync(tray, app, trayGuid, () => menuOpened, () => quitRequestedFromTray, checks);
-            App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
+            App.WriteOutput(args, new { ok = true, mode = "full", checks, culture = CultureInfo.CurrentCulture.Name,
                 ui_culture = CultureInfo.CurrentUICulture.Name, icon_environment = iconEnvironment, note = "DNS, engine, audio and autostart boundaries are simulated. DPI renders do not replace physical multimonitor QA." });
             return 0;
         }
-        catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        catch (Exception error) { App.WriteOutput(args, new { ok = false, mode = "full", checks, culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name, error = error.ToString() }); return 1; }
         finally { settings?.Close(); panel.ShutdownPanel(); }
     }
     private static async Task VerifyStartupFailureAsync(List<string> checks, string directory)

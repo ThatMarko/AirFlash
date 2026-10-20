@@ -397,7 +397,12 @@ internal static class UiSessionLifecycle
                     fixture.Engine.OpenCount == 1 && !process.Disposed && !process.Commands.Any(command => command.Name == "stop") &&
                     (!catalog.Online || !catalog.Complete) && row.Active && row.CanPlay && row.ToggleCommand.CanExecute(null) &&
                     row.StateText.Contains(L.Get("Discovery unavailable"), StringComparison.Ordinal),
-                    "passive absence retains transport and the Stop command in " + state + " (prior mute " + original + ")", checks);
+                    "passive absence retains transport and the Stop command in " + state + " (prior mute " + original + "): " +
+                    $"owner={current.Owner == owner}; controller={current.Snapshot.State}; app={fixture.App.Snapshot.State}; " +
+                    $"current publication={ReferenceEquals(current.Snapshot, fixture.App.Snapshot)}; rate={current.Snapshot.StreamRate}; " +
+                    $"members={current.Snapshot.Receiver?.Members.Length}; opens={fixture.Engine.OpenCount}; disposed={process.Disposed}; " +
+                    $"stop sent={process.Commands.Any(command => command.Name == "stop")}; catalog={catalog.Online}/{catalog.Complete}; " +
+                    $"active={row.Active}; can play={row.CanPlay}; enabled={row.ToggleCommand.CanExecute(null)}; text={row.StateText}", checks);
             }
             await fixture.App.ApplyDiscoveryAsync([group]); await DrainAsync();
             Check(fixture.Engine.OpenCount == 1 && fixture.App.Session.Capture().Owner == owner &&
