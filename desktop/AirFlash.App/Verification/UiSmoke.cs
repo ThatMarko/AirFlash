@@ -72,6 +72,17 @@ internal static class UiSmoke
             }
             catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
         }
+        if (args.Contains("--ui-diagnostics-smoke"))
+        {
+            try
+            {
+                await UiDiagnostics.RunAsync(checks, directory, args.Contains("--ui-diagnostics-dpi"));
+                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
+                    ui_culture = CultureInfo.CurrentUICulture.Name, note = "Synthetic capture metrics and injected diagnostics writer only." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
         if (args.Contains("--ui-scroll-smoke"))
         {
             try
@@ -271,6 +282,7 @@ internal static class UiSmoke
             Render(panel, Path.Combine(directory, "panel-icons-stopped.png"), 1);
             Check(engine.DisposedCount == engine.CreatedCount, "stop releases mock engine", checks);
             await UiRegression.RunAsync(checks, directory);
+            await UiDiagnostics.RunAsync(checks, directory);
             await UiSettingsRecovery.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyStartupFailureAsync(checks, directory);
@@ -374,7 +386,8 @@ internal static class UiSmoke
             finally { rebuilt.Dispose(); replacement.ShutdownPanel(); }
         }
         finally { L.Initialize([originalLanguage]); }
-        Check(L.Get("Settings and devices") == originalCatalogMarker, "tray language rebuild restores original UI catalog", checks);
+        Check(CultureInfo.CurrentUICulture.Name == originalLanguage && L.Get("Settings and devices") == originalCatalogMarker,
+            "tray language verification restores the exact original catalog", checks);
     }
     [StructLayout(LayoutKind.Sequential)] private struct TrayIdentifier { public uint Size; public IntPtr Window; public uint Id; public Guid Guid; }
     private static bool TrayRectangleExists(Guid guid, TrayIdentity identity, IntPtr window)
