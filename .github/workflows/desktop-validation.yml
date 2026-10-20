@@ -92,7 +92,7 @@ jobs:
           . ./scripts/dotnet-common.ps1
           $context = Get-AirFlashDotnetContext -RepoRoot $env:GITHUB_WORKSPACE -DotnetPath (Join-Path $env:DOTNET_INSTALL_DIR 'dotnet.exe')
           $output = $env:DESKTOP_OUTPUT
-          Invoke-AirFlashDotnet -Context $context -Arguments @('restore', 'AirFlash.sln', '--locked-mode', '--force-evaluate', '-p:AirFlashConsole=true') 2>&1 | Tee-Object (Join-Path $output 'managed-restore.log')
+          Invoke-AirFlashDotnet -Context $context -Arguments @('restore', 'AirFlash.sln', '--locked-mode', '--force', '-p:AirFlashConsole=true') 2>&1 | Tee-Object (Join-Path $output 'managed-restore.log')
           if ($LASTEXITCODE -ne 0) { throw 'Locked managed restore failed.' }
           Invoke-AirFlashDotnet -Context $context -Arguments @('build', 'AirFlash.sln', '-c', 'Release', '--no-restore', '-p:RestoreLockedMode=true', '-p:AirFlashConsole=true') 2>&1 | Tee-Object (Join-Path $output 'managed-build.log')
           if ($LASTEXITCODE -ne 0) { throw 'Managed console Release build failed.' }
