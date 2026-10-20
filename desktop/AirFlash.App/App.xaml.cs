@@ -35,6 +35,7 @@ public partial class App : Application
     private AppViewModel? _viewModel;
     private ControlPanel? _panel;
     private SettingsWindow? _settings;
+    private MuteRecoveryWindow? _muteRecovery;
     private TrayService? _tray;
     private EngineInitialization? _engine;
     private bool _quitting;
@@ -93,6 +94,7 @@ public partial class App : Application
             _tray = new(_panel, _viewModel, ShowSettings, Quit); _panel.Tray = _tray;
             _instance.Listen(() => Dispatcher.BeginInvoke(() => { if (_settings is not null) _settings.Activate(); else _panel.ShowPanel(); }));
             _viewModel.SettingsChanged += OnSettingsChanged;
+            _viewModel.MuteRecoveryRequested += ShowMuteRecovery;
             _viewModel.Start();
             if (!args.Args.Contains("--startup")) _panel.ShowPanel();
             AppPaths.Log("WPF host started, JSONL v1. Startup stage=shell ready");
@@ -122,6 +124,7 @@ public partial class App : Application
             var showSettings = _settings?.IsVisible == true;
             var page = _settings?.ViewModel.SelectedPage ?? 0;
             var showPanel = _panel?.IsVisible == true;
+            _muteRecovery?.Close();
             _settings?.Close();
             _tray?.Dispose(); _panel?.ShutdownPanel();
             _panel = new(_viewModel); MainWindow = _panel;
@@ -139,6 +142,14 @@ public partial class App : Application
         if (_settings is not null) { if (_settings.WindowState == WindowState.Minimized) _settings.WindowState = WindowState.Normal; _settings.Activate(); return; }
         _settings = new(_viewModel); _settings.Closed += (_, _) => _settings = null; _settings.Show(); _settings.Activate();
     }
+    private void ShowMuteRecovery()
+    {
+        if (_quitting || _viewModel is null) return;
+        if (_muteRecovery is not null) { _muteRecovery.Activate(); return; }
+        _muteRecovery = new(_viewModel);
+        _muteRecovery.Closed += (_, _) => _muteRecovery = null;
+        _muteRecovery.Show(); _muteRecovery.Activate();
+    }
     private async void Quit()
     {
         if (_quitting) return; _quitting = true;
@@ -146,6 +157,7 @@ public partial class App : Application
         {
             if (_settings is { } applying) await applying.ViewModel.ApplicationCompleted;
             _settings?.Close();
+            _muteRecovery?.Close();
             if (_engine is not null) await _engine.DisposeAsync();
             if (_viewModel is not null) await _viewModel.DisposeAsync();
             _tray?.Dispose(); _panel?.ShutdownPanel();

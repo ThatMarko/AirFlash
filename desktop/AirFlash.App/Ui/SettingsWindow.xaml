@@ -454,6 +454,12 @@
       <StackPanel Margin="0,0,0,20">
         <TextBlock Text="{Binding PageTitle}" FontSize="24" FontWeight="SemiBold"/>
         <TextBlock Text="{Binding PageDescription}" Style="{StaticResource Hint}" Margin="0,5,0,0"/>
+        <Border Padding="10" CornerRadius="6" Background="{DynamicResource TintBrush}" Margin="0,12,0,0" Visibility="{Binding App.HasMuteRecovery, Converter={StaticResource BoolVisibility}}">
+          <StackPanel>
+            <TextBlock Text="{Binding App.MuteRecoveryMessage}" Style="{StaticResource Hint}"/>
+            <Button x:Name="SettingsReviewMuteRecoveryButton" Content="{loc:Text 'Review local audio'}" Command="{Binding App.ReviewMuteRecoveryCommand}" HorizontalAlignment="Left" Margin="0,8,0,0"/>
+          </StackPanel>
+        </Border>
       </StackPanel>
       <ScrollViewer x:Name="PageScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,24,10">
         <Grid x:Name="PageContainer"/>
