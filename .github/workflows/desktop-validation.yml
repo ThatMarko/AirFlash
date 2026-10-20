@@ -1,0 +1,255 @@
+name: Fork exact-source desktop validation
+run-name: Desktop validation ${{ inputs.source_sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full 40-character own-fork commit SHA to qualify with isolated mock services
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: github.repository == 'ThatMarko/AirFlash'
+    runs-on: windows-2025
+    timeout-minutes: 50
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      REQUESTED_SOURCE: ${{ inputs.source_sha }}
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
+    steps:
+      - name: Require an exact own-fork source commit
+        id: requested
+        run: |
+          if ($env:GITHUB_REPOSITORY -cne 'ThatMarko/AirFlash') { throw 'This disposable desktop qualification is restricted to the own fork.' }
+          if ($env:REQUESTED_SOURCE -cnotmatch '\A[0-9a-fA-F]{40}\z') { throw 'A full 40-character commit SHA is required.' }
+          "sha=$($env:REQUESTED_SOURCE.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          "DOTNET_INSTALL_DIR=$(Join-Path $env:RUNNER_TEMP 'airflash-desktop-dotnet')" >> $env:GITHUB_ENV
+          "DOTNET_CLI_HOME=$(Join-Path $env:RUNNER_TEMP 'airflash-desktop-dotnet-home')" >> $env:GITHUB_ENV
+          "NUGET_PACKAGES=$(Join-Path $env:RUNNER_TEMP 'airflash-desktop-nuget')" >> $env:GITHUB_ENV
+          "DESKTOP_OUTPUT=$(Join-Path $env:GITHUB_WORKSPACE 'artifacts/desktop-validation')" >> $env:GITHUB_ENV
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.requested.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify and fingerprint all tracked source files
+        id: source
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $head = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:REQUESTED_SOURCE.ToLowerInvariant()) { throw 'Checkout differs from the requested source commit.' }
+          $tree = (git rev-parse 'HEAD^{tree}').Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the source tree.' }
+          $dirty = @(git status --porcelain --untracked-files=no)
+          if ($LASTEXITCODE -ne 0 -or $dirty.Count) { throw 'The source checkout must be clean.' }
+          New-Item -ItemType Directory -Path $env:DESKTOP_OUTPUT -Force | Out-Null
+          $names = (git ls-files -z) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot enumerate tracked source files.' }
+          $files = @(foreach ($relative in $names.Split([char]0, [StringSplitOptions]::RemoveEmptyEntries)) {
+            $path = Join-Path $env:GITHUB_WORKSPACE $relative
+            $item = Get-Item -LiteralPath $path -Force
+            if ($item.PSIsContainer) { throw "Expected a tracked source file: $relative" }
+            [ordered]@{ path = $relative; bytes = $item.Length; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
+          })
+          [ordered]@{
+            unofficial = $true; requested_sha = $env:REQUESTED_SOURCE; source_sha = $head; tree_sha = $tree
+            workflow_sha = $env:GITHUB_WORKFLOW_SHA; workflow_ref = $env:GITHUB_WORKFLOW_REF; event_sha = $env:GITHUB_SHA
+            repository = $env:GITHUB_REPOSITORY; run_id = $env:GITHUB_RUN_ID; run_attempt = $env:GITHUB_RUN_ATTEMPT
+            runner_os = $env:RUNNER_OS; runner_arch = $env:RUNNER_ARCH
+            runner_image = $env:ImageOS; runner_image_version = $env:ImageVersion; source_files = $files
+            limits = 'Isolated mock desktop qualification only. No native engine, real DNS, audio endpoint, credential store, receiver, installer, reservation, publication or release operation. Physical multimonitor/DPI and Windows 10 qualification remain deferred.'
+          } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $env:DESKTOP_OUTPUT 'source-manifest.json') -Encoding utf8
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.402'
+      - name: Resolve the isolated SDK from desktop/global.json
+        id: sdk
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./scripts/dotnet-common.ps1
+          $expectedHost = [IO.Path]::GetFullPath((Join-Path $env:DOTNET_INSTALL_DIR 'dotnet.exe'))
+          $context = Get-AirFlashDotnetContext -RepoRoot $env:GITHUB_WORKSPACE -DotnetPath $expectedHost
+          if ([IO.Path]::GetFullPath($context.Path) -ine $expectedHost) { throw 'The selected host differs from the isolated SDK installation.' }
+          $sdk = Assert-AirFlashDotnetSdk -Context $context
+          if ($sdk -cne '10.0.402') { throw "Unexpected selected SDK: $sdk" }
+          [ordered]@{
+            sdk = $sdk; host = $context.Path; host_sha256 = (Get-FileHash -LiteralPath $context.Path -Algorithm SHA256).Hash.ToLowerInvariant()
+            selection = 'explicit isolated installation'; working_directory = $context.WorkingDirectory
+            resolver_policy = (Get-Content -LiteralPath desktop/global.json -Raw | ConvertFrom-Json)
+          } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $env:DESKTOP_OUTPUT 'dotnet.json') -Encoding utf8
+      - name: Locked restore and managed console Release build
+        id: build
+        if: ${{ !cancelled() && steps.source.outcome == 'success' && steps.sdk.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          . ./scripts/dotnet-common.ps1
+          $context = Get-AirFlashDotnetContext -RepoRoot $env:GITHUB_WORKSPACE -DotnetPath (Join-Path $env:DOTNET_INSTALL_DIR 'dotnet.exe')
+          $output = $env:DESKTOP_OUTPUT
+          Invoke-AirFlashDotnet -Context $context -Arguments @('restore', 'AirFlash.sln', '--locked-mode', '--force-evaluate', '-p:AirFlashConsole=true') 2>&1 | Tee-Object (Join-Path $output 'managed-restore.log')
+          if ($LASTEXITCODE -ne 0) { throw 'Locked managed restore failed.' }
+          Invoke-AirFlashDotnet -Context $context -Arguments @('build', 'AirFlash.sln', '-c', 'Release', '--no-restore', '-p:RestoreLockedMode=true', '-p:AirFlashConsole=true') 2>&1 | Tee-Object (Join-Path $output 'managed-build.log')
+          if ($LASTEXITCODE -ne 0) { throw 'Managed console Release build failed.' }
+          $binary = Join-Path $env:GITHUB_WORKSPACE 'desktop/AirFlash.App/bin/Release/net10.0-windows/win-x64/AirFlash.exe'
+          if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'The source-built apphost is missing.' }
+          [ordered]@{
+            source_sha = $env:REQUESTED_SOURCE; path = $binary; bytes = (Get-Item -LiteralPath $binary).Length
+            sha256 = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+            assembly_sha256 = (Get-FileHash -LiteralPath ([IO.Path]::ChangeExtension($binary, '.dll')) -Algorithm SHA256).Hash.ToLowerInvariant()
+            build = 'locked Release solution with AirFlashConsole=true; no publish or native build'
+          } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $output 'binary.json') -Encoding utf8
+      - name: Run every isolated focused and regional desktop cell
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $binaryRecord = Get-Content -LiteralPath (Join-Path $env:DESKTOP_OUTPUT 'binary.json') -Raw | ConvertFrom-Json
+          $binary = $binaryRecord.path
+          $results = [Collections.Generic.List[object]]::new()
+          function Invoke-DesktopCell([string]$Name, [string]$Mode, [string]$Culture, [string]$Language, [bool]$Clipboard = $false) {
+            $directory = Join-Path $env:DESKTOP_OUTPUT $Name
+            New-Item -ItemType Directory -Path $directory -Force | Out-Null
+            $reportPath = Join-Path $directory 'report.json'
+            $problems = [Collections.Generic.List[string]]::new()
+            $process = [Diagnostics.Process]::new()
+            $started = $false; $timedOut = $false; $killed = $false; $processId = $null; $exitCode = $null
+            $stdoutTask = $null; $stderrTask = $null; $observed = $null
+            $startedAt = [DateTimeOffset]::UtcNow
+            $binaryBefore = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+            $assembly = [IO.Path]::ChangeExtension($binary, '.dll')
+            $assemblyBefore = (Get-FileHash -LiteralPath $assembly -Algorithm SHA256).Hash.ToLowerInvariant()
+            try {
+              if ($binaryBefore -cne $binaryRecord.sha256) { throw 'The source-built apphost changed before this cell.' }
+              if ($assemblyBefore -cne $binaryRecord.assembly_sha256) { throw 'The source-built assembly changed before this cell.' }
+              if ($Clipboard -and ($env:GITHUB_REPOSITORY -cne 'ThatMarko/AirFlash' -or $Mode -cne '--ui-pairing-smoke')) {
+                throw 'Clipboard qualification requires the pairing route on the disposable own-fork runner.'
+              }
+              $start = [Diagnostics.ProcessStartInfo]::new($binary)
+              $start.WorkingDirectory = Join-Path $env:GITHUB_WORKSPACE 'desktop'
+              $start.UseShellExecute = $false; $start.CreateNoWindow = $true
+              $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+              foreach ($argument in @('--ui-smoke', '--ui-culture', $Culture, '--ui-language', $Language, '--output', $reportPath, '--tray-guid', [Guid]::NewGuid().ToString())) {
+                $start.ArgumentList.Add($argument)
+              }
+              if ($Mode -cne 'full') { $start.ArgumentList.Add($Mode) }
+              if ($Clipboard) { $start.ArgumentList.Add('--ui-pairing-clipboard') }
+              $start.Environment['DOTNET_CLI_HOME'] = Join-Path $directory 'dotnet-home'
+              $process.StartInfo = $start
+              if (-not $process.Start()) { throw 'The apphost did not start.' }
+              $started = $true; $processId = $process.Id
+              $stdoutTask = $process.StandardOutput.ReadToEndAsync(); $stderrTask = $process.StandardError.ReadToEndAsync()
+              if (-not $process.WaitForExit(120000)) {
+                $timedOut = $true
+                # The stored process object identifies this one child. Never kill by executable name.
+                $process.Kill(); $killed = $true
+                if (-not $process.WaitForExit(10000)) { throw 'The owned apphost did not exit after the deadline kill.' }
+              }
+              $exitCode = $process.ExitCode
+              if ($timedOut) { $problems.Add('The apphost exceeded the 120-second deadline.') }
+              if ($exitCode -ne 0) { $problems.Add("Apphost exit code: $exitCode") }
+              if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'The apphost did not produce a report.' }
+              $observed = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+              if ($observed.ok -ne $true) { $problems.Add('The fixture report did not pass.') }
+              if ($observed.mode -cne $Mode) { $problems.Add("Unexpected route: '$($observed.mode)', expected '$Mode'.") }
+              if ($observed.culture -cne $Culture) { $problems.Add("Unexpected regional culture: '$($observed.culture)', expected '$Culture'.") }
+              $expectedUi = @{ en = 'en-US'; 'zh-CN' = 'zh-CN'; 'zh-TW' = 'zh-TW'; de = 'de-DE' }[$Language]
+              if ($observed.ui_culture -cne $expectedUi) { $problems.Add("Unexpected UI culture: '$($observed.ui_culture)', expected '$expectedUi'.") }
+              if (@($observed.checks).Count -eq 0) { $problems.Add('The report contains no executed assertions.') }
+            } catch { $problems.Add($_.Exception.ToString()) }
+            finally {
+              if ($started) {
+                try {
+                  if (-not $process.HasExited) { $process.Kill(); $killed = $true; [void]$process.WaitForExit(10000) }
+                } catch { $problems.Add('Owned process cleanup: ' + $_.Exception.Message) }
+              }
+              foreach ($capture in @(@{ task = $stdoutTask; name = 'stdout.log' }, @{ task = $stderrTask; name = 'stderr.log' })) {
+                $text = ''
+                try {
+                  if ($null -ne $capture.task) {
+                    if (-not $capture.task.Wait(10000)) { throw 'Timed out collecting the owned process output.' }
+                    $text = $capture.task.GetAwaiter().GetResult()
+                  }
+                } catch { $problems.Add($capture.name + ': ' + $_.Exception.Message) }
+                Set-Content -LiteralPath (Join-Path $directory $capture.name) -Value $text -Encoding utf8
+              }
+              $process.Dispose()
+            }
+            $binaryAfter = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($binaryAfter -cne $binaryBefore) { $problems.Add('The apphost changed during this cell.') }
+            $assemblyAfter = (Get-FileHash -LiteralPath $assembly -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($assemblyAfter -cne $assemblyBefore) { $problems.Add('The assembly changed during this cell.') }
+            $result = [ordered]@{
+              name = $Name; source_sha = $env:REQUESTED_SOURCE; binary_sha256_before = $binaryBefore; binary_sha256_after = $binaryAfter
+              assembly_sha256_before = $assemblyBefore; assembly_sha256_after = $assemblyAfter
+              requested_mode = $Mode; observed_mode = $observed.mode; requested_culture = $Culture; observed_culture = $observed.culture
+              requested_language = $Language; observed_ui_culture = $observed.ui_culture; clipboard_explicit = $Clipboard
+              process_id = $processId; exit_code = $exitCode; process_deadline_seconds = 120; timed_out = $timedOut; killed_owned_process = $killed
+              started_utc = $startedAt.ToString('O'); finished_utc = [DateTimeOffset]::UtcNow.ToString('O')
+              assertion_count = @($observed.checks).Count; ok = $problems.Count -eq 0; problems = @($problems)
+              report_sha256 = if (Test-Path -LiteralPath $reportPath -PathType Leaf) { (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null }
+              dpi_qualification = 'deferred; no monitor scale or physical multimonitor coverage claimed'
+            }
+            $result | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $directory 'receipt.json') -Encoding utf8
+            $results.Add($result)
+            if ($problems.Count) { Write-Warning "Desktop cell '$Name' failed; preserving its report and continuing independent cells." }
+          }
+          $focused = @(
+            @{ name = 'pairing'; mode = '--ui-pairing-smoke' },
+            @{ name = 'session-lifecycle'; mode = '--ui-session-lifecycle-smoke' },
+            @{ name = 'settings-recovery'; mode = '--ui-settings-recovery-smoke' },
+            @{ name = 'mute-recovery'; mode = '--ui-mute-recovery-smoke' },
+            @{ name = 'diagnostics'; mode = '--ui-diagnostics-smoke' },
+            @{ name = 'scrolling'; mode = '--ui-scroll-smoke' },
+            @{ name = 'discovery'; mode = '--ui-discovery-smoke' },
+            @{ name = 'regression'; mode = '--ui-regression' },
+            @{ name = 'receiver-settings'; mode = '--receiver-settings-regression' }
+          )
+          foreach ($cell in $focused) { Invoke-DesktopCell $cell.name $cell.mode 'en-US' 'en' }
+          Invoke-DesktopCell 'pairing-clipboard' '--ui-pairing-smoke' 'en-US' 'en' $true
+          foreach ($culture in @('en-US', 'zh-TW')) {
+            foreach ($language in @('en', 'zh-CN', 'zh-TW')) { Invoke-DesktopCell "full-$culture-$language" 'full' $culture $language }
+          }
+          Invoke-DesktopCell 'full-de-DE-de' 'full' 'de-DE' 'de'
+          [ordered]@{ source_sha = $env:REQUESTED_SOURCE; binary_sha256 = $binaryRecord.sha256; cells = @($results); failed_cells = @($results | Where-Object { -not $_.ok }).Count } |
+            ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $env:DESKTOP_OUTPUT 'desktop-results.json') -Encoding utf8
+          if (@($results | Where-Object { -not $_.ok }).Count) { throw 'One or more desktop cells failed. Raster, assertion, route and process failures are not waived.' }
+      - name: Fingerprint final source and require every source byte unchanged
+        if: ${{ always() && steps.source.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $before = Get-Content -LiteralPath (Join-Path $env:DESKTOP_OUTPUT 'source-manifest.json') -Raw | ConvertFrom-Json
+          $head = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read the final source commit.' }
+          $tree = (git rev-parse 'HEAD^{tree}').Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read the final source tree.' }
+          $status = @(git status --porcelain --untracked-files=no)
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot read the final source status.' }
+          $changed = [Collections.Generic.List[string]]::new()
+          $files = @(foreach ($original in $before.source_files) {
+            $path = Join-Path $env:GITHUB_WORKSPACE $original.path
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              $changed.Add($original.path)
+              [ordered]@{ path = $original.path; missing = $true }
+            } else {
+              $item = Get-Item -LiteralPath $path -Force
+              $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+              if ($hash -cne $original.sha256 -or $item.Length -ne $original.bytes) { $changed.Add($original.path) }
+              [ordered]@{ path = $original.path; bytes = $item.Length; sha256 = $hash }
+            }
+          })
+          [ordered]@{ source_sha = $head; tree_sha = $tree; tracked_changes = $status; byte_changes = @($changed); source_files = $files } |
+            ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $env:DESKTOP_OUTPUT 'final-source-manifest.json') -Encoding utf8
+          if ($head -cne $before.source_sha -or $tree -cne $before.tree_sha -or $status.Count -or $changed.Count) { throw 'Desktop qualification changed tracked source.' }
+      - name: Preserve all desktop receipts, reports, raster output and logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: desktop-${{ steps.requested.outputs.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/desktop-validation/
+          if-no-files-found: warn
+          retention-days: 14
