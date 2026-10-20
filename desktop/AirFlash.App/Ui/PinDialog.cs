@@ -21,7 +21,7 @@ public sealed class PinDialog : Window
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 18, 0, 0) };
         var ok = new Button { Content = L.Get("Pair"), IsDefault = true, IsEnabled = false, MinWidth = 78, Margin = new(0, 0, 8, 0) };
         _code.TextChanged += (_, _) => ok.IsEnabled = PinInput.Normalize(_code.Text) is not null;
-        _password.PasswordChanged += (_, _) => ok.IsEnabled = _password.Password.Length > 0;
+        _password.PasswordChanged += (_, _) => ok.IsEnabled = PasswordInput.IsValid(_password.Password);
         ok.Click += (_, _) => DialogResult = true;
         buttons.Children.Add(ok); buttons.Children.Add(new Button { Content = L.Get("Cancel"), IsCancel = true, MinWidth = 78 }); panel.Children.Add(buttons); Content = panel;
         Loaded += (_, _) => { if (receiver.RequiresPassword) _password.Focus(); else _code.Focus(); };
@@ -33,7 +33,16 @@ public sealed class PinDialog : Window
             cancellation.ThrowIfCancellationRequested();
             var dialog = new PinDialog(receiver) { Owner = owner };
             using var registration = cancellation.Register(() => owner.Dispatcher.BeginInvoke(() => dialog.Close()));
-            var result = dialog.ShowDialog() == true ? receiver.RequiresPassword ? dialog._password.Password : PinInput.Normalize(dialog._code.Text) : null;
+            string? result = null;
+            if (dialog.ShowDialog() == true)
+            {
+                if (receiver.RequiresPassword)
+                {
+                    var password = dialog._password.Password;
+                    result = PasswordInput.IsValid(password) ? password : null;
+                }
+                else result = PinInput.Normalize(dialog._code.Text);
+            }
             dialog._password.Clear(); dialog._code.Clear();
             cancellation.ThrowIfCancellationRequested();
             return result;
