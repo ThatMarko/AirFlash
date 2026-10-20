@@ -32,7 +32,7 @@ public partial class App : Application
             }
         };
         var args = Environment.GetCommandLineArgs();
-        if (!args.Any(a => a is "--ui-smoke" or "--tray-smoke" or "--ui-perf")) return;
+        if (!Program.StartupOptions(args).Any(a => a is "--ui-smoke" or "--tray-smoke" or "--ui-perf")) return;
         try
         {
             var cultureIndex = Array.IndexOf(args, "--ui-culture");
@@ -62,8 +62,9 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs args)
     {
         // Initialize before any windows, view models or static choice labels are created.
+        var options = Program.StartupOptions(args.Args).ToHashSet(StringComparer.Ordinal);
         var languageIndex = Array.IndexOf(args.Args, "--ui-language");
-        var smokeLanguage = (args.Args.Contains("--ui-smoke") || args.Args.Contains("--tray-smoke") || args.Args.Contains("--ui-perf")) && languageIndex >= 0 && languageIndex + 1 < args.Args.Length
+        var smokeLanguage = (options.Contains("--ui-smoke") || options.Contains("--tray-smoke") || options.Contains("--ui-perf")) && languageIndex >= 0 && languageIndex + 1 < args.Args.Length
             ? new[] { args.Args[languageIndex + 1] } : null;
         try
         {
@@ -75,28 +76,28 @@ public partial class App : Application
             L.Initialize(smokeLanguage);
             base.OnStartup(args);
             Resources["LatencyChoices"] = Choices.Latencies;
-            if (args.Args.Contains("--discovery-perf"))
+            if (options.Contains("--discovery-perf"))
             {
                 var outputIndex = Array.IndexOf(args.Args, "--output");
                 if (outputIndex < 0 || outputIndex + 1 >= args.Args.Length) throw new ArgumentException("--discovery-perf requires --output.");
                 AppPaths.DataDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args.Args[outputIndex + 1]))!, "isolated-data");
                 Shutdown(await DiscoveryPerf.RunAsync(args.Args)); return;
             }
-            if (args.Args.Contains("--update-check"))
+            if (options.Contains("--update-check"))
             {
                 using var client = new System.Net.Http.HttpClient { MaxResponseContentBufferSize = 1024 * 1024 };
                 var release = await new UpdateService(client).CheckAsync();
                 WriteOutput(args.Args, new { ok = true, version = AppPaths.Version, display_version = AppPaths.DisplayVersion, latest = release?.Version.ToString(3), download = release?.DownloadPage.AbsoluteUri });
                 Shutdown(0); return;
             }
-            if (args.Args.Contains("--self-check")) { Shutdown(await SelfCheckAsync(args.Args)); return; }
-            if (args.Args.Contains("--stability-check")) { Shutdown(await StabilityCheck.RunAsync(args.Args)); return; }
-            if (args.Args.Contains("--compat-check")) { Shutdown(await CompatibilityCheckAsync(args.Args)); return; }
-            if (args.Args.Contains("--discovery-check")) { Shutdown(await DiscoveryCheckAsync(args.Args)); return; }
-            if (args.Args.Contains("--audio-check")) { Shutdown(await AudioCheckAsync(args.Args)); return; }
-            if (args.Args.Contains("--ui-smoke")) { Shutdown(await UiSmoke.RunAsync(args.Args)); return; }
-            if (args.Args.Contains("--tray-smoke")) { Shutdown(await UiSmoke.RunAsync(args.Args)); return; }
-            if (args.Args.Contains("--ui-perf")) { Shutdown(await UiPerf.RunAsync(args.Args)); return; }
+            if (options.Contains("--self-check")) { Shutdown(await SelfCheckAsync(args.Args)); return; }
+            if (options.Contains("--stability-check")) { Shutdown(await StabilityCheck.RunAsync(args.Args)); return; }
+            if (options.Contains("--compat-check")) { Shutdown(await CompatibilityCheckAsync(args.Args)); return; }
+            if (options.Contains("--discovery-check")) { Shutdown(await DiscoveryCheckAsync(args.Args)); return; }
+            if (options.Contains("--audio-check")) { Shutdown(await AudioCheckAsync(args.Args)); return; }
+            if (options.Contains("--ui-smoke")) { Shutdown(await UiSmoke.RunAsync(args.Args)); return; }
+            if (options.Contains("--tray-smoke")) { Shutdown(await UiSmoke.RunAsync(args.Args)); return; }
+            if (options.Contains("--ui-perf")) { Shutdown(await UiPerf.RunAsync(args.Args)); return; }
             _instance = new();
             if (!_instance.IsOwner) { await _instance.NotifyExistingAsync(); await _instance.DisposeAsync(); _instance = null; Shutdown(); return; }
             _theme = new();
@@ -119,7 +120,7 @@ public partial class App : Application
             _viewModel.SettingsChanged += OnSettingsChanged;
             _viewModel.MuteRecoveryRequested += ShowMuteRecovery;
             _viewModel.Start();
-            if (!args.Args.Contains("--startup")) _panel.ShowPanel();
+            if (!options.Contains("--startup")) _panel.ShowPanel();
             AppPaths.Log("WPF host started, JSONL v1. Startup stage=shell ready");
             await _engine.InitializeAsync();
         }
