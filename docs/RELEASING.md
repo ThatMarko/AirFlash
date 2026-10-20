@@ -32,6 +32,8 @@ Keep the feature on `codex/nic-discovery-preview` and open a PR against `main`; 
 
 The workflow deliberately does not create a GitHub Release for the preview. The branch changes `.github/workflows/release.yml`, so GitHub's ordinary Actions token cannot create a release targeting that commit without workflow-write permission. The maintainer downloads the verified artifact from the successful run, verifies `SHA256SUMS.txt` against both files, confirms the run SHA matches the current PR head and `reserved/<version>` tag, then publishes with a maintainer `gh` login authorized for workflow changes:
 
-`gh release create v<version>-rc.1 AirFlash.exe AirFlash-X.Y.Z.msi SHA256SUMS.txt --target <verified-sha> --title "AirFlash <version> Preview" --notes-file docs/PREVIEW-NOTES.md --prerelease --latest=false`
+`gh release create v<version>-rc.1 AirFlash.exe AirFlash-X.Y.Z-rc.1.msi SHA256SUMS.txt --target <verified-sha> --title "AirFlash <version> Preview" --notes-file docs/PREVIEW-NOTES.md --prerelease --latest=false`
 
 Verify the resulting release is marked prerelease, is not Latest, has the three assets, and its tag points to the verified SHA. The installed application displays **Preview**; its MSI ProductVersion and EXE file version are numeric `<version>`. The About update check still queries only the latest stable release. After validation, merge the PR and dispatch the stable workflow from `main`; it reserves a *new* higher numeric version. Never repurpose the preview tag or version. Test upgrading the preview MSI to that stable release in a disposable runner.
+
+Preview verification uses `scripts/verify-release.ps1 -Version X.Y.Z -ReleaseChannel preview`; the channel selects the `-rc.1` MSI filename while version checks remain numeric. Stable verification keeps the default channel. Packaging and verification share the artifact-version policy, which also supplies the preview workflow asset path.
