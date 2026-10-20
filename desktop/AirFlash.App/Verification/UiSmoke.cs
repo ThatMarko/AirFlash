@@ -60,6 +60,16 @@ internal static class UiSmoke
             }
             catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
         }
+        if (args.Contains("--ui-session-lifecycle-smoke"))
+        {
+            try
+            {
+                await UiSessionLifecycle.RunAsync(checks, directory);
+                App.WriteOutput(args, new { ok = true, checks, note = "Isolated dispatcher/session fixtures with synthetic services; visible controls and devices are outside this run." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
         if (args.Contains("--ui-scroll-smoke"))
         {
             try
@@ -260,6 +270,7 @@ internal static class UiSmoke
             Check(engine.DisposedCount == engine.CreatedCount, "stop releases mock engine", checks);
             await UiRegression.RunAsync(checks, directory);
             await UiSettingsRecovery.RunAsync(checks, directory);
+            await UiSessionLifecycle.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyStartupFailureAsync(checks, directory);
             await UiScrolling.RunAsync(checks, directory);
