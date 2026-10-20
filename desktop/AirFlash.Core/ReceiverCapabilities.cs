@@ -46,16 +46,16 @@ public sealed class ReceiverCapabilityCatalog(IEngineFactory factory) : IReceive
             await using var connection = factory.Open();
             const string session = "receiver-capabilities";
             await connection.SendAsync(session, "hello", null, timeout.Token).ConfigureAwait(false);
-            var hello = await connection.ReadAsync(timeout.Token).ConfigureAwait(false) ?? throw new IOException(L.Get("The engine did not return hello."));
+            var hello = await EngineResponses.ReadAsync(connection, timeout.Token).ConfigureAwait(false) ?? throw new IOException(L.Get("The engine did not return hello."));
             return await QueryConnectionAsync(connection, session, hello, receiver, timeout.Token).ConfigureAwait(false);
         }
         finally { _queries.Release(); }
     }
     public static async Task<ReceiverCapabilitySet> QueryConnectionAsync(IEngineConnection connection, string session, JsonElement hello, Receiver receiver, CancellationToken cancellation)
     {
-        // Older verification engines can still run fixed-rate profiles, but expose no selectable capabilities.
+        EngineHandshake.RequireCapabilities(hello);
+        // A valid legacy hello may expose no selectable capabilities.
         if (!EngineHandshake.HasCapability(hello, "receiver_capabilities")) return ReceiverCapabilitySet.Unknown;
-        EngineHandshake.RequireCapabilities(hello, "receiver_capabilities");
         var peers = new List<object>();
         foreach (var member in receiver.Peers)
         {
@@ -64,7 +64,7 @@ public sealed class ReceiverCapabilityCatalog(IEngineFactory factory) : IReceive
             peers.Add(new { receiver_id = member.Id, host, port = member.Port, codecs = member.Codecs.Select(c => (int)c).ToArray(), profile = new { features = member.Features, follow_receiver_clock = member.FollowReceiverClock } });
         }
         await connection.SendAsync(session, "get_receiver_capabilities", new { peers }, cancellation).ConfigureAwait(false);
-        var response = await connection.ReadAsync(cancellation).ConfigureAwait(false) ?? throw new IOException(L.Get("Could not query receiver capabilities."));
+        var response = await EngineResponses.ReadAsync(connection, cancellation).ConfigureAwait(false) ?? throw new IOException(L.Get("Could not query receiver capabilities."));
         if (response.Number("version") != 1 || response.Text("session_id") != session || response.Text("event") != "receiver_capabilities")
             throw new IOException(response.Text("message", L.Get("Could not query receiver capabilities.")));
         var members = response.GetProperty("members").Deserialize<ReceiverCapabilities[]>(AppSettings.JsonOptions) ?? [];
