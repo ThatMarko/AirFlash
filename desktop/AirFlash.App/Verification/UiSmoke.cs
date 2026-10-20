@@ -62,6 +62,16 @@ internal static class UiSmoke
             }
             catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
         }
+        if (args.Contains("--ui-mute-recovery-smoke"))
+        {
+            try
+            {
+                await UiMuteRecovery.RunAsync(checks, directory);
+                App.WriteOutput(args, new { ok = true, checks, note = "Local audio recovery with injected endpoints and temporary stores only." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
         if (args.Contains("--ui-settings-recovery-smoke"))
         {
             try
@@ -284,6 +294,7 @@ internal static class UiSmoke
             await UiRegression.RunAsync(checks, directory);
             await UiDiagnostics.RunAsync(checks, directory);
             await UiSettingsRecovery.RunAsync(checks, directory);
+            await UiMuteRecovery.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyStartupFailureAsync(checks, directory);
             await UiDiscoveryLifecycle.RunAsync(checks);
