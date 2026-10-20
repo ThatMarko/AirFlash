@@ -1,5 +1,9 @@
 # Installer payload refresh acceptance
 
+## Integration recheck — 2026-10-20
+
+PR #21 is merged at Main `9b1684c`; issue #20 is completed. The maintainer advanced the remote feature head to `3e743666`, while local `74cba07` and its receipts remain preserved. [Current integration verification](UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) distinguishes actual current CI from the historical MSI lifecycle below and reproduces separate preview filename/cleanup gaps in new build scripts. No new MSI lifecycle or release execution occurred.
+
 ## Current SDK correction — 2026-10-13
 
 Current branch head `74cba079e34cb1e607762f7e9af5a8da54b9368f`, independently based on original `cf420d97700463c56adc31408510e8336e99e51c`, includes the two-file shared analyzer-reference/CI logging correction. [SDK acceptance](SDK-LOCK-ACCEPTANCE.md) explains the executed unchanged-base control and preserved lock/SDK/analyzer contracts. [PR #21](https://github.com/Ding-Kyoma/AirFlash/pull/21) remains open and unmerged.

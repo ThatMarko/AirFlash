@@ -1,5 +1,11 @@
 # AirFlash completed implementation and publication plan
 
+## Upstream integration update — 2026-10-20
+
+[Current verification](UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) supersedes earlier status/base claims: installer/F merged, C integrated through #34 with #23 closed, E #25 conflicts, and stable is `439de626` with schema 4. Fork runtime remains `a1182b0`; old schema-2 fixtures do not cover new software-group/capability/password consumers.
+
+Repair four current-base follow-ups: ancestor-junction cleanup escape, null software-group identity escaping recovery, new IPC readers losing terminal classification, and preview filename disagreement. Retain red controls and run fixed checks on bounded current-base branches. A separate raster qualification failure blocks full local UI acceptance. Refresh E while preserving independently fixed dashed PINs/new password support; reconcile B/D/G/H against new consumers before publication. New upstream publication, B reopening/replacement, upstream merges and releases remain separately authorized actions.
+
 ## Comprehensive audit correction — 2026-10-18
 
 The original B shutdown contract was incomplete despite earlier direct-disposal acceptance: actual shell Quit left admission open during its preceding Settings/probe waits. [Current B acceptance](GROUP-B-ACCEPTANCE.md#comprehensive-audit-correction--2026-10-18) now records a failed unchanged-order control, correction `d7782a3`, both-SDK managed/focused verification and seven full standalone UI runs. Integration `a1182b0` preserves G/H behavior and adds the actual shared shell fixture to the full combined harness. [The comprehensive verification report](COMPREHENSIVE-VERIFICATION-2026-10-18.md) binds final source/results, all seventeen assertion owners, current issue/PR information and limits. This supersedes any earlier claim that the first shell-Quit await remained outside B's scope; it does not expand F into terminal handling inside an already open PIN prompt.

@@ -1,5 +1,9 @@
 # Group C acceptance — configuration preservation and validation
 
+## Integration recheck — 2026-10-20
+
+Original PR #23 is closed without direct merge; its commits reached schema-4 Main `439de626` through merged PR #34. Issue #22 remains open. [Current source/CI/regression evidence](UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) confirms preserved recovery contracts and reproduces a new null software-group-id validation escape. Earlier results below remain bound to their original schema-2 source; no repair or full current UI acceptance is claimed.
+
 ## Current SDK correction — 2026-10-13
 
 Current branch head `107c7dfcb192e8bc37648b9f324d2c030247f893`, independently based on original `cf420d97700463c56adc31408510e8336e99e51c`, includes the two-file shared analyzer-reference/CI logging correction. [SDK acceptance](SDK-LOCK-ACCEPTANCE.md) explains the executed unchanged-base control and preserved lock/SDK/analyzer contracts. [PR #23](https://github.com/Ding-Kyoma/AirFlash/pull/23) remains open and unmerged.

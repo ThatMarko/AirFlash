@@ -1,5 +1,18 @@
 {
   "original_stable": "cf420d97700463c56adc31408510e8336e99e51c",
+  "upstream_observation_2026_10_20": {
+    "main": "439de6260e01efbfca528a12cf4d4c1010b3583e",
+    "schema": 4,
+    "report": "../UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md",
+    "historical_fields": "original_stable, record bases, prepared heads, body hashes and qualification results retain their original source bindings; dated observations below do not reassign those executions",
+    "current_ci": "https://github.com/Ding-Kyoma/AirFlash/actions/runs/39401748686",
+    "ci_passed": { "python": 141, "core": 403, "native": 87, "native_ignored": 2 },
+    "full_local_wpf": "failed; shared raster qualification gap, exact environment cause unproved",
+    "new_controls": { "total": 20, "failed": 11, "passed": 9, "runtime_fixed": false },
+    "safe_tooling_failures": [ "preview-release-filename", "parent-junction-cleanup-guard" ],
+    "latest_release": "v0.4.0",
+    "new_main_changes_released": false
+  },
   "hash_scope": "Complete draft Markdown including title and final newline, UTF-8 with LF-normalized newlines",
   "records": [
     {
@@ -102,7 +115,15 @@
       "hosted_run": null,
       "compare": "https://github.com/ThatMarko/AirFlash/compare/cf420d97700463c56adc31408510e8336e99e51c...5d72da3b77b4ac72f858966baef04b8a4ad8b1ad",
       "published_pr": "https://github.com/Ding-Kyoma/AirFlash/pull/23",
-      "publication_state": "published-open",
+      "publication_state": "original-pr-closed; integrated-through-pr34",
+      "upstream_observation_2026_10_20": {
+        "original_pr_merged": false,
+        "integration_pr": "https://github.com/Ding-Kyoma/AirFlash/pull/34",
+        "main_merge": "439de6260e01efbfca528a12cf4d4c1010b3583e",
+        "prepared_head_is_main_ancestor": true,
+        "issue_state": "open",
+        "remaining_gap": "schema4-null-software-group-id-escapes-recovery"
+      },
       "publication_date": "2026-10-13",
       "current_branch_head": "107c7dfcb192e8bc37648b9f324d2c030247f893",
       "sdk_consistency_commit": "107c7dfcb192e8bc37648b9f324d2c030247f893",
@@ -186,7 +207,13 @@
       "hosted_run": "38359126296",
       "compare": "https://github.com/ThatMarko/AirFlash/compare/cf420d97700463c56adc31408510e8336e99e51c...7dfcbb27331c700846c552de28e8eef882c57cf6",
       "published_pr": "https://github.com/Ding-Kyoma/AirFlash/pull/25",
-      "publication_state": "published-open",
+      "publication_state": "published-open; conflicting-with-current-main",
+      "upstream_observation_2026_10_20": {
+        "mergeable": "CONFLICTING",
+        "merge_state": "DIRTY",
+        "prepared_head_is_main_ancestor": false,
+        "refresh_scope": "preserve upstream dashed ASCII PIN/password dialog; adapt error-preserving HAP and stored-password lookup/tests"
+      },
       "publication_date": "2026-10-13",
       "current_branch_head": "234167b31092339b2e909bfa2cbee5748b6006e1",
       "sdk_consistency_commit": "234167b31092339b2e909bfa2cbee5748b6006e1",
@@ -217,7 +244,15 @@
       "hosted_run": "38359129170",
       "compare": "https://github.com/ThatMarko/AirFlash/compare/cf420d97700463c56adc31408510e8336e99e51c...421e1ea8159803fbc339dff3782b1858e8a797d4",
       "published_pr": "https://github.com/Ding-Kyoma/AirFlash/pull/27",
-      "publication_state": "published-open",
+      "publication_state": "merged; integrated-through-pr33",
+      "upstream_observation_2026_10_20": {
+        "original_pr_merge": "34b55d54b780f1452ba3f8c710c74cbbae63d061",
+        "integration_pr": "https://github.com/Ding-Kyoma/AirFlash/pull/33",
+        "main_merge": "b57eb5e2fa2a6790f05f8b3b0e892bc662263978",
+        "prepared_head_is_main_ancestor": true,
+        "issue_state": "closed-completed",
+        "remaining_gap": "new-hello-and-receiver-capability-readers-lose-terminal-ipc-classification"
+      },
       "publication_date": "2026-10-13",
       "current_branch_head": "28cb83e55eda2e4b50847aafd783e75244697d23",
       "sdk_consistency_commit": "28cb83e55eda2e4b50847aafd783e75244697d23",
@@ -356,7 +391,14 @@
       "hosted_run": "38360540188",
       "compare": "https://github.com/ThatMarko/AirFlash/compare/cf420d97700463c56adc31408510e8336e99e51c...b6ae0955aa6b632c95adbc4ebbbc28d771cdf7e1",
       "published_pr": "https://github.com/Ding-Kyoma/AirFlash/pull/21",
-      "publication_state": "published-open",
+      "publication_state": "merged",
+      "upstream_observation_2026_10_20": {
+        "main_merge": "9b1684cc080ce6a74346c6ac33129b33d9d4214d",
+        "remote_branch_head": "3e743666cba8d19194c295b4da30bbfa7304b066",
+        "local_prepared_head_preserved": "74cba079e34cb1e607762f7e9af5a8da54b9368f",
+        "remote_advanced_by_maintainer_merge": true,
+        "issue_state": "closed-completed"
+      },
       "publication_date": "2026-10-13",
       "current_branch_head": "74cba079e34cb1e607762f7e9af5a8da54b9368f",
       "sdk_consistency_commit": "74cba079e34cb1e607762f7e9af5a8da54b9368f",

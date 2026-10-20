@@ -1,5 +1,11 @@
 # AirFlash implementation backlog
 
+## Upstream integration recheck — 2026-10-20
+
+[Current verification](UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) confirms installer #21 and F #27 merged; C #23 closed without direct merge while its commits reached Main through #34. Issue #22 remains open; E #25 is open/conflicting. Stable Main is now `439de626` with schema 4; fork runtime remains `a1182b0`. Earlier dated base, schema-2 and four-open-PR statements below describe their historical source.
+
+Fresh upstream checks pass 403 Core, 141 Python, focused settings70/scrolling214 and a warning-free SDK 10.0.402 build; exact Main CI passes 87 native. Added controls reproduce null software-group-id recovery and new IPC consumer gaps (11 failures / 9 healthy controls), plus preview filename and parent-junction cleanup defects using safe operations. Full WPF remains failed: current upstream and the previously qualified fork binary fail a raster assertion, as does an independent opaque rectangle. No production fix or full UI pass is claimed. The report records source/evidence/limits and next actions; no new upstream publication or release occurred.
+
 ## Comprehensive recheck — 2026-10-18
 
 [The source/fixture/publication audit](COMPREHENSIVE-VERIFICATION-2026-10-18.md) found and repaired a remaining B shutdown gap that earlier direct-VM-disposal tests missed. Actual shell Quit now closes admission before waiting for Settings Apply or engine-probe cleanup. Accepted saves persist; owned Stop remains usable and publishes Idle; earlier shutdown-stage failures cannot skip VM cleanup. B `d7782a3` passes 304 Core on both SDKs, 51 focused shell assertions each, six observed full WPF cells ×810 on SDK 10.0.402 and another full 810 on 10.0.401. Independent final and integration reviews are clear. Fork runtime merge `a1182b0` passes 677 Core / 113 focused discovery on both SDKs and 1,121 full WPF assertions locally. The report binds current hosted qualification separately from the successful pre-correction baseline.

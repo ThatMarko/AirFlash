@@ -1,5 +1,9 @@
 # Group F acceptance — truthful JSONL errors and EQ preparation
 
+## Integration recheck — 2026-10-20
+
+PR #27 is merged; Main integration is PR #33 / `b57eb5e`, contained in stable `439de626`. Issue #26 is completed. [Current source/CI/regression evidence](UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) confirms the original IPC/EQ implementation and reproduces lost terminal classification in new hello/capability consumers. Earlier checks below retain their original source bindings; no follow-up repair or full current UI acceptance is claimed.
+
 ## Current SDK correction — 2026-10-13
 
 Current branch head `28cb83e55eda2e4b50847aafd783e75244697d23`, independently based on original `cf420d97700463c56adc31408510e8336e99e51c`, includes the two-file shared analyzer-reference/CI logging correction. [SDK acceptance](SDK-LOCK-ACCEPTANCE.md) explains the executed unchanged-base control and preserved lock/SDK/analyzer contracts. [PR #27](https://github.com/Ding-Kyoma/AirFlash/pull/27) remains open and unmerged.

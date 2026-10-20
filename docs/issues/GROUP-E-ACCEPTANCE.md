@@ -1,5 +1,9 @@
 # Group E acceptance — PIN input and credential lookup
 
+## Refresh required — 2026-10-20
+
+PR #25 remains open and now conflicts with stable `439de626`. [Current investigation](UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) finds dashed ASCII PIN formatting independently fixed upstream, with new password dialog/authentication consumers to preserve. Refresh error-preserving lookup for both HAP credentials and stored passwords; old branch checks below do not qualify a current-base merge. No refreshed implementation is claimed.
+
 ## Current SDK correction — 2026-10-13
 
 Current branch head `234167b31092339b2e909bfa2cbee5748b6006e1`, independently based on original `cf420d97700463c56adc31408510e8336e99e51c`, includes the two-file shared analyzer-reference/CI logging correction. [SDK acceptance](SDK-LOCK-ACCEPTANCE.md) explains the executed unchanged-base control and preserved lock/SDK/analyzer contracts. [PR #25](https://github.com/Ding-Kyoma/AirFlash/pull/25) remains open and unmerged.
