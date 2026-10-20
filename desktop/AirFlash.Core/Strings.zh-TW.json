@@ -349,5 +349,8 @@
   "Local padded output frames": "本機補零輸出影格數",
   "Wholly padded capture pulls": "整批補零擷取次數",
   "Local padded output frames: {0}; wholly padded capture pulls: {1}": "本機補零輸出影格數：{0}；整批補零擷取次數：{1}",
-  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "補零計數記錄等化處理前缺少的輸出取樣率影格。整批補零表示一次擷取中的 352 個影格皆缺少。實際擷取的靜音以及排程的淡出或恢復靜音不屬於擷取缺失。這些是本機擷取計數；無法取得的計數顯示為 —。"
+  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "補零計數記錄等化處理前缺少的輸出取樣率影格。整批補零表示一次擷取中的 352 個影格皆缺少。實際擷取的靜音以及排程的淡出或恢復靜音不屬於擷取缺失。這些是本機擷取計數；無法取得的計數顯示為 —。",
+  "The receiver is unavailable.": "接收裝置目前無法使用。",
+  "The receiver selection is ambiguous.": "無法確定所選接收裝置的唯一歸屬。",
+  "Discovery unavailable": "探索資訊暫時無法使用"
 }
