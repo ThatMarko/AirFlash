@@ -21,7 +21,7 @@ public sealed class PinDialog : Window
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 18, 0, 0) };
         var ok = new Button { Content = L.Get("Pair"), IsDefault = true, IsEnabled = false, MinWidth = 78, Margin = new(0, 0, 8, 0) };
         _code.TextChanged += (_, _) => ok.IsEnabled = PinInput.Normalize(_code.Text) is not null;
-        _password.PasswordChanged += (_, _) => ok.IsEnabled = PasswordInput.IsValid(_password.Password);
+        _password.PasswordChanged += (_, _) => ok.IsEnabled = ReadValidPassword() is not null;
         ok.Click += (_, _) => DialogResult = true;
         buttons.Children.Add(ok); buttons.Children.Add(new Button { Content = L.Get("Cancel"), IsCancel = true, MinWidth = 78 }); panel.Children.Add(buttons); Content = panel;
         Loaded += (_, _) => { if (receiver.RequiresPassword) _password.Focus(); else _code.Focus(); };
@@ -36,16 +36,21 @@ public sealed class PinDialog : Window
             string? result = null;
             if (dialog.ShowDialog() == true)
             {
-                if (receiver.RequiresPassword)
-                {
-                    var password = dialog._password.Password;
-                    result = PasswordInput.IsValid(password) ? password : null;
-                }
+                if (receiver.RequiresPassword) result = dialog.ReadValidPassword();
                 else result = PinInput.Normalize(dialog._code.Text);
             }
             dialog._password.Clear(); dialog._code.Clear();
             cancellation.ThrowIfCancellationRequested();
             return result;
         });
+    }
+
+    private string? ReadValidPassword()
+    {
+        var password = _password.Password;
+        using var securePassword = _password.SecurePassword;
+        // WPF's plaintext getter stops at NUL while its backing value retains
+        // every character. Reject that mismatch rather than submit a prefix.
+        return securePassword.Length == password.Length && PasswordInput.IsValid(password) ? password : null;
     }
 }
