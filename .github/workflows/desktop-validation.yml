@@ -200,6 +200,7 @@ jobs:
           }
           $focused = @(
             @{ name = 'pairing'; mode = '--ui-pairing-smoke' },
+            @{ name = 'password'; mode = '--ui-password-smoke' },
             @{ name = 'session-lifecycle'; mode = '--ui-session-lifecycle-smoke' },
             @{ name = 'settings-recovery'; mode = '--ui-settings-recovery-smoke' },
             @{ name = 'mute-recovery'; mode = '--ui-mute-recovery-smoke' },
