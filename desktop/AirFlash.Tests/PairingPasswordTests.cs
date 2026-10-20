@@ -39,8 +39,64 @@ public sealed class PairingPasswordTests
         Assert.True(connection.Disposed.Task.IsCompletedSuccessfully);
     }
 
+    public static IEnumerable<object[]> NonemptyWhitespacePasswords()
+    {
+        foreach (var required in new[] { false, true })
+        foreach (var value in new[] { " ", "\t", "\u00a0", " \t ", "\u00a0 \t", "\u2003" })
+            yield return [required, value];
+    }
+
     [Theory]
-    [InlineData(null)] [InlineData("")] [InlineData(" \t ")]
+    [MemberData(nameof(NonemptyWhitespacePasswords))]
+    public async Task ActualPasswordPromptSubmitsNonemptyWhitespaceUnchangedBeforePaired(bool required, string value)
+    {
+        var connection = new Connection("password_required"); var factory = new Factory(connection); var audio = new Audio();
+        await using var controller = new SessionController(factory, audio, timing: Timing);
+        Receiver? requested = null;
+        await controller.PairAsync(Receiver(required), Settings(), (member, _) =>
+        {
+            requested = member; return Task.FromResult<string?>(value);
+        });
+        // The unchanged controller cancels and disposes instead of submitting.
+        // Observe either outcome explicitly rather than waiting out a timeout.
+        await Task.WhenAny(connection.PinSent.Task, connection.Disposed.Task).WaitAsync(Limit);
+        Assert.True(connection.PinSent.Task.IsCompletedSuccessfully, "A nonempty password must be submitted unchanged, including whitespace-only passwords.");
+        Assert.NotNull(requested); Assert.True(requested.RequiresPassword);
+        Assert.Equal(required, connection.Commands.Single(command => command.Name == "pair").Parameters.GetProperty("password_required").GetBoolean());
+        Assert.Equal(value, Assert.Single(connection.Commands, command => command.Name == "pair_pin").Parameters.Text("pin"));
+        // No paired event is scripted. Submission alone cannot start playback.
+        Assert.Equal(PlaybackState.Pairing, controller.Snapshot.State);
+        Assert.DoesNotContain(connection.Commands, command => command.Name == "start");
+        Assert.Equal(1, factory.OpenCount); Assert.Equal(0, audio.MuteCalls);
+        await controller.StopAsync();
+        Assert.True(connection.Disposed.Task.IsCompletedSuccessfully);
+    }
+
+    [Theory]
+    [InlineData(false, " ")]
+    [InlineData(true, " ")]
+    [InlineData(false, "\t")]
+    [InlineData(true, "\t")]
+    [InlineData(false, "\u00a0")]
+    [InlineData(true, "\u00a0")]
+    public async Task ActualPinPromptStillCancelsWhitespaceRegardlessOfAdvertisedPassword(bool required, string value)
+    {
+        var connection = new Connection("pin_required"); var factory = new Factory(connection); var audio = new Audio();
+        await using var controller = new SessionController(factory, audio, timing: Timing);
+        Receiver? requested = null;
+        await controller.PairAsync(Receiver(required), Settings(), (member, _) =>
+        {
+            requested = member; return Task.FromResult<string?>(value);
+        });
+        await connection.Disposed.Task.WaitAsync(Limit);
+        Assert.NotNull(requested); Assert.False(requested.RequiresPassword);
+        Assert.Equal(PlaybackState.Idle, controller.Snapshot.State);
+        Assert.DoesNotContain(connection.Commands, command => command.Name is "pair_pin" or "start");
+        Assert.Equal(1, factory.OpenCount); Assert.Equal(0, audio.MuteCalls);
+    }
+
+    [Theory]
+    [InlineData(null)] [InlineData("")]
     public async Task CancelledPasswordPromptDoesNotSubmitOrStartPlayback(string? value)
     {
         var connection = new Connection("password_required"); var factory = new Factory(connection); var audio = new Audio();

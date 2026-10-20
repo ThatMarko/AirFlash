@@ -58,7 +58,7 @@ internal static class UiSmoke
             "an option value cannot select the real audio diagnostic before UI verification", checks);
         var focusFlags = new[] { "--ui-discovery-smoke", "--ui-regression", "--ui-regression-smoke", "--receiver-settings-regression",
             "--ui-mute-recovery-smoke", "--ui-settings-recovery-smoke", "--ui-diagnostics-smoke", "--ui-session-lifecycle-smoke",
-            "--ui-scroll-smoke", "--ui-pairing-smoke" };
+            "--ui-scroll-smoke", "--ui-pairing-smoke", "--ui-password-smoke" };
         var focused = options.Where(focusFlags.Contains).ToArray();
         var verificationMode = focused.FirstOrDefault() ?? "full";
         void FocusResult(bool ok, Exception? error = null) => App.WriteOutput(args, new
@@ -89,6 +89,7 @@ internal static class UiSmoke
                     "--ui-session-lifecycle-smoke" => UiSessionLifecycle.RunAsync(checks, directory),
                     "--ui-scroll-smoke" => UiScrolling.RunAsync(checks, directory, options.Contains("--ui-scroll-hold")),
                     "--ui-pairing-smoke" => UiPairing.RunAsync(checks, directory, options.Contains("--ui-pairing-clipboard")),
+                    "--ui-password-smoke" => UiPairing.RunPasswordAsync(checks, directory),
                     _ => throw new InvalidOperationException("Unmapped focused UI verification mode.")
                 });
                 FocusResult(true); return 0;

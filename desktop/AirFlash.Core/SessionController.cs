@@ -816,10 +816,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         case "pin_required":
                         case "password_required":
                             {
-                                var input = await RequestPairingInputAsync(events, member with { RequiresPassword = item.Text("event") == "password_required" }, requestPin, cancellation).ConfigureAwait(false);
+                                var passwordPrompt = item.Text("event") == "password_required";
+                                var input = await RequestPairingInputAsync(events, member with { RequiresPassword = passwordPrompt }, requestPin, cancellation).ConfigureAwait(false);
                                 if (input.Paired) goto Paired;
                                 var pin = input.Pin;
-                                if (string.IsNullOrWhiteSpace(pin)) { Publish(epoch, PlaybackState.Idle, L.Get("Pairing cancelled.")); throw new PairCancelledException(); }
+                                if (passwordPrompt ? string.IsNullOrEmpty(pin) : string.IsNullOrWhiteSpace(pin)) { Publish(epoch, PlaybackState.Idle, L.Get("Pairing cancelled.")); throw new PairCancelledException(); }
                                 await connection.SendAsync(session, "pair_pin", new { pin }, cancellation).ConfigureAwait(false);
                             }
                             break;
