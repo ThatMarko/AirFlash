@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Globalization;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -65,10 +66,13 @@ internal static class UiSmoke
             try
             {
                 await UiSessionLifecycle.RunAsync(checks, directory);
-                App.WriteOutput(args, new { ok = true, checks, note = "Isolated dispatcher/session fixtures with synthetic services; visible controls and devices are outside this run." });
+                App.WriteOutput(args, new { ok = true, mode = "--ui-session-lifecycle-smoke", checks,
+                    culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name,
+                    note = "Isolated dispatcher/session fixtures with synthetic services; visible controls and devices are outside this run." });
                 return 0;
             }
-            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, mode = "--ui-session-lifecycle-smoke", checks,
+                culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name, error = error.ToString() }); return 1; }
         }
         if (args.Contains("--ui-scroll-smoke"))
         {
