@@ -1,5 +1,11 @@
 # Group D acceptance — bounded DNS operation ownership
 
+## Current stable refresh — 2026-10-20
+
+[Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. New dispatcher/UI fixtures are compiled and source-reviewed only: desktop execution is explicitly deferred.
+
+Prior dated records retain their own executed provenance. Own-fork integration is not upstream integration or a release. New upstream publication, B reopening/replacement, upstream merges and releases still require explicit authorization.
+
 ## Refreshed standalone preparation — 2026-10-13
 
 Prepared standalone D is `b8ee79511e2fa41ee02651dad83d50e008f9f680`, on `codex/fix-discovery-resolve`, independently based on freshly verified original `cf420d97700463c56adc31408510e8336e99e51c`. Its clean worktree is `C:\Users\marko\.codex\worktrees\fix-discovery-resolve\AirFlash`; origin matches exactly. Fork Main `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` contains this head. No upstream issue/PR, reopen, merge or release is performed. The four existing upstream PRs remain a separate review queue.

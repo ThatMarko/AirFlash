@@ -1,8 +1,14 @@
 # AirFlash implementation backlog
 
+## Current stable refresh — 2026-10-20
+
+[Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. New dispatcher/UI fixtures are compiled and source-reviewed only: desktop execution is explicitly deferred.
+
+Prior dated records retain their own executed provenance. Own-fork integration is not upstream integration or a release. New upstream publication, B reopening/replacement, upstream merges and releases still require explicit authorization.
+
 ## Upstream integration recheck — 2026-10-20
 
-[Current verification](UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) confirms installer #21 and F #27 merged; C #23 closed without direct merge while its commits reached Main through #34. Issue #22 remains open; E #25 is open/conflicting. Stable Main is now `439de626` with schema 4; fork runtime remains `a1182b0`. Earlier dated base, schema-2 and four-open-PR statements below describe their historical source.
+[Current verification](UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) confirms installer #21 and F #27 merged; C #23 closed without direct merge while its commits reached Main through #34. Issue #22 remains open; E #25 is open/conflicting. At that earlier observation, stable Main was `439de626` with schema 4 and fork runtime was `a1182b0`; the current refresh is linked above. Earlier dated base, schema-2 and four-open-PR statements below describe their historical source.
 
 Fresh upstream checks pass 403 Core, 141 Python, focused settings70/scrolling214 and a warning-free SDK 10.0.402 build; exact Main CI passes 87 native. Added controls reproduce null software-group-id recovery and new IPC consumer gaps (11 failures / 9 healthy controls), plus preview filename and parent-junction cleanup defects using safe operations. Full WPF remains failed: current upstream and the previously qualified fork binary fail a raster assertion, as does an independent opaque rectangle. No production fix or full UI pass is claimed. The report records source/evidence/limits and next actions; no new upstream publication or release occurred.
 

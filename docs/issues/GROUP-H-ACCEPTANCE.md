@@ -1,5 +1,11 @@
 # Group H acceptance — diagnostics, padding and localization
 
+## Current stable refresh — 2026-10-20
+
+[Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. New dispatcher/UI fixtures are compiled and source-reviewed only: desktop execution is explicitly deferred.
+
+Prior dated records retain their own executed provenance. Own-fork integration is not upstream integration or a release. New upstream publication, B reopening/replacement, upstream merges and releases still require explicit authorization.
+
 ## Standalone SDK and diagnostic qualification — 2026-10-18
 
 Prepared head is `1396c55eb6cd4c314a95a94a94adb213e381755e` on `codex/fix-diagnostics-metrics`, based on original stable `cf420d97700463c56adc31408510e8336e99e51c`. SDK commit `7ae2aae` supplies the shared ILLink 10.0.12 dependency/selected-host CI correction. The following diagnostic-only change adds actual culture fields to full/tray success and full-run failure, restores the exact selected catalog in finally and asserts its localized marker. H already parsed formatting culture before startup; that parser, native accounting, Monitor behavior, compatibility fields and translation catalogs are unchanged.

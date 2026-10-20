@@ -1,5 +1,11 @@
 # Group B acceptance — session ownership and receiver selection
 
+## Current stable refresh — 2026-10-20
+
+[Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. New dispatcher/UI fixtures are compiled and source-reviewed only: desktop execution is explicitly deferred.
+
+Prior dated records retain their own executed provenance. Own-fork integration is not upstream integration or a release. New upstream publication, B reopening/replacement, upstream merges and releases still require explicit authorization.
+
 ## Comprehensive audit correction — 2026-10-18
 
 The broader audit found a missing part of the original shutdown contract. Earlier shutdown regressions called VM disposal directly; actual shell Quit first awaited Settings Apply and engine-probe disposal. Those preceding waits left admission open. The new shared shell fixture reproduces an actual fake Start and mute after releasing a real held Settings Apply under the unchanged original shutdown ordering. The failed control is retained separately; passing earlier runs did not repair or cover this gap.

@@ -1,5 +1,9 @@
 # AirFlash on the fork's main branch
 
+## Current-source boundary — 2026-10-20
+
+The subsystem maps below retain their audited historical source/base. Current original stable is `439de626` with schema 4, software stereo, per-receiver profiles/rates, application capture and password authentication. Consult the [current stable implementation and verification overlay](../issues/CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) and actual current source before applying older trace details. Fork runtime follows the reviewed current-base integration described there; its headless evidence does not qualify desktop or real-device behavior.
+
 ## Comprehensive recheck — 2026-10-18
 
 The maps below retain their pinned historical source. [Current verification](../issues/COMPREHENSIVE-VERIFICATION-2026-10-18.md) traces all seventeen report contracts and public issue/PR state at runtime merge `a1182b0`. The [desktop shell](desktop-shell.md#shutdown-correction--2026-10-18) and [verification](verification.md#comprehensive-audit-supplement--2026-10-18) supplements record B's newly reproduced/repaired first-Quit-await admission gap and actual shared-path assertions. Browse lifetime prose distinguishes tracked calls/managed consumer sections from unobserved native return stacks. Other historical source/measurement limits remain explicit.

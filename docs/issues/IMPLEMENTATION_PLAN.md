@@ -1,5 +1,11 @@
 # AirFlash completed implementation and publication plan
 
+## Current stable refresh — 2026-10-20
+
+[Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. New dispatcher/UI fixtures are compiled and source-reviewed only: desktop execution is explicitly deferred.
+
+Prior dated records retain their own executed provenance. Own-fork integration is not upstream integration or a release. New upstream publication, B reopening/replacement, upstream merges and releases still require explicit authorization.
+
 ## Upstream integration update — 2026-10-20
 
 [Current verification](UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) supersedes earlier status/base claims: installer/F merged, C integrated through #34 with #23 closed, E #25 conflicts, and stable is `439de626` with schema 4. Fork runtime remains `a1182b0`; old schema-2 fixtures do not cover new software-group/capability/password consumers.

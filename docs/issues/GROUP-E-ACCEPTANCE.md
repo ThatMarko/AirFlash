@@ -1,5 +1,11 @@
 # Group E acceptance — PIN input and credential lookup
 
+## Current stable refresh — 2026-10-20
+
+[Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. New dispatcher/UI fixtures are compiled and source-reviewed only: desktop execution is explicitly deferred.
+
+Prior dated records retain their own executed provenance. Own-fork integration is not upstream integration or a release. New upstream publication, B reopening/replacement, upstream merges and releases still require explicit authorization.
+
 ## Refresh required — 2026-10-20
 
 PR #25 remains open and now conflicts with stable `439de626`. [Current investigation](UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) finds dashed ASCII PIN formatting independently fixed upstream, with new password dialog/authentication consumers to preserve. Refresh error-preserving lookup for both HAP credentials and stored passwords; old branch checks below do not qualify a current-base merge. No refreshed implementation is claimed.

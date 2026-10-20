@@ -1,5 +1,13 @@
 # [MEDIUM] Selected SDK preflight precedes avoidable build and release side effects
 
+## Current stable refresh — 2026-10-20
+
+[Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. New dispatcher/UI fixtures are compiled and source-reviewed only: desktop execution is explicitly deferred.
+
+Prior dated records retain their own executed provenance. Own-fork integration is not upstream integration or a release. New upstream publication, B reopening/replacement, upstream merges and releases still require explicit authorization.
+
+### Historical issue metadata
+
 - **Status**: Implemented in fork `main` `8989b3609dd1294f4d1d6eb1502f345cc22bc382` and **already resolved upstream**.
 - **Group / feature**: A, `codex/fix-build-preflight`, `de13b6d3e22a177537ed9d5977fe693a5b497fc1`.
 - **Upstream**: [PR #11](https://github.com/Ding-Kyoma/AirFlash/pull/11) merged, [issue #10](https://github.com/Ding-Kyoma/AirFlash/issues/10) closed; stable `cf420d97700463c56adc31408510e8336e99e51c` contains A. No original Group A implementation scope remains.

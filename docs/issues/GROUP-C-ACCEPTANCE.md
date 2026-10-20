@@ -1,5 +1,11 @@
 # Group C acceptance — configuration preservation and validation
 
+## Current stable refresh — 2026-10-20
+
+[Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. New dispatcher/UI fixtures are compiled and source-reviewed only: desktop execution is explicitly deferred.
+
+Prior dated records retain their own executed provenance. Own-fork integration is not upstream integration or a release. New upstream publication, B reopening/replacement, upstream merges and releases still require explicit authorization.
+
 ## Integration recheck — 2026-10-20
 
 Original PR #23 is closed without direct merge; its commits reached schema-4 Main `439de626` through merged PR #34. Issue #22 remains open. [Current source/CI/regression evidence](UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) confirms preserved recovery contracts and reproduces a new null software-group-id validation escape. Earlier results below remain bound to their original schema-2 source; no repair or full current UI acceptance is claimed.

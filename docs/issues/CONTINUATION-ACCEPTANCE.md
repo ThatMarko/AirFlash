@@ -1,5 +1,11 @@
 # Current fork Main acceptance — 2026-10-12
 
+## Current stable refresh — 2026-10-20
+
+[Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. New dispatcher/UI fixtures are compiled and source-reviewed only: desktop execution is explicitly deferred.
+
+Prior dated records retain their own executed provenance. Own-fork integration is not upstream integration or a release. New upstream publication, B reopening/replacement, upstream merges and releases still require explicit authorization.
+
 ## Comprehensive audit correction — 2026-10-18
 
 [The current comprehensive report](COMPREHENSIVE-VERIFICATION-2026-10-18.md) supersedes the earlier blanket shutdown acceptance below. A shared actual-shell fixture reproduced admission during Quit's pre-disposal waits; B `d7782a3` fixes it and fork runtime merge `a1182b0` integrates it. The report separately binds both-SDK Core/build checks, current WPF/native/package evidence, live issue/PR information, review and limits. Original dated receipts and branch heads below remain historical; they do not acquire the newly added 46 shell assertions.

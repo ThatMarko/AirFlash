@@ -1,5 +1,11 @@
 # Group G acceptance — owned local mute recovery
 
+## Current stable refresh — 2026-10-20
+
+[Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. New dispatcher/UI fixtures are compiled and source-reviewed only: desktop execution is explicitly deferred.
+
+Prior dated records retain their own executed provenance. Own-fork integration is not upstream integration or a release. New upstream publication, B reopening/replacement, upstream merges and releases still require explicit authorization.
+
 ## Standalone SDK and diagnostic qualification — 2026-10-18
 
 Prepared head is `f3afb9a3ba301205a261afbb72c0074722a8adb0` on `codex/fix-mute-recovery`, based on original stable `cf420d97700463c56adc31408510e8336e99e51c`. SDK commit `37435b8` applies the shared private ILLink 10.0.12 dependency/selected-host CI correction; the following diagnostic-only commit honors formatting culture before WPF async startup, reports observed cultures on full/tray success and full-run failure, and restores the exact catalog after tray rebuilding. Recovery/admission/endpoint/journal runtime behavior is unchanged. The branch is reviewed, clean and normally pushed to origin; publication remains unauthorized.

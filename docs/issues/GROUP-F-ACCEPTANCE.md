@@ -1,5 +1,11 @@
 # Group F acceptance — truthful JSONL errors and EQ preparation
 
+## Current stable refresh — 2026-10-20
+
+[Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. New dispatcher/UI fixtures are compiled and source-reviewed only: desktop execution is explicitly deferred.
+
+Prior dated records retain their own executed provenance. Own-fork integration is not upstream integration or a release. New upstream publication, B reopening/replacement, upstream merges and releases still require explicit authorization.
+
 ## Integration recheck — 2026-10-20
 
 PR #27 is merged; Main integration is PR #33 / `b57eb5e`, contained in stable `439de626`. Issue #26 is completed. [Current source/CI/regression evidence](UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) confirms the original IPC/EQ implementation and reproduces lost terminal classification in new hello/capability consumers. Earlier checks below retain their original source bindings; no follow-up repair or full current UI acceptance is claimed.

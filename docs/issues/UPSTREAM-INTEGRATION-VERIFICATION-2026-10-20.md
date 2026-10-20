@@ -1,5 +1,9 @@
 # Upstream integration verification — 2026-10-20
 
+## Later implementation update
+
+This page is the earlier same-day audit, preserving its observations and reproduced failures. The [current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes its remaining-work and fork-runtime statements; it records the subsequent fixes, refreshed source, actual checks, deferred desktop qualification and publication boundary.
+
 The maintainer integrated installer refresh, terminal IPC error/EQ results and configuration recovery into original Main. Commit ancestry, source and exact-source CI confirm this. Deeper checks also reproduce four remaining defects. No production fixes were made in this verification pass.
 
 This supersedes the October 18 publication-state and stable-base statements, not their executions. Original Main is now `439de6260e01efbfca528a12cf4d4c1010b3583e`; fork runtime remains `a1182b0c984d882e9cd3fb3cbe443dbf2a10ed48`, qualified under the [October 18 audit](COMPREHENSIVE-VERIFICATION-2026-10-18.md). The fork has not absorbed new upstream. Earlier fork schema-2 contracts do not describe upstream's new schema-4 software stereo, per-receiver rates, app capture, capability and password features.
