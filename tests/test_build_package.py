@@ -402,10 +402,36 @@ def test_package_producer_and_actual_release_lookup_agree(
         assert Path(result["consumer"]["path"]).name == f"AirFlash-{informational}.msi"
 
 
-def test_invalid_numeric_version_fails_before_fake_build_or_cleanup(tmp_path):
+@pytest.mark.parametrize(
+    "version",
+    [
+        "0.4.0-rc.1", "0.4.0\n", "0.4.0\r\n", "０.４.０", "0.04.0",
+        "0.4.65535", "255.255.65535",
+    ],
+)
+def test_invalid_numeric_version_fails_before_fake_build_or_cleanup(tmp_path, version):
     fixture = Fixture(tmp_path)
-    result = fixture.run(mode="package", version="0.4.0-rc.1", informational="0.4.0-rc.1")
+    result = fixture.run(mode="package", version=version, informational=version)
     assert_rejected_before_remove(result)
+
+
+@pytest.mark.parametrize("version", ["6.0.0", "255.255.65534"])
+def test_application_version_reaches_publish_and_matching_installer(tmp_path, version):
+    result = Fixture(tmp_path).run(mode="package", version=version, informational=version)
+    assert result["setup_error"] is None and result["error"] is None, result
+    assert result["files"] == [f"AirFlash-{version}.msi", "AirFlash.exe"]
+    assert [event["operation"] for event in result["events"]] == [
+        "native", "publish", "installer"
+    ]
+    publish = result["events"][1]["arguments"]
+    for argument in (
+        f"-p:Version={version}", f"-p:FileVersion={version}.0", f"-p:AssemblyVersion={version}.0"
+    ):
+        assert argument in publish
+    assert result["events"][-1]["product_version"] == version
+    assert result["events"][-1]["artifact_version"] == version
+    assert result["consumer"]["exists"] is True
+    assert Path(result["consumer"]["path"]).name == f"AirFlash-{version}.msi"
 
 
 def test_release_workflow_passes_channel_to_the_actual_release_verifier():

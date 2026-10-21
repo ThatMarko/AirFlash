@@ -49,8 +49,14 @@
           <Button x:Name="ReviewMuteRecoveryButton" Content="{loc:Text 'Review local audio'}" Command="{Binding ReviewMuteRecoveryCommand}" HorizontalAlignment="Left" Margin="0,8,0,0"/>
         </StackPanel>
       </Border>
-      <Border Padding="10" CornerRadius="6" Background="{DynamicResource TintBrush}" Margin="0,0,0,12" Visibility="{Binding Notice, Converter={StaticResource NonEmpty}}">
-        <TextBlock Text="{Binding Notice}" Style="{StaticResource Hint}"/>
+      <Border x:Name="NoticeBanner" Padding="10" CornerRadius="6" Background="{DynamicResource TintBrush}" Margin="0,0,0,12" Visibility="{Binding HasNotice, Converter={StaticResource BoolVisibility}}">
+        <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <TextBlock Text="{Binding Notice}" Style="{StaticResource Hint}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+          <Button x:Name="DismissNoticeButton" Grid.Column="1" Command="{Binding DismissNoticeCommand}" Style="{StaticResource IconButton}" Width="28" Height="28" MinHeight="28" VerticalAlignment="Top" ToolTip="{loc:Text 'Dismiss notification'}" AutomationProperties.Name="{loc:Text 'Dismiss notification'}">
+            <Path Data="M 3,3 L 13,13 M 13,3 L 3,13" Width="12" Height="12" Stretch="Uniform" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+          </Button>
+        </Grid>
       </Border>
       <Border Padding="10" CornerRadius="6" Background="{DynamicResource TintBrush}" Margin="0,0,0,12" Visibility="{Binding EngineMessage, Converter={StaticResource NonEmpty}}">
         <StackPanel>

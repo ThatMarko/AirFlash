@@ -627,6 +627,52 @@ def test_installer_rejects_a_numeric_version_that_differs_from_the_exe(fixture):
     assert result["events"] == []
 
 
+@pytest.mark.parametrize("version", ["9.9.9\n", "9.9.9\r\n", "９.９.９", "09.9.9"])
+def test_installer_rejects_noncanonical_numeric_input_before_sdk_or_output(fixture, version):
+    fixture.host("checkout", installer_output=True)
+    publish, output = fixture.installer()
+    result = fixture.run(
+        "build-installer.ps1",
+        parameters={
+            "PublishPath": str(publish), "OutputPath": str(output), "ProductVersion": version,
+        },
+    )
+    assert "canonical" in result["error"], result
+    assert result["events"] == [], result
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("version", ["0.3.65535", "255.255.65535"])
+def test_standalone_installer_accepts_full_msi_range_before_exe_comparison(fixture, version):
+    publish, output = fixture.installer()
+    result = fixture.run(
+        "build-installer.ps1",
+        parameters={
+            "PublishPath": str(publish), "OutputPath": str(output), "ProductVersion": version,
+        },
+    )
+    # The synthetic input has Python's resource version; reaching this comparison
+    # proves that MSI-only 65535 remains valid without needing to build an EXE/MSI.
+    assert "EXE version mismatch" in result["error"], result
+    assert result["events"] == [], result
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("artifact", ["6.0.0-rc.1\n", "6.0.0-rc.1\r\n", "6/0", "６.０.０"])
+def test_installer_rejects_invalid_artifact_name_before_sdk_or_output(fixture, artifact):
+    fixture.host("checkout", installer_output=True)
+    publish, output = fixture.installer()
+    result = fixture.run(
+        "build-installer.ps1",
+        parameters={
+            "PublishPath": str(publish), "OutputPath": str(output), "ArtifactVersion": artifact,
+        },
+    )
+    assert "unsupported filename characters" in result["error"], result
+    assert result["events"] == [], result
+    assert not output.exists()
+
+
 def test_build_keeps_the_preflight_host_when_checkout_host_appears_later(fixture):
     later_host = fixture.host("checkout", version="", resolve_exit=42)
     later_host.unlink()
