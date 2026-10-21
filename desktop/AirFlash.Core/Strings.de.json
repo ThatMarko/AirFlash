@@ -366,5 +366,8 @@
   "Local padded output frames": "Lokal aufgefüllte Ausgabeframes",
   "Wholly padded capture pulls": "Vollständig aufgefüllte Erfassungsblöcke",
   "Local padded output frames: {0}; wholly padded capture pulls: {1}": "Lokal aufgefüllte Ausgabeframes: {0}; vollständig aufgefüllte Erfassungsblöcke: {1}",
-  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "Gezählt werden fehlende Frames mit der Ausgaberate vor dem Equalizer. Ein vollständig aufgefüllter Block ersetzt alle 352 Frames. Erfasste Stille und geplante Stille beim Ausblenden oder Wiederanlauf sind keine fehlenden Erfassungsdaten. Dies sind lokale Erfassungszähler; nicht verfügbare Zähler zeigen —."
+  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "Gezählt werden fehlende Frames mit der Ausgaberate vor dem Equalizer. Ein vollständig aufgefüllter Block ersetzt alle 352 Frames. Erfasste Stille und geplante Stille beim Ausblenden oder Wiederanlauf sind keine fehlenden Erfassungsdaten. Dies sind lokale Erfassungszähler; nicht verfügbare Zähler zeigen —.",
+  "The receiver is unavailable.": "Empfänger ist nicht verfügbar.",
+  "The receiver selection is ambiguous.": "Die Empfängerauswahl ist mehrdeutig.",
+  "Discovery unavailable": "Gerätesuche nicht verfügbar"
 }

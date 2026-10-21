@@ -16,6 +16,7 @@
     <Compile Include="../AirFlash.App/Ui/VolumeSliderMath.cs" Link="VolumeSliderMath.cs"/>
     <Compile Include="../AirFlash.App/Services/TrayRegistration.cs" Link="TrayRegistration.cs"/>
     <Compile Include="../AirFlash.App/Services/DnsServiceApi.cs" Link="DnsServiceApi.cs"/>
+    <Compile Include="../AirFlash.App/Services/ShellShutdown.cs" Link="ShellShutdown.cs"/>
     <Compile Include="../AirFlash.App/Services/WindowsDiscovery.cs" Link="WindowsDiscovery.cs"/>
     <Compile Include="../AirFlash.App/Services/NativeDnsServiceApi.cs" Link="NativeDnsServiceApi.cs"/>
     <Compile Include="../AirFlash.App/Services/ResolveProcessDnsServiceApi.cs" Link="ResolveProcessDnsServiceApi.cs"/>

@@ -366,5 +366,8 @@
   "Local padded output frames": "本地填补输出帧数",
   "Wholly padded capture pulls": "全量填补捕获次数",
   "Local padded output frames: {0}; wholly padded capture pulls: {1}": "本地填补输出帧数：{0}；全量填补捕获次数：{1}",
-  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "填补计数记录均衡处理前缺失的输出采样率帧。全量填补表示一次捕获中的 352 帧均缺失。实际捕获的静音以及计划内的淡出或恢复静音不属于捕获缺失。这些是本地捕获计数；不可用的计数显示为 —。"
+  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "填补计数记录均衡处理前缺失的输出采样率帧。全量填补表示一次捕获中的 352 帧均缺失。实际捕获的静音以及计划内的淡出或恢复静音不属于捕获缺失。这些是本地捕获计数；不可用的计数显示为 —。",
+  "The receiver is unavailable.": "接收设备当前不可用。",
+  "The receiver selection is ambiguous.": "无法确定所选接收设备的唯一归属。",
+  "Discovery unavailable": "发现信息暂不可用"
 }
