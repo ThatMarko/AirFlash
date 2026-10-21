@@ -1,5 +1,11 @@
 # Consolidated PR readiness — 2026-10-21
 
+## History preparation — 2026-10-21
+
+Current upstream Main is still `439de626`; the qualified source remains `6c1e2ef`. The selected next step is a **new linear review branch** with focused subsystem commits, preserving the existing integration branch, every historical ref and all upstream contributors. New commits use truthful current metadata; original commit IDs and executions remain historical evidence. The final source tree and each intermediate commit will be checked before adopting the new head.
+
+The live upstream inventory now has eight open issues (#6/#7/#14/#16/#24/#28/#30/#35) and only PR #25 open/conflicting. The new iPhone-wake dropout report #35 has no established root cause. Only #14 and #24 currently qualify for closing references after final acceptance; the other incidents/features remain separate. Upstream publication, #25 closure, merges and releases remain gated.
+
 This is the current implementation and qualification overlay. Earlier dated audits, standalone heads, failures and execution receipts keep their original provenance. The selected publication package remains **Improve AirFlash reliability, pairing and diagnostics**: one umbrella tracking issue and one consolidated draft PR. Upstream publication and closing #25 still require explicit authorization.
 
 ## Source and publication boundary

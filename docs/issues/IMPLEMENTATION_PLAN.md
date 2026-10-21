@@ -1,5 +1,11 @@
 # AirFlash completed implementation and publication plan
 
+## History preparation — 2026-10-21
+
+Current upstream Main is still `439de626`; the qualified source remains `6c1e2ef`. The selected next step is a **new linear review branch** with focused subsystem commits, preserving the existing integration branch, every historical ref and all upstream contributors. New commits use truthful current metadata; original commit IDs and executions remain historical evidence. The final source tree and each intermediate commit will be checked before adopting the new head.
+
+The live upstream inventory now has eight open issues (#6/#7/#14/#16/#24/#28/#30/#35) and only PR #25 open/conflicting. The new iPhone-wake dropout report #35 has no established root cause. Only #14 and #24 currently qualify for closing references after final acceptance; the other incidents/features remain separate. Upstream publication, #25 closure, merges and releases remain gated.
+
 ## Current qualification — 2026-10-21
 
 The selected combined candidate is now `6c1e2ef`; [current readiness and all eight acceptance sections](PR-READINESS-2026-10-21.md) record the owned-settings continuation repair, discovery diagnostic containment and fixture improvements. Exact-commit 1,016 Core, local preparation-snapshot 3,626 application assertions and exact-source hosted 18 cells / 11,386 assertions pass. Earlier source snapshots remain historical. The next action is approval for the prepared upstream issue and draft PR. Keep #25 open; do not repeat completed E–H or publish standalone B/E with their recorded packaging gaps.
