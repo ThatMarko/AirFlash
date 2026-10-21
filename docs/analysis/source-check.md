@@ -1,5 +1,11 @@
 # Source check
 
+## Current-source boundary — 2026-10-21
+
+Current stable comparison is `439de626`, with schema 4 and the all-author features retained in combined `6c1e2ef`. The current readiness overlay maps all seventeen report contracts and separates already-upstream A/C/F/retention scope from remaining work. Earlier unexplained raster failures, physical-device/power-loss limits and unchanged-tree native provenance remain explicit. Controlled fixture evidence establishes its asserted behavior, not a universal HomePod cause or cure.
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 ## Discovery preparation supplement — 2026-10-13
 
 Current fork code `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` integrates standalone D `b8ee79511e2fa41ee02651dad83d50e008f9f680`, based on original `cf420d97700463c56adc31408510e8336e99e51c`. The old unsupported claim that every TXT-only refresh notifies subscribers is superseded for current c5ddb89: full record/TXT equality now restores original stable publication. Helper key lookup remains case-insensitive through JSON with exact values. Meaningful consumer assertions and unchanged-source red controls support these corrections; neither real DNS callback reliability nor arbitrary native return-stack quiescence is established. Source, carrier workflow, compiled binary and actual execution stay separately identified.

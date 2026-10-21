@@ -1,5 +1,11 @@
 # [HIGH] Automatic admission rejects delayed work after newer Play, Pair or Stop
 
+## Current-source boundary — 2026-10-21
+
+On original stable `439de626`, passive retention does not supply complete automatic admission. Combined `6c1e2ef` separates automatic admission from explicit Toggle, invalidates stale intent synchronously and rechecks current eligibility after persistence; only admitted attempts consume candidates or update last-used state.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 - **Status**: Implemented, pushed and integrated in fork `main` `8989b3609dd1294f4d1d6eb1502f345cc22bc382`.
 - **Group / feature**: B, `codex/fix-session-lifecycle`, `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`.
 - **Original defect / severity**: HIGH explicit-session disruption at `41190e0`; this is the historical defect rating.

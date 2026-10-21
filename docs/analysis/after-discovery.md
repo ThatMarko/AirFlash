@@ -1,5 +1,11 @@
 # After discovery: catalog, session updates, and auto-connect
 
+## Current-source boundary — 2026-10-21
+
+Current original stable is `439de626`; combined `6c1e2ef` retains its software stereo and scoped discovery. Atomic admission/retarget guards remain candidate work. Canonical identity persistence is separate from an owned transport: current flush/Apply/endpoint callers capture a frozen settings context under the app gate and project it only after serialized owner/intent checks. Ordinary saves preserve owned effective options and software members; explicit changes follow their own admission path. See [current session/settings behavior](session.md).
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 ## Discovery preparation supplement — 2026-10-13
 
 Current fork code `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` integrates standalone D `b8ee79511e2fa41ee02651dad83d50e008f9f680`, based on original `cf420d97700463c56adc31408510e8336e99e51c`. Every changed valid current record/TXT refresh now requests catalog publication; gpn/igl/pk/cn no longer silently wait for unrelated publication. The older description-only notification statement below is pinned0623787 behavior. Reconciliation/settings gates/controller authority and manual persistence are unchanged. Helper TXT case-insensitive keys preserve identity/stereo/codec input to aggregation.

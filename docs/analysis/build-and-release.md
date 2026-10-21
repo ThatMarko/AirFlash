@@ -1,5 +1,11 @@
 # Build, packaging and release ownership
 
+## Current-source boundary — 2026-10-21
+
+Current stable `439de626` already contains selected-host preflight, MSI payload refresh and the ILLink dependency pin. Combined `6c1e2ef` adds cleanup containment, preview-name agreement and first-actual-PATH-host selection. The selected local SDK is 10.0.402, resolved from desktop/global.json 10.0.100/latestFeature. Current exact-source desktop CI is an own-fork qualification with no reservation, installer or release operation; older package/MSI results remain bound to their actual sources.
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 ## Discovery build qualification — 2026-10-13
 
 D `b8ee79511e2fa41ee02651dad83d50e008f9f680` now includes shared SDK commit `03432df`: locked restore/build / 303 Core pass on both actual 10.0.401 and 10.0.402, with existing locks/resolver/analyzer flags preserved. Fork Main `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` contains the corrections and passes 677 Core locally; [D acceptance](../issues/GROUP-D-ACCEPTANCE.md) separates exact standalone, integrated and hosted runs. [Exact Main normal CI](https://github.com/ThatMarko/AirFlash/actions/runs/38471862347) and [full package](https://github.com/ThatMarko/AirFlash/actions/runs/38471862427) succeed at `c5ddb894`: 138 Python / 677 Core / 69 native (two ignored), six portable UI cells × 1,075, three observed 125% DPI cells × 40 and disposable MSI lifecycle. Downloaded UI, bundle-audit and repeated-packaging reports share the exact portable hash; both distinct synthetic payloads have matching embedded hashes/sizes and preserve prior input/package. No release reservation or release is performed. Older build/source qualifications below remain historical.

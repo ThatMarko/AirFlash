@@ -2,7 +2,7 @@
 
 ## Current implementation overlay — 2026-10-21
 
-The [current readiness/source overlay](../issues/PR-READINESS-2026-10-21.md) describes combined `6c1e2ef` on stable `439de626`, including effective owned settings, discovery diagnostic containment and actual new regression results. Source maps below retain their pinned historical baselines. Local full GUI and exact-source hosted 18 cells / 11,386 assertions pass; this does not resolve earlier unexplained raster failures. Upstream publication remains gated.
+The [current readiness/source overlay](../issues/PR-READINESS-2026-10-21.md) describes combined `6c1e2ef` on stable `439de626`, including effective owned settings, discovery diagnostic containment and actual new regression results. Source maps below retain their pinned historical baselines. Local full GUI and exact-source hosted 18 cells / 11,386 assertions pass; this does not resolve earlier unexplained raster failures. Upstream publication remains gated. The planned code-only `codex/reliability-review` branch will retain upstream documentation unchanged; all documentation improvements stay on fork Main. Its implementation equivalence must be checked by source paths, not whole-tree identity. Qualified `6c1e2ef` remains the source/evidence reference for these maps.
 
 ## Desktop continuation — 2026-10-20
 
@@ -42,7 +42,7 @@ Current source links pin `06237873`; historical sections retain the original `41
 | [Discovery](discovery.md) | Visibility-scoped DNS-SD, selected interface, advertisement/cache TTL, logical deadlines and helper ownership |
 | [After discovery](after-discovery.md) | Catalog reconciliation, active rows, manual routing and automatic admission after persistence |
 | [Identity](identity.md) | Canonical ids, aliases and preferences; separate accessory credential identity |
-| [Settings](settings.md) | Schema 2, migration, preservation, loaded validation, Apply and startup |
+| [Settings](settings.md) | Current schema 4 with supported migration, preservation, loaded validation, Apply and startup; older schema-2 traces stay pinned below |
 | [Desktop shell](desktop-shell.md) | Startup/readiness, tray, windows/dialogs, commands, themes, updates, autostart and shutdown ordering |
 | [Session](session.md) | Atomic snapshot/owner/intent, serialized lifecycle changes, engine attempts and controls |
 | [Engine](engine.md) | Command process/worker, authentication, RTSP, PTP, capture and RTP |

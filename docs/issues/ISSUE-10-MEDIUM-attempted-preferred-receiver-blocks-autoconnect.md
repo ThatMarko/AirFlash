@@ -1,5 +1,11 @@
 # [MEDIUM] Automatic selection ranks only eligible unattempted candidates
 
+## Current-source boundary — 2026-10-21
+
+Combined `6c1e2ef` retains the remaining selection fix against stable `439de626`: attempted candidates are filtered with eligibility before ranking, so an attempted preferred receiver cannot hide another eligible candidate. Alias migration, overrides and admitted-attempt accounting remain coordinated with the session-intent changes.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 - **Status**: Implemented, pushed and integrated in fork `main` `8989b3609dd1294f4d1d6eb1502f345cc22bc382`.
 - **Group / feature**: B, `codex/fix-session-lifecycle`, `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`.
 - **Stable comparison**: `cf420d97700463c56adc31408510e8336e99e51c`/PR #19 do not fix this candidate rule.

@@ -1,5 +1,11 @@
 # [LOW] Equalizer retained-preparation replies — resolved in fork main
 
+## Current-source boundary — 2026-10-21
+
+Truthful native EQ mailbox outcomes and retained preparation are already upstream through PR #27 and maintainer PR #33 on stable `439de626`. Combined `6c1e2ef` preserves that contract; its remaining F work concerns IPC query consumers. Accepted preparation is not proof of DSP pickup or crossfade completion.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 **Status:** Implemented and integrated in own-fork main `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, reviewed 2026-10-12. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`; this implementation is not yet integrated there. Severity is the original triage priority.
 
 **Group:** F — JSONL control contracts. **Feature head:** `421e1ea8159803fbc339dff3782b1858e8a797d4`. [Plan](IMPLEMENTATION_PLAN.md#issue-14), [acceptance](GROUP-F-ACCEPTANCE.md), [EQ map](../analysis/equalizer.md).

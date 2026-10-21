@@ -1,5 +1,11 @@
 # [MEDIUM] Process-owned IPC rejection routing — resolved in fork main
 
+## Current-source boundary — 2026-10-21
+
+Original process-owned terminal IPC routing is upstream through PR #27 and maintainer PR #33 on stable `439de626`. Combined `6c1e2ef` fixes the remaining hello, capabilities and application-catalog consumers and handles terminal events during pairing input. Original native routing is retained, not presented as a missing merge.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 **Status:** Implemented and integrated in own-fork main `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, reviewed 2026-10-12. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`; this implementation is not yet integrated there. Severity is the original triage priority, not an unqualified current hardware failure.
 
 **Group:** F — JSONL control contracts. **Feature head:** `421e1ea8159803fbc339dff3782b1858e8a797d4`. [Plan](IMPLEMENTATION_PLAN.md#issue-12), [acceptance](GROUP-F-ACCEPTANCE.md), [IPC map](../analysis/credentials-and-ipc.md), [failures](../analysis/failures.md).

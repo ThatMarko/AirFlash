@@ -1,5 +1,11 @@
 # Identity
 
+## Current-source boundary — 2026-10-21
+
+Stable `439de626` adds software stereo and schema-4 receiver profiles/rates to this older map. Combined `6c1e2ef` preserves those upstream contracts and exact manual endpoints. Canonical persisted identity and an owned transport may differ after a delayed save; current session settings projection preserves owned member IDs/options unless a unique current transport binding or deliberate membership edit authorizes adoption. Accessory credential identity remains separate.
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 ## Discovery preparation supplement — 2026-10-13
 
 Current fork code `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` integrates standalone D `b8ee79511e2fa41ee02651dad83d50e008f9f680`, based on original `cf420d97700463c56adc31408510e8336e99e51c`. The helper wire preserves native OrdinalIgnoreCase TXT keys and exact values. Mixed-case deviceid/tsid/gpn/igl/cn reach aggregate identity, group name, leader and codecs; pk values remain ordinal, so Key/key conflict. Full TXT-change publication restores the original stable behavior. Distinct identities previously merged by a compatible shared endpoint split on an incompatible pk-only refresh; equal normalized device IDs still merge regardless of pk. Accessory /info credential keys and manual routing are unchanged.

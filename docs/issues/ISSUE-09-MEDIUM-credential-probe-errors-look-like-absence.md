@@ -1,5 +1,11 @@
 # [MEDIUM] Credential lookup error preservation — resolved in fork main
 
+## Current-source boundary — 2026-10-21
+
+Combined `6c1e2ef`, compared with stable `439de626`, uses bounded single-open credential/password reads and preserves lookup, decryption, parsing and identity errors. Only defined initial-open absence selects another eligible authentication path. Accessory-keyed current-user DPAPI and mutually exclusive authentication remain unchanged; #24/#25 remain open.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 **Status:** Implemented and integrated in own-fork main `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, reviewed 2026-10-12. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`; this implementation is not yet integrated there. Severity is the original triage priority, not an unqualified current hardware failure.
 
 **Group:** E — Authentication inputs. **Feature head:** `0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a`. [Plan](IMPLEMENTATION_PLAN.md#issue-09), [acceptance](GROUP-E-ACCEPTANCE.md), [credentials/IPC](../analysis/credentials-and-ipc.md), [authentication](../analysis/auth.md).

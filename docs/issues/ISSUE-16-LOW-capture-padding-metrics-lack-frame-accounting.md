@@ -1,5 +1,11 @@
 # [LOW] Local missing-frame accounting — implemented in fork main
 
+## Current-source boundary — 2026-10-21
+
+Combined `6c1e2ef` adds optional padded-output-frame and wholly-padded-pull metrics to stable `439de626`, before EQ and once per shared pull. It preserves existing underruns, excludes captured/scheduled silence, resets per worker and retains pre-fault snapshots. These local counters cannot establish a network/acoustic cause or justify closing incident #7.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 **Status:** Implemented and integrated in own-fork main `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, reviewed 2026-10-12. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`; this implementation is not yet integrated there. Severity is the original triage priority.
 
 **Group:** H — Diagnostics/observability. **Feature head:** `6855dfe27b4283a58ede7c37474f3e2aa3c31cf7`. [Plan](IMPLEMENTATION_PLAN.md#issue-16), [acceptance](GROUP-H-ACCEPTANCE.md), [capture/clocks](../analysis/capture-clocks.md), [EQ](../analysis/equalizer.md).

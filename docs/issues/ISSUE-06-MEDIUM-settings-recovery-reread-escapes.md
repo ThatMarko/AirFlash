@@ -1,5 +1,11 @@
 # [MEDIUM] Settings recovery preserves originals without an unguarded reread
 
+## Current-source boundary — 2026-10-21
+
+Original guarded reading, raw-byte recovery and repeated-Load preservation reached stable `439de626` through maintainer PR #34; PR #23 closed without a direct merge. Combined `6c1e2ef` retains those protections with the current schema-4 loader. Its separate null software-group-ID validation follow-up belongs to report 07.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 - **Status**: Implemented, pushed and integrated in fork `main` `8989b3609dd1294f4d1d6eb1502f345cc22bc382`.
 - **Group / feature**: C, `codex/fix-settings-recovery`, `5d72da3b77b4ac72f858966baef04b8a4ad8b1ad`.
 - **Stable comparison**: `cf420d97700463c56adc31408510e8336e99e51c` lacks this preservation repair.

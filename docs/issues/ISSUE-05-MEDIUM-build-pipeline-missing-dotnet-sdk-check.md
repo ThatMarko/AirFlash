@@ -1,5 +1,11 @@
 # [MEDIUM] Selected SDK preflight precedes avoidable build and release side effects
 
+## Current-source boundary — 2026-10-21
+
+Original selected-host SDK preflight is already upstream through PR #11; installer refresh is also integrated on stable `439de626`. Combined `6c1e2ef` contains separate cleanup-containment, preview-artifact and first-actual-PATH-host follow-ups. The original preflight is preserved rather than republished as new scope.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 ## Current stable refresh — 2026-10-20
 
 [Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. The subsequent [desktop continuation](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) records newly authorized executions, Connecting, modal-terminal and password-contract repairs, actual modal/dispatcher results and the remaining full-raster limitation. Earlier headless-only claims retain their historical source.

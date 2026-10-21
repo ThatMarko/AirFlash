@@ -1,5 +1,11 @@
 # [HIGH] DNS resolution has finite logical deadlines and explicit resource ownership
 
+## Current-source boundary — 2026-10-21
+
+Stable `439de626` already provides scoped Windows DNS-SD and selected-adapter pause. Combined `6c1e2ef` adds finite logical deadlines/retries, TTL/token/epoch separation, bounded owners and observed helper-exit settlement, plus containment of secondary diagnostic failures. A timeout or cancel result alone still cannot justify native reclamation.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 - **Status**: Implemented, pushed and integrated in fork `main` `c5ddb894e8bf0f977a94920ff26878c3cf5e1004`.
 - **Group / feature**: D, `codex/fix-discovery-resolve`, `b8ee79511e2fa41ee02651dad83d50e008f9f680`.
 - **Stable comparison**: `cf420d97700463c56adc31408510e8336e99e51c` does not contain this deadline/process-ownership fix.

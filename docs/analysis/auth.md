@@ -1,5 +1,11 @@
 # Authentication
 
+## Current-source boundary — 2026-10-21
+
+Stable `439de626` already supports dashed PINs and password pairing. Combined `6c1e2ef` shares final PIN validation, preserves exact accepted password bytes and credential/password lookup errors, and processes terminal events while a prompt is open. A newer Pair also retains its owned settings through a delayed canonical save and unrelated flush; see [session continuation](session.md). The upstream #25 head remains a separate older, conflicting proposal.
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 ## Desktop continuation — 2026-10-20
 
 The historical open-prompt event-reader limitation below is repaired on fork `5d43b04`: terminal IPC/scoped errors, EOF, malformed output, unexpected Stop and paired completion cancel/join the actual input prompt; successful input retains its pending reader. [Current evidence](../issues/CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) includes deterministic terminal-vs-input controls and real synthetic PIN/password dialogs. Clipboard cases execute only on the disposable fork runner. Native accessory-keyed current-user DPAPI/authentication selection is unchanged by this continuation.

@@ -1,5 +1,11 @@
 # Credentials and the process boundary
 
+## Current-source boundary — 2026-10-21
+
+Current stable `439de626` already has native process-owned terminal IPC/EQ outcome semantics and password pairing. Combined `6c1e2ef` preserves those contracts, adds the remaining query-consumer classification and terminal-during-input handling, and preserves credential/password read errors. Preferences are schema 4 with supported migration; credentials remain accessory-keyed current-user DPAPI and JSONL remains v1. Input/output bounds remain asymmetric.
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 Source reviewed on 2026-10-12 at own-fork `main` `06237873dcb6394eb35e97a017c536843bd7743d`, containing original stable `cf420d97700463c56adc31408510e8336e99e51c`. This page describes that integrated fork source, not an unmerged feature checkout or original upstream runtime.
 
 WPF and Rust share no memory and expose no C-ABI. They communicate over redirected stdin/stdout JSONL v1. Rust owns its DPAPI credential files; WPF does not deserialize private keys. Groups E/F are integrated here; neither changes preferences schema 2 or creates a symmetric pipe-size contract.

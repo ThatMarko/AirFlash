@@ -1,5 +1,11 @@
 # [HIGH] Passive discovery loss preserves owned playback and its Stop controls
 
+## Current-source boundary — 2026-10-21
+
+Passive playback retention is already upstream through PR #19 and remains present on stable `439de626`. Combined `6c1e2ef` preserves it while adding owner/intent, active-control, Connecting-publication and settings-continuation safeguards. Retention does not prove that the observed receiver disappearance incident (#6) is resolved.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 - **Status**: Implemented and integrated in fork `main` `8989b3609dd1294f4d1d6eb1502f345cc22bc382`.
 - **Group / feature**: B, pushed `442e8d8c8fd7649e3e039ec356e3a4f4b25f6d0b`.
 - **Upstream status**: Original passive-Stop scope is already fixed in stable `cf420d97700463c56adc31408510e8336e99e51c`/merged [PR #19](https://github.com/Ding-Kyoma/AirFlash/pull/19); do not propose it again as absent.

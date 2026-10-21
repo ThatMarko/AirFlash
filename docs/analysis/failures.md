@@ -1,5 +1,11 @@
 # How a session ends
 
+## Current-source boundary — 2026-10-21
+
+Against stable `439de626`, combined `6c1e2ef` preserves terminal IPC classification in the remaining hello/query consumers. Pairing now observes terminal events while input is open, cancels/joins the prompt and retains one pending reader across successful input. Explicit ownership, recovery admission and exact-bit cleanup remain separate from passive catalog availability. A later green run neither explains the earlier raster failure nor establishes a physical receiver incident cause.
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 Source reviewed on 2026-10-12 at own-fork `main` `06237873dcb6394eb35e97a017c536843bd7743d`, containing original stable `cf420d97700463c56adc31408510e8336e99e51c`. This page describes the integrated fork runtime; original upstream publication and historical test sources are separate.
 
 Each desktop playback attempt owns one engine process; a native worker stopping does not terminate its command loop. Explicit Stop, terminal fault, pipe failure or cancellation disposes that child. A retry performs a new handshake/process with new native clock/RTP identities. Passive receiver absence/incompleteness retains the owned attempt. [Session](session.md), [Playback coupling](playback-coupling.md), [Authentication](auth.md) and [Engine](engine.md) describe the other boundaries.

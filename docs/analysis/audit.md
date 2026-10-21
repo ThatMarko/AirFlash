@@ -1,5 +1,11 @@
 # Analysis source audits
 
+## Current-source boundary — 2026-10-21
+
+The all-author stable reconciliation now compares `439de626` with combined `6c1e2ef`; the source/evidence audit below remains pinned to its stated earlier commits. Current preferences are schema 4, with supported migration and unknown-field preservation; JSONL remains v1. The planned code-only review branch deliberately excludes documentation changes, so implementation equivalence requires source-path comparison rather than whole Git-tree equality; operational documentation remains on fork Main. Original A/C/F, scrolling, installer refresh and partial retention are already upstream. The remaining candidate and all seventeen report boundaries are mapped in [the current acceptance overlay](../issues/PR-READINESS-2026-10-21.md#eight-section-acceptance-overlay).
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 ## Later preparation supplement — 2026-10-13
 
 The pinned 2026-10-12 source map below remains an audit of `0623787`. Current code Main `892a458078930b7b25d973d773e0a93e356ef36b` adds E timeout/Stop regression signals, G Pair/save regression propagation, strictly lower installer fixture selection before side effects, and fork-only exact-source/optional-UI package validation. Ordinary application behavior described by the map is unchanged; test/tool/workflow tree equality with `4ae1db4` no longer applies. [Current acceptance](../issues/CONTINUATION-ACCEPTANCE.md) and [standalone drafts/branches](../issues/upstream-drafts/README.md) bind source/results. Main CI/package now pass 669 Core, 138 Python and 69 native tests (two ignored), six portable UI runs × 1,064, three observed 125% DPI runs × 40 and disposable MSI lifecycle. Each standalone group has separate results. No source review is relabeled runtime execution and no hardware/release claim is added.

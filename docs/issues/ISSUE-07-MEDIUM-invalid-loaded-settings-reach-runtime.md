@@ -1,5 +1,11 @@
 # [MEDIUM] Loaded settings are validated before catalog and playback consumption
 
+## Current-source boundary — 2026-10-21
+
+Original recovery and loaded validation are already upstream through PR #34. Stable `439de626` uses schema 4 with software groups, profiles and per-receiver rates. Combined `6c1e2ef` adds a null software-group-ID guard before string operations, returning a controlled invalid-input result through the existing original-byte recovery path.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 - **Status**: Implemented, pushed and integrated in fork `main` `8989b3609dd1294f4d1d6eb1502f345cc22bc382`.
 - **Group / feature**: C, `codex/fix-settings-recovery`, `5d72da3b77b4ac72f858966baef04b8a4ad8b1ad`.
 - **Stable comparison**: `cf420d97700463c56adc31408510e8336e99e51c` lacks this loaded-validation repair.

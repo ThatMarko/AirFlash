@@ -1,5 +1,11 @@
 # [MEDIUM] Pairing PIN formatting — resolved in fork main
 
+## Current-source boundary — 2026-10-21
+
+Stable `439de626` already accepts dashed PINs and supports password pairing. Combined `6c1e2ef` shares ASCII PIN normalization between enablement and final submission, preserves exact accepted password input, and closes or joins input on terminal events. It does not claim first support for dashed PINs; #24/#25 remain the canonical open report/PR.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 **Status:** Implemented and integrated in own-fork main `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, reviewed 2026-10-12. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`; this implementation is not yet integrated there. Severity is the original triage priority, not an unqualified current hardware failure.
 
 **Group:** E — Authentication inputs. **Feature head:** `0ebc59bd99e5ca9d1c7219a7b57bc9bb2b237c5a`. [Plan](IMPLEMENTATION_PLAN.md#issue-08), [group acceptance](GROUP-E-ACCEPTANCE.md), [authentication map](../analysis/auth.md).

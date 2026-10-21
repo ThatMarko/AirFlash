@@ -1,5 +1,11 @@
 # Equalizer
 
+## Current-source boundary — 2026-10-21
+
+Original native mailbox outcomes and retained preparation already reached stable `439de626` through PR #27/maintainer #33. Combined `6c1e2ef` preserves that contract and counts H padding before EQ in the shared pull, excluding captured/scheduled silence. No new DSP-completion claim or EQ algorithm change is part of the remaining F query-consumer work. Current settings are schema 4; JSONL stays v1.
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 Source reviewed on 2026-10-12 at own-fork `main` `06237873dcb6394eb35e97a017c536843bd7743d`, containing original stable `cf420d97700463c56adc31408510e8336e99e51c`. This page describes the integrated fork runtime; original upstream publication and historical test sources are separate.
 
 One stereo processor handles resampled capture after queue extraction/padding and before master gain, clipping and S16 big-endian conversion. Its shared PCM is then packetized/encrypted separately for each member. Capture direction does not change this downstream path. EQ edits do not change the transport restart signature. Group F makes replies describe retained preparation truthfully; Group H counts missing frames before DSP.

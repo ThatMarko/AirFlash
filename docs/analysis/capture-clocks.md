@@ -1,5 +1,11 @@
 # Capture and clocks
 
+## Current-source boundary — 2026-10-21
+
+Current stable `439de626` supports application capture/standby as well as endpoint loopback/recording. Combined `6c1e2ef` adds optional padded output-rate frames and wholly padded pulls before EQ, once per shared pull, while excluding captured and scheduled fade/recovery silence. Attempt resets and pre-fault snapshots remain distinct. Current native execution provenance is unchanged-tree evidence from `6eabb186`, not a fresh native run at `6c1e2ef`.
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 Source reviewed on 2026-10-12 at own-fork `main` `06237873dcb6394eb35e97a017c536843bd7743d`, containing original stable `cf420d97700463c56adc31408510e8336e99e51c`. This page describes that integrated fork source, not an unmerged feature checkout or original upstream runtime.
 
 Current native capture supports both playback loopback and recording inputs, followed by one shared resampler, output queue and DSP path. Group H's added padding counters are integrated into fork main. They measure missing local output-rate frame slots, never network loss or sound reaching a receiver.

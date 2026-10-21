@@ -1,5 +1,11 @@
 # Audio engine and the HomePod connection
 
+## Current-source boundary — 2026-10-21
+
+Current original stable is `439de626`. Its native terminal IPC/EQ results, application capture/standby and password support remain in combined `6c1e2ef`; remaining native changes preserve lookup errors and count local capture padding. The command process and worker retain distinct lifetimes. The current native tree matches previously qualified `6eabb186`; later desktop qualification is not a new native execution or real-receiver reliability result.
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 Source reviewed on 2026-10-12 at own-fork `main` `06237873dcb6394eb35e97a017c536843bd7743d`, containing original stable `cf420d97700463c56adc31408510e8336e99e51c`. This is the integrated fork runtime map. Groups E/F/H change authentication lookup, control results and capture accounting; original stable adds recording capture. The engine is no longer byte-identical to the original `41190e0` audit.
 
 `airflash-engine` is a Windows console child. Stdout is JSONL v1; WPF owns process/session lifetime. One stored Running/worker owns playback/probe or persistent Pair at a time. Worker success/error leaves the command loop alive. Native expected errors are events, not a defined nonzero-exit taxonomy. See [Credentials and IPC](credentials-and-ipc.md).

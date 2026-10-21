@@ -1,5 +1,11 @@
 # Excluded upstream development snapshot
 
+## Current-source boundary — 2026-10-21
+
+The excluded development snapshot `67435a4` remains excluded from current combined `6c1e2ef`, whose original stable base is `439de626`. Newer stable software stereo, application capture/standby, schema-4 settings, password pairing and language catalogs came from reviewed stable history. Their presence does not import the speculative development transport/clock behavior described below.
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 ## Current fork Main — 2026-10-12
 
 These notes describe **excluded development** `67435a4e0df6a40e5e709e2b75dc9b24a457dda6`, not current runtime behavior. Reviewed fork Main is `06237873dcb6394eb35e97a017c536843bd7743d`, with runtime unchanged from `8989b36`/qualified `4ae1db4`; original stable is `cf420d97700463c56adc31408510e8336e99e51c`. Git ancestry verifies the development commit is not merged into Main. Implemented A–H, recording capture, scrolling and installer changes arrived through original stable and separate reviewed feature histories; they do not import the development transport/clock negotiation.

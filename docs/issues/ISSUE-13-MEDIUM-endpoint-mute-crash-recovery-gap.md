@@ -1,5 +1,11 @@
 # [MEDIUM] Owned local mute recovery — implemented in fork main
 
+## Current-source boundary — 2026-10-21
+
+Stable `439de626` already restores the in-memory prior mute bit. Combined `6c1e2ef` adds separate durable intent, exclusive lease/GUID/generation ownership, conservative recovery review/admission and mismatched-endpoint controls. Recording/application-capture exclusions remain; fake interruption tests do not prove physical reboot or power-loss durability.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 **Status:** Implemented and integrated in own-fork main `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, reviewed 2026-10-12. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`; this implementation is not yet integrated there. Severity is the original triage priority, not an unqualified current hardware failure.
 
 **Group:** G — Owned mute recovery. **Feature head:** `96b9120116555f496d50ffc270ba54666b303534`. [Plan](IMPLEMENTATION_PLAN.md#issue-13), [acceptance](GROUP-G-ACCEPTANCE.md), [control/mute map](../analysis/control-and-mute.md), [recovery contract](../MUTE-RECOVERY.md).

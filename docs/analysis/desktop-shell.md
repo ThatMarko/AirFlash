@@ -1,5 +1,11 @@
 # Desktop shell, startup and Windows integration
 
+## Current-source boundary — 2026-10-21
+
+Combined `6c1e2ef` builds on stable `439de626`, retaining software groups, application capture, password pairing and language catalogs. Shell shutdown invalidates admission before its first await. Verification rejects orphan/conflicting routes, including tray mixed with focused UI modes, before WPF. Actual modal terminal handling and measured General/Monitor page-end access are qualified; later full GUI passes do not explain earlier raster failures.
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 ## Desktop continuation — 2026-10-20
 
 Fork `5d43b04` isolates and rejects orphan/conflicting UI verification arguments before restart coordination and WPF startup. Program, App and the harness share tokenized option selection; values cannot dispatch real audio/discovery checks. The [desktop continuation](../issues/CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) records exact launch controls, actual modal terminal closure, restored Connecting/Stop presentation and remaining raster qualification limits.

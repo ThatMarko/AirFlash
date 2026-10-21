@@ -1,5 +1,11 @@
 # [LOW] Monitor diagnostics-copy access — resolved in fork main
 
+## Current-source boundary — 2026-10-21
+
+Stable `439de626` already has the diagnostics serializer and command. Combined `6c1e2ef` exposes that same action through localized accessible Monitor controls, preserving its error surface and isolated dispatcher fixtures. It adds no upload or separate logging system.
+
+[Current source, acceptance and executed limits](PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 **Status:** Implemented and integrated in own-fork main `8989b3609dd1294f4d1d6eb1502f345cc22bc382`, reviewed 2026-10-12. Original stable base is `cf420d97700463c56adc31408510e8336e99e51c`; this implementation is not yet integrated there. Severity is the original triage priority.
 
 **Group:** H — Diagnostics/observability. **Feature head:** `6855dfe27b4283a58ede7c37474f3e2aa3c31cf7`. [Plan](IMPLEMENTATION_PLAN.md#issue-15), [acceptance](GROUP-H-ACCEPTANCE.md), [settings map](../analysis/settings.md), [failure snapshots](../analysis/failures.md).

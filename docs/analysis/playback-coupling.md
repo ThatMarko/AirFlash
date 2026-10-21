@@ -1,5 +1,11 @@
 # Playback coupling
 
+## Current-source boundary — 2026-10-21
+
+Passive transport retention is already upstream through PR #19 on stable `439de626`. Combined `6c1e2ef` retains Connecting/Pairing/Streaming/Standby ownership and Stop presentation while adding atomic admission and guarded delayed work. Ordinary canonical settings saves cannot reset a newer Pair or redirect owned software members; the frozen context is projected only after serialized owner/intent checks. Selected-adapter browsing still pauses without fallback and does not bind playback egress.
+
+[Current source, acceptance and executed limits](../issues/PR-READINESS-2026-10-21.md) supersede older current/open/schema labels below. The remaining source links and test counts retain their recorded historical baselines; this documentation refresh claims no new test execution or upstream publication.
+
 ## Discovery preparation supplement — 2026-10-13
 
 Current fork code `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` integrates standalone D `b8ee79511e2fa41ee02651dad83d50e008f9f680`, based on original `cf420d97700463c56adc31408510e8336e99e51c`. The pinned062 description-subset notification limitation below is superseded by full record/TXT publication. gpn affects group name; igl affects leader ordering/TransportKey and applicable owned retarget/restart; cn affects subsequent start codec payloads, not an automatic codec-only engine restart; pk affects compatible endpoint merging. This adds no authority to stale callbacks: current token/epoch/deadline and existing app/controller guards still apply. Offline/partial transport retention and manual routing policy are unchanged.
