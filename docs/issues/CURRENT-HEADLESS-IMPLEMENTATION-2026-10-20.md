@@ -1,5 +1,11 @@
 # Current stable implementation and verification — 2026-10-20
 
+## Later publication reconciliation — 2026-10-20 evening
+
+[Current source/branch/issue reconciliation](PUBLICATION-RECONCILIATION-2026-10-20.md) supersedes the earlier publication observations below. Stable remains `439de626` and qualified integration `0533cbf`. Issue #22 closed at 21:39 CDT without a source change. The current authored open issues are #6/#7/#14/#24; all-repository open issues additionally include #16/#28/#30. PR #25 alone remains open/conflicting at old `234167b`; no upstream action occurred in this audit.
+
+The combined source contains the later modal/route and hidden-active-row fixtures. Standalone B still carries a stale broad hidden-row assertion; standalone E lacks the new modal harness/routes. Their narrower recorded results remain valid but do not establish complete standalone publication readiness. Proposed consolidated drafts, all-author/commit coverage and full branch disposition are linked in the reconciliation. The report03/11 labels in the historical table below are corrected to retention/manual routing; no execution claim is promoted. All earlier raw receipts and test boundaries remain preserved.
+
 ## Desktop continuation — 2026-10-20
 
 The user subsequently authorized desktop testing, continued bug hunting and own-fork synchronization. That authorization supersedes the earlier no-desktop gate; the headless section below retains its historical source and results. Tests continue to use synthetic services, temporary stores and isolated output. No real receiver, personal credential/configuration, capture or endpoint mutation, local installer replacement, upstream publication/merge or release was authorized or performed.
@@ -114,9 +120,9 @@ Final Windows receipts and all source reviews are complete. Fork Main is synchro
 | 05 | Selected-host precedence, resolver working directory, runtime-only preferred host, forwarding and side-effect-free rejection: Python fixtures and actual selected .402 managed commands. Actual release/installer execution remains excluded. |
 | 01 | Current upstream's atomic embedded generation guards retained; new actual-owner captures, delayed/replaced/metrics/retry and serialized guarded mutation assertions pass in Core. Dispatcher delayed-save fixtures compiled only. |
 | 02 | Dedicated automatic admission rechecks owner, inactive Idle/Error, intent and an arrival revision before/after cleanup; queued Stop and eligibility changes have controlled headless regressions. App persistence/command fixtures remain unexecuted. |
-| 03 | Exact manual endpoint/identity/options and ambiguous native ownership are covered by selection assertions; configured software groups cannot implicitly claim a physical click. Payload fixture compiled only. |
+| 11 | Exact manual endpoint/identity/options and ambiguous native ownership are covered by selection assertions; configured software groups cannot implicitly claim a physical click. Payload fixture compiled only. |
 | 10 | Attempted candidates filtered before ranking; override/alias/fallback and permitted resets retained. Admitted failures count; rejected starts do not consume identity. Stop suppression source and Core guards reviewed; actual dispatcher cases deferred. |
-| 11 | Current passive transport-retention semantics preserved, including complete future retry snapshots. Core ownership/transport/profile controls pass; empty/partial/repeated/reappearing catalog across four active states and both original mute bits is compiled dispatcher coverage only. |
+| 03 | Current passive transport-retention semantics preserved, including complete future retry snapshots. Core ownership/transport/profile controls pass; empty/partial/repeated/reappearing catalog across four active states and both original mute bits is compiled dispatcher coverage only. |
 | 06, 07 | Integrated recovery/migration/unknown-field contracts retained; new software-group shape validation and exact-byte repeated-Load/save/backup regressions pass. Actual startup/dispatcher behavior deferred. |
 | 04 | Finite retry/refresh, obsolete tokens/epochs, bounded ownership, explicit cancellation/publication schedules and synthetic helper exit settlement pass. No real DNS or arbitrary native-return quiescence claim. |
 | 08 | Upstream ASCII dashed-PIN behavior retained and consolidated into one enablement/submission helper. Its 51 headless input cases and 15 actual fake PIN payload/reject/cancellation cases pass alongside nine raw-password/capability/cancellation controls; native strict-PIN tests remain. Actual typing/paste/modal interaction remains unqualified. |

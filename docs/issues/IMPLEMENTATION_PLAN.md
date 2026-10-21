@@ -1,5 +1,11 @@
 # AirFlash completed implementation and publication plan
 
+## Publication organization — 2026-10-20 evening
+
+[Current reconciliation](PUBLICATION-RECONCILIATION-2026-10-20.md) supersedes earlier queue and remaining-scope claims: all stable contributors/merge resolutions, thirty-nine local branches, seventeen reports and fifteen accessible PRs are accounted for. The proposed plan is one umbrella tracking issue and one consolidated **draft** from qualified public integration `0533cbf`, with subsystem review boundaries and a smaller-split fallback. This is a reviewable alternative to the original separate-group publication plan, not permission to publish it. Existing canonical issues and PR history stay intact; #6/#7 are not proven resolved.
+
+Original A/C/F and installer/scrolling already landed; their follow-ups remain distinct. Before choosing standalone B/E, repair the documented broad-smoke/modal-fixture packaging gaps and qualify the resulting exact heads. The combined candidate already includes those fixtures. Current issue #22 is closed, #25 alone remains open/conflicting, and local raster failure remains explicit. [Prepared prose and next steps](PUBLICATION-RECONCILIATION-2026-10-20.md#decision-and-next-action) require separate upstream publication authorization; no reimplementation of completed E–H is scheduled.
+
 ## Current stable refresh — 2026-10-20
 
 [Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. The subsequent [desktop continuation](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) records newly authorized executions, Connecting, modal-terminal and password-contract repairs, actual modal/dispatcher results and the remaining full-raster limitation. Earlier headless-only claims retain their historical source.

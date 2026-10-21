@@ -8,7 +8,7 @@ Pairing retains exactly one pending event reader while the input prompt is open.
 
 Password cancellation follows the actual engine prompt, preserving valid nonempty whitespace passwords instead of silently cancelling them. Dialog enablement and final submission share the native contract: strict UTF-8, 1–256 bytes, no CR/LF/NUL, without trimming. The existing 128-unit editing bound remains. This rejects multibyte values such as 86 CJK characters that previously enabled Pair but exceeded native's byte limit. PIN whitespace still cancels.
 
-Both paths also compare the plaintext getter length with a secure copy, disposed after comparison. WPF can return only the prefix before NUL while retaining the complete secret internally; a mismatch is rejected instead of silently authenticating with the shortened value. Modal regressions assert both lengths and reject disabled and forced submission without sending credentials.
+Both paths also compare the plaintext getter length with a secure copy, disposed after comparison. WPF can return only the prefix before NUL while retaining the complete secret internally; a mismatch is rejected instead of silently authenticating with the shortened value. The separately qualified integrated modal regressions assert both lengths and reject disabled and forced submission without sending credentials. This standalone head contains the production guard and pure regressions, but does not yet carry the new actual-modal fixtures or focused pairing/password routes. Port and qualify those fixtures before submitting this standalone candidate.
 
 Validation:
 

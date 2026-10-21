@@ -1,5 +1,11 @@
 # AirFlash implementation backlog
 
+## Current publication reconciliation — 2026-10-20 evening
+
+[The current reconciliation](PUBLICATION-RECONCILIATION-2026-10-20.md) checks all branches, all seventeen reports, all authors' stable commits and all accessible PRs. It confirms four open issues authored by ThatMarko (#6/#7/#14/#24), seven open repository issues, and only PR #25 open/conflicting at its old head. Issue #22 closed at 21:39 CDT without changing Main. Original A, scrolling, installer, C and F are integrated; the current A/C/F branches contain new follow-ups. Earlier observations below retain their own timestamps.
+
+Proposed next flow: preserve existing issue/PR history, review one umbrella tracking issue and one consolidated **draft** PR from qualified `0533cbf`, with separate subsystem acceptance and optional smaller review boundaries. [Local candidates and full inventory](PUBLICATION-RECONCILIATION-2026-10-20.md#decision-and-next-action) are prepared; nothing is submitted. Standalone B/E still have specific fixture-packaging gaps despite the qualified combined harness. Local full raster remains failed. No new runtime test result is claimed by this audit.
+
 ## Current stable refresh — 2026-10-20
 
 [Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. The subsequent [desktop continuation](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) records newly authorized executions, Connecting, modal-terminal and password-contract repairs, actual modal/dispatcher results and the remaining full-raster limitation. Earlier headless-only claims retain their historical source.

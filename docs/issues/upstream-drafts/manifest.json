@@ -1,4 +1,26 @@
 {
+  "publication_reconciliation_2026_10_20": {
+    "report": "../PUBLICATION-RECONCILIATION-2026-10-20.md",
+    "observation_chicago": "2026-10-20T22:10:55-05:00",
+    "verified_upstream_main": "439de6260e01efbfca528a12cf4d4c1010b3583e",
+    "qualified_integration": "0533cbff37cb7e0a2d0b80cee0d1aed48737ed15",
+    "issue_22_state": "closed",
+    "issue_22_closed_at": "2026-10-21T02:39:01Z",
+    "authored_open_issues": [6, 7, 14, 24],
+    "repository_open_issues": [6, 7, 14, 16, 24, 28, 30],
+    "only_open_pull_request": 25,
+    "pull_25_state": "conflicting at historical 234167b; refreshed E is a separate branch",
+    "consolidated_issue_draft": "reliability-current-issue.md",
+    "consolidated_pr_draft": "reliability-current-pr.md",
+    "publication_state": "local-proposal-unsent; consolidated flow proposed, not selected publication authorization",
+    "upstream_actions_authorized": false,
+    "standalone_readiness_gaps": {
+      "B_5749b74": "Stale broad hidden-active-row smoke assertion; focused 3x115 results do not execute it",
+      "E_ed034756": "Production guards and Core tests present; new actual modal fixtures and focused pairing/password routes absent"
+    },
+    "combined_fixture_boundary": "Qualified integration 0533 includes the corrected broad assertion, actual modal fixtures and strict routes; its results are not reassigned to standalone branches",
+    "historical_record_policy": "Existing top-level qualification/observation fields and records retain their exact historical bases, bodies, hashes and executions; no earlier receipt is overwritten"
+  },
   "original_stable": "cf420d97700463c56adc31408510e8336e99e51c",
   "current_fork_qualification_2026_10_20": {
     "original_stable": "439de6260e01efbfca528a12cf4d4c1010b3583e",

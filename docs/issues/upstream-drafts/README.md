@@ -1,5 +1,11 @@
 # Upstream issue drafts and standalone branches
 
+## Current reconciliation — 2026-10-20 evening
+
+[Current publication inventory and recommendation](../PUBLICATION-RECONCILIATION-2026-10-20.md) supersedes older current-state claims below. Issue #22 is now closed without a new Main commit; only PR #25 is open/conflicting. Preserve #14/#24 as canonical and #6/#7 as unresolved incidents. All earlier bodies/hashes/test records retain their historical source.
+
+New **unsent consolidated candidates**: [umbrella tracking issue](reliability-current-issue.md) and [draft PR](reliability-current-pr.md), bound to already qualified integration `0533cbf` on original `439de626`. No closing keywords or upstream edits are part of this proposal. Standalone B's stale broad-smoke assertion and E's missing modal fixture/routes need correction/qualification if publishing those branches separately; integration already contains the later fixtures. The additive manifest overlay records this current decision boundary while preserving frozen records. Publication or replacement/closure of existing items still requires explicit authorization.
+
 ## Current preparation — 2026-10-20 desktop continuation
 
 The [current implementation and desktop evidence](../CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) supersedes earlier remaining-work and branch claims below. Public integration is `0533cbf` on original `439de626`; B/E have refreshed standalone branches (`5749b74` / `ed03475`), while original PR #25 remains conflicting at its historical head. Four earlier current-base defects are repaired; new Connecting-publication, open-prompt terminal-event and password-contract repairs have controlled regressions. Local focused desktop checks pass and local full raster remains failed; hosted exact-source desktop qualification is recorded centrally. These are fork improvements, not new upstream publications. Installer's clean local branch now fast-forwards to origin `3e743666`; its old head is retained in ancestry. Revalidate selected branch/draft/actual checks before any separately authorized publication; do not reuse historical body hashes or test counts as current evidence.

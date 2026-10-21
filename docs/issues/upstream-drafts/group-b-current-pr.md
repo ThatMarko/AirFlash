@@ -12,6 +12,7 @@ Validation:
 - Three isolated dispatcher runs passed 115 assertions each, observing formatting/UI cultures en-US/en-US, zh-TW/zh-CN and en-US/de-DE. Invalid culture produces a controlled isolated failure.
 - Fixtures cover gated saves/controller cleanup, same-id replacement, queued eligibility changes, failed saves, candidate fallback/aliases, manual routing, empty/partial/reappearing discovery, both prior mute bits and shutdown ordering. Pair Stop availability fixtures hold before a PIN prompt opens.
 - Full local raster, physical DPI/multimonitor and real receiver/audio behavior remain unqualified; synthetic services and temporary stores are used throughout these checks.
+- Standalone readiness gap: the older broad smoke assertion still expects hiding the owned active receiver to remove its row, conflicting with the retained Stop contract. The focused runs above do not execute that assertion. Correct it and qualify the resulting exact head before submission; the separately qualified integration already carries the corrected broad fixture.
 
 Verified source base: `439de6260e01efbfca528a12cf4d4c1010b3583e`. Proposed head: `5749b74a2cf10c613f47f9a9ba4d9d7fb663f650`.
 
