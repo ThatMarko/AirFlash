@@ -174,7 +174,7 @@ jobs:
                 finally { $process.Dispose() }
               }
               $result = Get-Content $report -Raw | ConvertFrom-Json
-              if ($exitCode -ne 0 -or $result.ok -ne $true -or $result.culture -cne $culture -or $result.ui_culture -cne $language) { throw "Portable UI failed: $language/$culture" }
+              if ($exitCode -ne 0 -or $result.ok -ne $true -or $result.mode -cne 'full' -or $result.checks -isnot [Array] -or @($result.checks).Count -eq 0 -or $result.culture -cne $culture -or $result.ui_culture -cne $language) { throw "Portable UI failed: $language/$culture" }
             }
             $dpiReport = [IO.Path]::GetFullPath("artifacts/fork-integration/ui/dpi-$language/report.json")
             New-Item -ItemType Directory -Path (Split-Path $dpiReport) -Force | Out-Null
@@ -189,9 +189,13 @@ jobs:
               finally { $process.Dispose() }
             }
             $result = Get-Content $dpiReport -Raw | ConvertFrom-Json
-            if ($exitCode -ne 0 -or $result.ok -ne $true -or $result.culture -cne 'zh-CN' -or $result.ui_culture -cne $language) { throw "Portable DPI check failed: $language" }
+            if ($exitCode -ne 0 -or $result.ok -ne $true -or $result.mode -cne '--ui-diagnostics-smoke' -or $result.checks -isnot [Array] -or @($result.checks).Count -eq 0 -or $result.culture -cne 'zh-CN' -or $result.ui_culture -cne $language) { throw "Portable DPI check failed: $language" }
             $layout = Get-Content $layoutPath -Raw | ConvertFrom-Json
             if (@($layout.normal).Count -ne 2 -or @($layout.minimum).Count -ne 2) { throw 'Both portable widths must contain both measured counters.' }
+            foreach ($width in @('normal','minimum')) {
+              $names = @($layout.$width | ForEach-Object { $_.Name } | Sort-Object)
+              if (($names -join '|') -cne 'MonitorFullyPaddedPacketsValue|MonitorPaddedFramesValue') { throw 'Each portable width must identify both distinct measured counters.' }
+            }
             foreach ($card in @($layout.normal) + @($layout.minimum)) {
               if ($card.DpiX -ne 1.25 -or $card.DpiY -ne 1.25 -or $card.Fits -ne $true -or $card.Visible -ne $true -or $card.AllGlyphsInsideValue -ne $true -or $card.RenderedCharacters -ne 20) { throw 'Actual portable fractional-DPI card qualification is missing.' }
             }

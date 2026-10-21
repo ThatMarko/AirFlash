@@ -28,7 +28,9 @@ jobs:
         run: |
           if ($env:GITHUB_REPOSITORY -cne 'ThatMarko/AirFlash') { throw 'This disposable desktop qualification is restricted to the own fork.' }
           if ($env:REQUESTED_SOURCE -cnotmatch '\A[0-9a-fA-F]{40}\z') { throw 'A full 40-character commit SHA is required.' }
-          "sha=$($env:REQUESTED_SOURCE.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          $env:REQUESTED_SOURCE = $env:REQUESTED_SOURCE.ToLowerInvariant()
+          "REQUESTED_SOURCE=$env:REQUESTED_SOURCE" >> $env:GITHUB_ENV
+          "sha=$env:REQUESTED_SOURCE" >> $env:GITHUB_OUTPUT
           "DOTNET_INSTALL_DIR=$(Join-Path $env:RUNNER_TEMP 'airflash-desktop-dotnet')" >> $env:GITHUB_ENV
           "DOTNET_CLI_HOME=$(Join-Path $env:RUNNER_TEMP 'airflash-desktop-dotnet-home')" >> $env:GITHUB_ENV
           "NUGET_PACKAGES=$(Join-Path $env:RUNNER_TEMP 'airflash-desktop-nuget')" >> $env:GITHUB_ENV
@@ -43,7 +45,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $head = (git rev-parse HEAD).Trim()
-          if ($LASTEXITCODE -ne 0 -or $head -cne $env:REQUESTED_SOURCE.ToLowerInvariant()) { throw 'Checkout differs from the requested source commit.' }
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:REQUESTED_SOURCE) { throw 'Checkout differs from the requested source commit.' }
           $tree = (git rev-parse 'HEAD^{tree}').Trim()
           if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the source tree.' }
           $dirty = @(git status --porcelain --untracked-files=no)
@@ -159,7 +161,8 @@ jobs:
               if ($observed.culture -cne $Culture) { $problems.Add("Unexpected regional culture: '$($observed.culture)', expected '$Culture'.") }
               $expectedUi = @{ en = 'en-US'; 'zh-CN' = 'zh-CN'; 'zh-TW' = 'zh-TW'; de = 'de-DE' }[$Language]
               if ($observed.ui_culture -cne $expectedUi) { $problems.Add("Unexpected UI culture: '$($observed.ui_culture)', expected '$expectedUi'.") }
-              if (@($observed.checks).Count -eq 0) { $problems.Add('The report contains no executed assertions.') }
+              if ($observed.checks -isnot [Array] -or @($observed.checks).Count -eq 0) { $problems.Add('The report contains no executed assertions.') }
+              if ($Clipboard -and $observed.checks -cnotcontains 'real PIN paste applies the single-line and sixteen-character editing bounds') { $problems.Add('Clipboard route omitted actual PIN paste assertions.') }
             } catch { $problems.Add($_.Exception.ToString()) }
             finally {
               if ($started) {

@@ -30,7 +30,9 @@ jobs:
         id: requested
         run: |
           if ($env:REQUESTED_SOURCE -cnotmatch '\A[0-9a-fA-F]{40}\z') { throw 'A full 40-character commit SHA is required.' }
-          "sha=$($env:REQUESTED_SOURCE.ToLowerInvariant())" >> $env:GITHUB_OUTPUT
+          $env:REQUESTED_SOURCE = $env:REQUESTED_SOURCE.ToLowerInvariant()
+          "REQUESTED_SOURCE=$env:REQUESTED_SOURCE" >> $env:GITHUB_ENV
+          "sha=$env:REQUESTED_SOURCE" >> $env:GITHUB_OUTPUT
           "DOTNET_INSTALL_DIR=$(Join-Path $env:RUNNER_TEMP 'airflash-headless-dotnet')" >> $env:GITHUB_ENV
           "HEADLESS_OUTPUT=$(Join-Path $env:GITHUB_WORKSPACE 'artifacts/headless-validation')" >> $env:GITHUB_ENV
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -43,7 +45,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $head = (git rev-parse HEAD).Trim()
-          if ($LASTEXITCODE -ne 0 -or $head -cne $env:REQUESTED_SOURCE.ToLowerInvariant()) { throw 'Checkout differs from the requested commit.' }
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:REQUESTED_SOURCE) { throw 'Checkout differs from the requested commit.' }
           $tree = (git rev-parse 'HEAD^{tree}').Trim()
           if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the source tree.' }
           git merge-base --is-ancestor $env:FORMATTING_BASE HEAD
@@ -220,7 +222,7 @@ jobs:
           $status = @(git status --porcelain --untracked-files=no)
           [ordered]@{ source_sha = $head; tracked_changes = $status } | ConvertTo-Json -Depth 3 |
             Set-Content (Join-Path $env:HEADLESS_OUTPUT 'final-source.json') -Encoding utf8
-          if ($LASTEXITCODE -ne 0 -or $head -cne $env:REQUESTED_SOURCE.ToLowerInvariant() -or $status.Count) { throw 'Qualification changed the tracked source.' }
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:REQUESTED_SOURCE -or $status.Count) { throw 'Qualification changed the tracked source.' }
       - name: Preserve exact-source logs and test evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

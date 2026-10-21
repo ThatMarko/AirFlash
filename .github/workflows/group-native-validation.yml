@@ -65,15 +65,25 @@ jobs:
         shell: pwsh
         timeout-minutes: 3
         run: |
-          dotnet desktop/AirFlash.App/bin/Release/net10.0-windows/win-x64/AirFlash.dll --ui-smoke --ui-pairing-smoke --ui-pairing-clipboard --ui-language en --ui-culture en-US --output artifacts/group-native/pin-ui/report.json
-          exit $LASTEXITCODE
+          $report = [IO.Path]::GetFullPath('artifacts/group-native/pin-ui/report.json')
+          if (Test-Path -LiteralPath $report) { Remove-Item -LiteralPath $report -Force }
+          dotnet desktop/AirFlash.App/bin/Release/net10.0-windows/win-x64/AirFlash.dll --ui-smoke --ui-pairing-smoke --ui-pairing-clipboard --ui-language en --ui-culture en-US --output $report
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $result = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($result.ok -ne $true -or $result.mode -cne '--ui-pairing-smoke' -or $result.culture -cne 'en-US' -or $result.ui_culture -cne 'en-US' -or $result.checks -isnot [Array] -or @($result.checks).Count -eq 0 -or $result.checks -cnotcontains 'real PIN paste applies the single-line and sixteen-character editing bounds') { throw 'PIN clipboard report did not prove the requested isolated route and actual paste. Historical sources without that proof cannot qualify this option.' }
       - name: Receiver-free DNS helper process qualification
         if: inputs.dns_helper
         shell: pwsh
         timeout-minutes: 2
         run: |
-          dotnet desktop/AirFlash.App/bin/Release/net10.0-windows/win-x64/AirFlash.dll --dns-resolve-helper-check --output artifacts/group-native/dns-helper/report.json
-          exit $LASTEXITCODE
+          $program = Join-Path $env:GITHUB_WORKSPACE 'desktop/AirFlash.App/Program.cs'
+          if (-not (Test-Path -LiteralPath $program -PathType Leaf) -or -not (Select-String -LiteralPath $program -SimpleMatch '"--dns-resolve-helper-check"' -Quiet)) { throw 'Historical source lacks the isolated DNS helper dispatch; refusing ordinary application startup.' }
+          $report = [IO.Path]::GetFullPath('artifacts/group-native/dns-helper/report.json')
+          if (Test-Path -LiteralPath $report) { Remove-Item -LiteralPath $report -Force }
+          dotnet desktop/AirFlash.App/bin/Release/net10.0-windows/win-x64/AirFlash.dll --dns-resolve-helper-check --output $report
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $result = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if ($result.ok -ne $true -or $result.synthetic -ne $true -or $result.completedHelpers -ne 6 -or $result.parentAdapterSettled -ne $true -or $result.parentNativeOwners -ne 0 -or @($result.startupAndReplyMilliseconds).Count -ne 3 -or @($result.startupAndReplyMilliseconds | Where-Object { $_ -lt 0 }).Count -gt 0 -or $result.watchdogMilliseconds -le 0) { throw 'DNS helper report did not prove all synthetic child exits and settled ownership.' }
       - name: Preserve exact-source results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
