@@ -2,8 +2,12 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Channels;
 using System.Windows;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
+using System.Windows.Controls;
 using System.Windows.Threading;
 using AirFlash.App.Services;
+using AirFlash.App.Ui;
 using AirFlash.App.ViewModels;
 using AirFlash.Core;
 namespace AirFlash.App.Verification;
@@ -13,10 +17,19 @@ namespace AirFlash.App.Verification;
 internal static class UiSessionLifecycle
 {
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(6);
+    private static Action<PinDialog>? _identityPromptLoaded;
+    static UiSessionLifecycle()
+    {
+        EventManager.RegisterClassHandler(typeof(PinDialog), FrameworkElement.LoadedEvent,
+            new RoutedEventHandler((sender, _) => _identityPromptLoaded?.Invoke((PinDialog)sender)));
+    }
     public static async Task RunAsync(List<string> checks, string directory)
     {
         _ = directory;
         await IdentityOwnershipAsync(checks);
+        await IdentitySettingsContinuationAsync(checks, false);
+        await IdentitySettingsContinuationAsync(checks, true);
+        await LatencyHintUsesPanelDraftAsync(checks);
         await AutomaticOwnershipAsync(checks);
         await AutomaticEligibilityAsync(checks);
         await AutomaticSaveFailureAsync(checks);
@@ -124,6 +137,163 @@ internal static class UiSessionLifecycle
                 pin.Release.TrySetResult(null); await fixture.App.StopAsync();
             }
         }
+    }
+    private static async Task IdentitySettingsContinuationAsync(List<string> checks, bool flushWhilePairing)
+    {
+        const string address = "192.0.2.10";
+        const int port = 7009;
+        var legacy = Pod(ReceiverIdentity.Endpoint(address, port), address, port);
+        var canonical = Pod("paired-canonical", address, port) with { DeviceId = "paired-canonical" };
+        var settings = Settings();
+        settings.Options(legacy.Id).LatencyMode = "custom";
+        settings.Options(legacy.Id).CustomBufferMs = 333;
+        settings.Options(legacy.Id).SampleRate = "48000";
+        settings.Options(legacy.Id).Codec = "pcm";
+        await using var fixture = await Fixture.CreateAsync(settings, [legacy]);
+        await fixture.App.ToggleAsync(legacy); await StateAsync(fixture, PlaybackState.Streaming);
+        var pairing = new ScriptedConnection(false) { CompletePair = true };
+        var playback = new ScriptedConnection();
+        fixture.Engine.Enqueue(pairing); fixture.Engine.Enqueue(playback);
+        var owner = new Window { Width = 320, Height = 100, Title = "Synthetic identity pairing verification", ShowInTaskbar = false };
+        var promptShown = new TaskCompletionSource<PinDialog>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var promptClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PinDialog? prompt = null;
+        Gate? save = null;
+        Task reconcile = Task.CompletedTask;
+        try
+        {
+            owner.Show();
+            _identityPromptLoaded = dialog =>
+            {
+                if (!ReferenceEquals(dialog.Owner, owner)) return;
+                prompt = dialog; dialog.Closed += (_, _) => promptClosed.TrySetResult();
+                promptShown.TrySetResult(dialog);
+            };
+            save = fixture.Store.Hold();
+            reconcile = fixture.App.ApplyDiscoveryAsync([canonical]);
+            await save.Entered.Task.WaitAsync(Limit);
+            await fixture.App.PairAsync(legacy, (member, cancellation) => PinDialog.RequestAsync(owner, member, cancellation));
+            await pairing.PairSent.Task.WaitAsync(Limit);
+            prompt = await promptShown.Task.WaitAsync(Limit);
+            await StateAsync(fixture, PlaybackState.Pairing);
+            var pairedOwner = fixture.App.Session.Capture();
+            save.Release.TrySetResult(); await reconcile.WaitAsync(Limit); await DrainAsync();
+            var retained = fixture.App.Session.Capture();
+            Check(retained.Owner == pairedOwner.Owner && retained.Snapshot.State == PlaybackState.Pairing &&
+                retained.Snapshot.Receiver?.Id == legacy.Id && retained.Snapshot.Receiver.Address == address &&
+                retained.Snapshot.Receiver.Port == port && retained.Snapshot.TargetLatency == 333 &&
+                ReferenceEquals(retained.Snapshot.Diagnostics, pairedOwner.Snapshot.Diagnostics) &&
+                !pairing.Disposed && !pairing.Commands.Any(command => command.Name == "stop") &&
+                !playback.StartSent.Task.IsCompleted && prompt.IsVisible,
+                "endpoint identity save leaves the newer actual PIN dialog, owner, transport and options untouched", checks);
+            var saved = fixture.Store.Saved;
+            Check(!saved.Receivers.ContainsKey(legacy.Id) && saved.ReadOptions(canonical.Id) is
+                { LatencyMode: "custom", CustomBufferMs: 333, SampleRate: "48000", Codec: "pcm" } &&
+                !fixture.App.Settings.Receivers.ContainsKey(legacy.Id) &&
+                !fixture.App.Settings.ReceiverAliases.ContainsKey(legacy.Id),
+                "identity persistence moves endpoint options to the canonical key without persisting an endpoint alias", checks);
+            if (flushWhilePairing)
+            {
+                var pairOpens = fixture.Engine.OpenCount;
+                var pairStarts = fixture.Engine.Connections.Sum(connection => connection.Commands.Count(command => command.Name == "start"));
+                var pairStops = fixture.Engine.Connections.Sum(connection => connection.Commands.Count(command => command.Name == "stop"));
+                fixture.App.MasterVolume = 29;
+                await fixture.App.FlushVolumeAsync(); await DrainAsync();
+                var waiting = fixture.App.Session.Capture();
+                Check(waiting.Owner == pairedOwner.Owner && waiting.Snapshot.State == PlaybackState.Pairing &&
+                    waiting.Snapshot.Receiver is { Address: address, Port: port } && waiting.Snapshot.TargetLatency == 333 &&
+                    fixture.Engine.OpenCount == pairOpens &&
+                    fixture.Engine.Connections.Sum(connection => connection.Commands.Count(command => command.Name == "start")) == pairStarts &&
+                    fixture.Engine.Connections.Sum(connection => connection.Commands.Count(command => command.Name == "stop")) == pairStops &&
+                    !pairing.Disposed && !playback.StartSent.Task.IsCompleted && prompt.IsVisible &&
+                    !pairing.Commands.Any(command => command.Name == "pair_pin"),
+                    "a canonical volume flush while the actual PIN dialog is open preserves Pair ownership, transport and pending input", checks);
+                Check(fixture.Store.Saved.MasterVolume == 29 && !fixture.Store.Saved.Receivers.ContainsKey(legacy.Id) &&
+                    fixture.Store.Saved.ReadOptions(canonical.Id) is { LatencyMode: "custom", CustomBufferMs: 333, SampleRate: "48000", Codec: "pcm" },
+                    "Pairing-time gain persistence retains only canonical receiver options", checks);
+            }
+            var code = UiSmoke.Descendants(prompt).OfType<TextBox>().Single();
+            var submit = UiSmoke.Descendants(prompt).OfType<Button>().Single(button => button.IsDefault);
+            code.Text = "12-34";
+            Check(submit.IsEnabled, "the actual identity-continuation PIN control accepts a valid formatted PIN", checks);
+            ((IInvokeProvider)new ButtonAutomationPeer(submit).GetPattern(PatternInterface.Invoke)).Invoke();
+            await promptClosed.Task.WaitAsync(Limit);
+            await playback.StartSent.Task.WaitAsync(Limit); await StateAsync(fixture, PlaybackState.Streaming);
+            var start = playback.Commands.Single(command => command.Name == "start").Parameters;
+            var peer = start.GetProperty("peers")[0];
+            Check(pairing.Commands.Single(command => command.Name == "pair_pin").Parameters.Text("pin") == "1234" &&
+                start.GetProperty("peers").GetArrayLength() == 1 && peer.Text("host") == address && peer.Integer("port") == port &&
+                start.Integer("latency_ms") == 333 && start.Integer("sample_rate") == 48000 && peer.GetProperty("profile").Text("codec") == "pcm",
+                "the newer Pair completes with its exact synthetic endpoint and retained custom latency, rate and codec (Pairing flush " + flushWhilePairing + ")", checks);
+            Check(!fixture.App.CanEditGlobalLatency && fixture.App.GlobalLatencyHint.Length > 0,
+                "the global latency control recognizes the effective owned override after canonical identity persistence", checks);
+            if (flushWhilePairing)
+                Check(start.Number("gain") == .29, "playback after a Pairing-time flush uses the newly saved global gain", checks);
+            var opens = fixture.Engine.OpenCount;
+            var starts = fixture.Engine.Connections.Sum(connection => connection.Commands.Count(command => command.Name == "start"));
+            var stops = fixture.Engine.Connections.Sum(connection => connection.Commands.Count(command => command.Name == "stop"));
+            fixture.App.MasterVolume = 37;
+            await fixture.App.FlushVolumeAsync(); await DrainAsync();
+            var current = fixture.App.Session.Capture();
+            var currentStarts = fixture.Engine.Connections.Sum(connection => connection.Commands.Count(command => command.Name == "start"));
+            var currentStops = fixture.Engine.Connections.Sum(connection => connection.Commands.Count(command => command.Name == "stop"));
+            Check(fixture.Engine.OpenCount == opens && currentStarts == starts && currentStops == stops && !playback.Disposed &&
+                current.Snapshot.State == PlaybackState.Streaming && current.Snapshot.Receiver?.Address == address &&
+                current.Snapshot.Receiver.Port == port && current.Snapshot.TargetLatency == 333 && current.Snapshot.StreamRate == 48000,
+                "a volume-only flush after newer Pair preserves transport/profile without another engine start or stop: " +
+                $"opens={fixture.Engine.OpenCount}/{opens}; starts={currentStarts}/{starts}; stops={currentStops}/{stops}; " +
+                $"disposed={playback.Disposed}; state={current.Snapshot.State}; latency={current.Snapshot.TargetLatency}; rate={current.Snapshot.StreamRate}", checks);
+            Check(playback.Commands.Last(command => command.Name == "set_gain").Parameters.Number("gain") == .37 &&
+                fixture.Store.Saved.MasterVolume == 37 && !fixture.Store.Saved.Receivers.ContainsKey(legacy.Id) &&
+                fixture.Store.Saved.ReadOptions(canonical.Id) is { LatencyMode: "custom", CustomBufferMs: 333, SampleRate: "48000", Codec: "pcm" },
+                "the unrelated panel volume edit changes gain while canonical persisted receiver options stay intact", checks);
+            playback.Emit(new { @event = "capture_metrics", metrics = new { underrun_packets = 29 } });
+            await StateAsync(fixture, snapshot => snapshot.Metrics?.Underruns == 29);
+            Check(fixture.App.Snapshot.TargetLatency == 333 && fixture.App.Snapshot.StreamRate == 48000 &&
+                fixture.App.Snapshot.Receiver is { Address: address, Port: port } && fixture.App.StopCommand.CanExecute(null),
+                "later current publications retain effective receiver options and active Stop after canonical persistence", checks);
+            var baseline = fixture.App.Settings.Clone(); var draft = baseline.Clone();
+            draft.Receivers.Remove(canonical.Id);
+            var resetPlayback = new ScriptedConnection(); fixture.Engine.Enqueue(resetPlayback);
+            var applied = await fixture.App.ApplyAsync(baseline, draft);
+            await resetPlayback.StartSent.Task.WaitAsync(Limit); await StateAsync(fixture, PlaybackState.Streaming);
+            var resetStart = resetPlayback.Commands.Single(command => command.Name == "start").Parameters;
+            var resetPeer = resetStart.GetProperty("peers")[0];
+            Check(applied.AudioError is null && playback.Disposed && fixture.Engine.OpenCount == opens + 1 &&
+                resetPeer.Text("host") == address && resetPeer.Integer("port") == port &&
+                resetStart.Integer("latency_ms") == 200 && resetStart.Integer("sample_rate") == 44100 &&
+                resetPeer.GetProperty("profile").Text("codec") == "auto" &&
+                !fixture.Store.Saved.Receivers.ContainsKey(legacy.Id) && !fixture.Store.Saved.Receivers.ContainsKey(canonical.Id),
+                "explicitly removing canonical receiver overrides intentionally restarts the same transport with inherited options", checks);
+            Check(fixture.App.CanEditGlobalLatency && fixture.App.GlobalLatencyHint.Length == 0 && fixture.App.StopCommand.CanExecute(null),
+                "explicit override removal restores the global latency control and leaves ordinary Stop available", checks);
+        }
+        finally
+        {
+            save?.Release.TrySetResult(); _identityPromptLoaded = null;
+            try { if (prompt is { IsVisible: true }) prompt.Close(); }
+            finally
+            {
+                try { await reconcile.WaitAsync(Limit); }
+                finally
+                {
+                    try { await fixture.App.StopAsync().WaitAsync(Limit); }
+                    finally { owner.Close(); }
+                }
+            }
+        }
+    }
+    private static async Task LatencyHintUsesPanelDraftAsync(List<string> checks)
+    {
+        var receiver = Pod("latency-hint-control"); var settings = Settings();
+        settings.Options(receiver.Id).CustomBufferMs = 333;
+        await using var fixture = await Fixture.CreateAsync(settings, [receiver]);
+        await fixture.App.ToggleAsync(receiver); await StateAsync(fixture, PlaybackState.Streaming);
+        Check(fixture.App.CanEditGlobalLatency && fixture.App.GlobalLatencyHint.Length == 0,
+            "a receiver custom buffer alone does not hide the normal global latency control", checks);
+        fixture.App.LatencyMode = "custom";
+        Check(!fixture.App.CanEditGlobalLatency && fixture.App.GlobalLatencyHint.Length > 0 && fixture.App.Settings.LatencyMode == "custom",
+            "the effective receiver latency hint uses the current panel global mode before its pending flush", checks);
     }
     private static async Task AutomaticOwnershipAsync(List<string> checks)
     {

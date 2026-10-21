@@ -113,7 +113,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         ? L.Format("The audio engine could not start: {0}", _engine!.Error)
         : L.Get("Initializing audio engine…");
     public AsyncCommand RetryEngineCommand { get; }
-    public bool CanEditGlobalLatency => !_closing && !_resetting && !(_snapshot.State is PlaybackState.Connecting or PlaybackState.Streaming or PlaybackState.Standby && _snapshot.Receiver is { } receiver && _settings.UsesDeviceLatency(receiver));
+    public bool CanEditGlobalLatency => !_closing && !_resetting && !(_snapshot.State is PlaybackState.Connecting or PlaybackState.Streaming or PlaybackState.Standby && _snapshot.Receiver is not null && Session.UsesDeviceLatency(_settings.LatencyMode));
     public string GlobalLatencyHint => CanEditGlobalLatency ? "" : L.Get("This device uses its receiver latency mode. Adjust it in Settings → Receivers.");
     public string LatencyMode { get => _settings.LatencyMode; set { if (!CanEditGlobalLatency || value == _settings.LatencyMode || value is null) return; _settings.LatencyMode = value; VolumeChanged(); Notify(); RefreshGlobalLatency(); } }
     private void RefreshGlobalLatency() { Notify(nameof(CanEditGlobalLatency)); Notify(nameof(GlobalLatencyHint)); }
@@ -293,7 +293,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             var changed = next != _defaultEndpoint;
             _defaultEndpoint = next;
             if (_settings.CaptureMode == "loopback" && changed)
-                await Session.TryRestartForEndpointAsync(_settings.Clone(), captured.Owner, captured.AutomaticIntent);
+                await Session.TryRestartForEndpointAsync(_settings.Clone(), captured.Owner, captured.AutomaticIntent, CaptureSessionSettingsContext());
             await Session.TryRestoreAudioIfInactiveAsync(captured.Owner, captured.AutomaticIntent);
         }
         catch (Exception error) { ShowError(error); }
@@ -560,6 +560,8 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     }
     public Task SetReceiverVolumeAsync(string id, int value) => Session.SetDeviceVolumeAsync(id, value);
     private void VolumeChanged() { Interlocked.Increment(ref _automaticEligibilityRevision); _editRevision++; _volumeDirty = true; _volumeTimer.Stop(); if (!_closing && !_controlledScheduling) _volumeTimer.Start(); }
+    private SessionSettingsContext CaptureSessionSettingsContext(IEnumerable<string>? clearedOptions = null, IEnumerable<string>? changedMemberships = null)
+        => new(AllReceivers, ReceiverMigrations, clearedOptions, changedMemberships);
     public async Task FlushVolumeAsync()
     {
         _volumeTimer.Stop();
@@ -571,11 +573,12 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             if (_resetting || _resetCompleted || !_volumeDirty) return;
             var current = _settings.Clone();
             var owner = Session.Capture();
+            var context = CaptureSessionSettingsContext();
             var revision = _editRevision;
             using (UiPerformance.Measure("settings.persist")) await SaveSettingsAsync(current);
             saved = true;
             if (revision == _editRevision) _volumeDirty = false;
-            if (!_closing) await Session.TryUpdateSettingsAsync(current, owner);
+            if (!_closing) await Session.TryUpdateSettingsAsync(current, owner, context);
         }
         finally { _settingsGate.Release(); if (saved && _volumeDirty && !_closing && !_controlledScheduling) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
     }
@@ -658,7 +661,10 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
                             else await Session.StopAsync();
                         }
                     }
-                    if (!_closing && Session.IsIntentCurrent(owner.AutomaticIntent)) await Session.TryUpdateSettingsAsync(merged, Session.Capture());
+                    if (!_closing && Session.IsIntentCurrent(owner.AutomaticIntent)) await Session.TryUpdateSettingsAsync(merged, Session.Capture(),
+                        CaptureSessionSettingsContext(baseline.Receivers.Keys.Except(draft.Receivers.Keys),
+                            draft.SoftwareGroups.Where(group => baseline.SoftwareGroups.FirstOrDefault(previous => previous.Id == group.Id) is { } previous
+                                && (previous.LeftId != group.LeftId || previous.RightId != group.RightId)).Select(group => group.Id)));
                 }
             }
             catch (Exception error) { audioError = L.Format("Settings saved, but audio could not be updated: {0}", error.Message); ShowError(new IOException(audioError, error)); }

@@ -116,10 +116,10 @@ public sealed class AppSettings : ObservableObject
     }
     public double Gain(string id) => Math.Clamp(MasterVolume, 0, 100) / 100d;
     public string? SampleRate(Receiver receiver) => receiver.IsSoftwareGroup ? SoftwareGroups.Single(g => g.Id == receiver.Id).SampleRate : ReadOptions(receiver.Id).SampleRate;
-    public bool UsesDeviceLatency(Receiver receiver) => (receiver.IsSoftwareGroup ? receiver.Peers : [receiver]).Any(r =>
+    public bool UsesDeviceLatency(Receiver receiver, string? globalLatencyMode = null) => (receiver.IsSoftwareGroup ? receiver.Peers : [receiver]).Any(r =>
     {
         var options = ReadOptions(r.Id);
-        return options.LatencyMode is not null || LatencyMode == "custom" && options.CustomBufferMs is not null;
+        return options.LatencyMode is not null || (globalLatencyMode ?? LatencyMode) == "custom" && options.CustomBufferMs is not null;
     });
     public string? EffectiveEndpoint => CaptureMode == "endpoint" ? CaptureEndpoint : null;
     public string? Validate()
