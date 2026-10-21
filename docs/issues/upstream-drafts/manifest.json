@@ -12,11 +12,19 @@
     "pull_25_state": "conflicting at historical 234167b; refreshed E is a separate branch",
     "consolidated_issue_draft": "reliability-current-issue.md",
     "consolidated_pr_draft": "reliability-current-pr.md",
+    "consolidated_draft_sha256_lf": {
+      "issue": "0ba3e819a68c5921ee59baffc30dc73859200622bfd1aa64698d67399b4cf567",
+      "pr": "7d5e65d706f856cc70e33bec8cc466ffcf2217e863e99e5aee806b9bc517d744"
+    },
+    "review_guide": "reliability-current-pr.md#review-guide",
     "publication_state": "consolidated flow selected by user; locally prepared and unsent; upstream publication requires separate approval",
     "user_selection": {
       "flow": "one consolidated draft PR with one umbrella tracking issue",
       "pull_25_policy": "keep open until a qualified replacement is published and linked; closure not yet authorized",
-      "authorization": "prepare locally; ask before upstream publication"
+      "authorization": "prepare locally; ask before upstream publication",
+      "preparation_priority": "review and polish the local issue and PR descriptions",
+      "commit_policy": "keep existing subsystem commits and add an eight-section review guide",
+      "testing_policy": "targeted tests after changes; broader checks before publication"
     },
     "upstream_actions_authorized": false,
     "standalone_readiness_gaps": {

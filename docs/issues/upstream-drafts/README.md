@@ -4,6 +4,10 @@
 
 The user selected one umbrella tracking issue and one consolidated draft PR, keeping #25 open until a qualified replacement is published and linked. Preparation is local; upstream publication requires a separate approval. The [tracking issue](reliability-current-issue.md) and [PR prose](reliability-current-pr.md) are prepared and unsent. This selects the consolidated alternative described below without authorizing any issue/PR edit or closure.
 
+The next preparation choice is to polish those descriptions, retain the existing subsystem commits and include an eight-section review guide in the PR body. Run targeted checks after changes and broader checks before publication. Documentation edits do not requalify runtime behavior or require repeating unchanged runtime suites.
+
+The [eight-section review guide](reliability-current-pr.md#review-guide) is embedded directly in the PR description and links exact candidate code/tests and existing commits. Shared integration resolutions and later harness fixes are identified separately. At authorized publication, refresh Main/evidence, link the actual umbrella issue from the PR and retain #25; do not insert private planning links or infer closure of incident #6/#7.
+
 ## Current reconciliation — 2026-10-20 evening
 
 [Current publication inventory and recommendation](../PUBLICATION-RECONCILIATION-2026-10-20.md) supersedes older current-state claims below. Issue #22 is now closed without a new Main commit; only PR #25 is open/conflicting. Preserve #14/#24 as canonical and #6/#7 as unresolved incidents. All earlier bodies/hashes/test records retain their historical source.
