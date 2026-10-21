@@ -262,6 +262,89 @@ public sealed class MuteRecoveryTests
     }
 
     [Theory]
+    [InlineData(false, "refresh")]
+    [InlineData(true, "refresh")]
+    [InlineData(false, "restore")]
+    [InlineData(true, "restore")]
+    public void WrongReturnedIdentityDuringLiveRecoveryPreservesOwnedBitWithoutEndpointAccess(bool previous, string operation)
+    {
+        var backend = new Backend(previous);
+        var journal = new Journal();
+        using var recovery = new MuteRecoveryCoordinator(backend, journal);
+        recovery.Initialize(); recovery.Mute(null);
+        var owned = Assert.Single(recovery.Snapshot.Entries);
+        var kindReads = backend.KindReads; var gets = backend.Gets;
+        backend.ReturnedId = "synthetic-other-endpoint";
+        backend.FailKind = backend.FailGet = true;
+
+        if (operation == "refresh") recovery.Refresh();
+        else Assert.Throws<AggregateException>(recovery.Restore);
+
+        Assert.Equal(MuteRecoveryStatus.Pending, recovery.Snapshot.Status);
+        var retained = Assert.Single(recovery.Snapshot.Entries);
+        AssertRetainedObligation(owned, retained, journal);
+        Assert.Null(retained.CurrentMute);
+        Assert.Equal(kindReads, backend.KindReads);
+        Assert.Equal(gets, backend.Gets);
+        Assert.Equal([true], backend.Writes);
+        Assert.True(backend.Bit);
+        Assert.All(backend.Handles, handle => Assert.True(handle.Disposed));
+
+        backend.ReturnedId = null; backend.FailKind = backend.FailGet = false;
+        recovery.Restore();
+        Assert.Equal(previous, backend.Bit);
+        Assert.Equal(new[] { true, previous }, backend.Writes);
+        Assert.True(recovery.Snapshot.CanMute);
+        Assert.Empty(recovery.Snapshot.Entries);
+        Assert.All(backend.Handles, handle => Assert.True(handle.Disposed));
+    }
+
+    [Theory]
+    [InlineData(false, MuteRecoveryChoice.RestoreSaved)]
+    [InlineData(true, MuteRecoveryChoice.RestoreSaved)]
+    [InlineData(false, MuteRecoveryChoice.KeepCurrent)]
+    [InlineData(true, MuteRecoveryChoice.KeepCurrent)]
+    public void WrongReturnedIdentityRejectsBothReviewedChoicesWithoutLosingSavedOwnership(bool previous, MuteRecoveryChoice choice)
+    {
+        var backend = new Backend(!previous);
+        var journal = new Journal { Bytes = Saved(previous, "Owned") };
+        using var recovery = new MuteRecoveryCoordinator(backend, journal);
+        recovery.Initialize();
+        var ticket = recovery.Snapshot;
+        var saved = Assert.Single(ticket.Entries);
+        var bytes = journal.Bytes!.ToArray(); var reads = journal.Reads;
+        var kindReads = backend.KindReads; var gets = backend.Gets;
+        backend.ReturnedId = "synthetic-other-endpoint";
+        backend.FailKind = backend.FailGet = true;
+
+        Assert.Throws<InvalidOperationException>(() => recovery.Resolve(ticket.Revision,
+            saved.Owner, saved.Generation, saved.EndpointId, choice));
+
+        Assert.Equal(MuteRecoveryStatus.Pending, recovery.Snapshot.Status);
+        var retained = Assert.Single(recovery.Snapshot.Entries);
+        AssertRetainedObligation(saved, retained, journal);
+        Assert.Null(retained.CurrentMute);
+        Assert.Equal(kindReads, backend.KindReads);
+        Assert.Equal(gets, backend.Gets);
+        Assert.Empty(backend.Writes);
+        Assert.Equal(!previous, backend.Bit);
+        Assert.Equal(reads, journal.Reads);
+        Assert.Empty(journal.Written);
+        Assert.Equal(bytes, journal.Bytes);
+        Assert.All(backend.Handles, handle => Assert.True(handle.Disposed));
+
+        backend.ReturnedId = null; backend.FailKind = backend.FailGet = false;
+        recovery.Refresh();
+        recovery.Resolve(recovery.Snapshot.Revision, saved.Owner, saved.Generation, saved.EndpointId, choice);
+        Assert.Equal(choice == MuteRecoveryChoice.RestoreSaved ? previous : !previous, backend.Bit);
+        Assert.Equal(choice == MuteRecoveryChoice.RestoreSaved ? new[] { previous } : Array.Empty<bool>(), backend.Writes);
+        Assert.Equal(choice == MuteRecoveryChoice.RestoreSaved ? "Resolved" : "Abandoned", State(journal.Bytes!));
+        Assert.True(recovery.Snapshot.CanMute);
+        Assert.Empty(recovery.Snapshot.Entries);
+        Assert.All(backend.Handles, handle => Assert.True(handle.Disposed));
+    }
+
+    [Theory]
     [InlineData(-1)]
     [InlineData(2)]
     public void UnknownEndpointDirectionCannotReadMuteOrAcquireJournal(int direction)
@@ -844,6 +927,24 @@ public sealed class MuteRecoveryTests
         journal.Write([1, 2, 3]);
         Assert.Equal(new byte[] { 1, 2, 3 }, journal.Read());
         Assert.DoesNotContain(Directory.EnumerateFiles(root.Path), file => file.EndsWith(".tmp", StringComparison.Ordinal));
+    }
+
+    private static void AssertRetainedObligation(MuteRecoveryEntry expected, MuteRecoveryEntry actual, Journal journal)
+    {
+        Assert.Equal(expected.Owner, actual.Owner);
+        Assert.Equal(expected.Generation, actual.Generation);
+        Assert.Equal(expected.EndpointId, actual.EndpointId);
+        Assert.Equal(expected.PreviousMute, actual.PreviousMute);
+        Assert.Equal(expected.Live, actual.Live);
+        Assert.False(actual.KnownRestored);
+        Assert.True(actual.State is MuteJournalState.Intent or MuteJournalState.Owned or MuteJournalState.Restoring);
+        using var json = JsonDocument.Parse(journal.Bytes!);
+        var persisted = Assert.Single(json.RootElement.GetProperty("entries").EnumerateArray());
+        Assert.Equal(expected.Owner, persisted.GetProperty("owner").GetGuid());
+        Assert.Equal(expected.Generation, persisted.GetProperty("generation").GetInt64());
+        Assert.Equal(expected.EndpointId, persisted.GetProperty("endpoint_id").GetString());
+        Assert.Equal(expected.PreviousMute, persisted.GetProperty("previous_mute").GetBoolean());
+        Assert.Contains(persisted.GetProperty("state").GetString(), new[] { "Intent", "Owned", "Restoring" });
     }
 
     private static byte[] Saved(bool previous, string state, string endpointId = EndpointId)
