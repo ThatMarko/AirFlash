@@ -33,6 +33,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private AppSettings _settings;
     private SessionSnapshot _snapshot = new(PlaybackState.Idle);
     private string _notice = "";
+    private bool _noticeDismissed;
     private bool _volumeDirty, _autoSuppressed, _closing;
     private string? _defaultEndpoint;
     private long _editRevision;
@@ -52,7 +53,25 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     public IReadOnlyList<Receiver> AllReceivers => _known.Values.Concat(SoftwareStereo.Resolve(_known.Values, _settings)).OrderBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
     public AppSettings Settings => _settings;
     public SessionSnapshot Snapshot => _snapshot;
-    public string Notice { get => _notice; private set { Set(ref _notice, value); Notify(nameof(ErrorDetails)); } }
+    public string Notice
+    {
+        get => _notice;
+        private set
+        {
+            if (!Set(ref _notice, value)) return;
+            _noticeDismissed = false;
+            Notify(nameof(HasNotice)); Notify(nameof(ErrorDetails));
+            DismissNoticeCommand.Refresh();
+        }
+    }
+    public bool HasNotice => !string.IsNullOrWhiteSpace(Notice) && !_noticeDismissed;
+    public RelayCommand DismissNoticeCommand { get; }
+    private void DismissNotice()
+    {
+        if (!HasNotice) return;
+        // Keep the detail available without repeatedly reopening an identical notice.
+        _noticeDismissed = true; Notify(nameof(HasNotice)); DismissNoticeCommand.Refresh();
+    }
     public int MasterVolume { get => _settings.MasterVolume; set { if (_closing || _resetting) return; value = Math.Clamp(value, 0, 100); if (value == _settings.MasterVolume) return; _settings.MasterVolume = value; VolumeChanged(); Notify(); } }
     public bool Muted => Session.Muted;
     public string MuteLabel => Muted ? L.Get("Unmute") : L.Get("Mute");
@@ -123,6 +142,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     public event Action? CatalogChanged;
     public AppViewModel(ISettingsStore store, IDiscoveryService discovery, IAutostart autostart, IAudioService audio, IEngineFactory factory, Dispatcher dispatcher, EngineInitialization? engine = null, IApplicationCatalog? applications = null, IReceiverCapabilityCatalog? receiverCapabilities = null, IRestartService? restart = null)
     {
+        DismissNoticeCommand = new(DismissNotice, () => HasNotice);
         _engine = engine;
         _restart = restart ?? new RestartService();
         ReceiverCapabilities = receiverCapabilities ?? new ReceiverCapabilityCatalog(factory);

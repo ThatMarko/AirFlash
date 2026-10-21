@@ -209,6 +209,14 @@ internal static class UiMuteRecovery
             settings.Close(); settings = null; await Pump();
             var recoveryMessage = app.MuteRecoveryMessage; app.ShowError(new IOException("synthetic ordinary notice"));
             Check(app.MuteRecoveryMessage == recoveryMessage, "ordinary notice cannot clear unresolved mute recovery", checks);
+            await Pump();
+            var setters = backend.Setters; var writes = journal.Writes;
+            var dismiss = Descendants(panel).OfType<Button>().Single(button => button.Name == "DismissNoticeButton");
+            Invoke(dismiss); await Pump();
+            var recoveryBanner = Descendants(panel).OfType<Border>().Single(border => border.Name == "MuteRecoveryBanner");
+            Check(!app.HasNotice && app.HasMuteRecovery && !app.MuteReady && recoveryBanner.IsVisible
+                && app.MuteRecoveryMessage == recoveryMessage && backend.Bit && backend.Setters == setters && journal.Writes == writes,
+                "dismissing an ordinary notice leaves the unresolved mute banner, admission guard and journal intact", checks);
             var requested = Signal(); app.MuteRecoveryRequested += () =>
             { recoveryWindow = new(app) { Owner = panel }; recoveryWindow.Show(); requested.TrySetResult(); };
             var review = Descendants(panel).OfType<Button>().Single(button => ReferenceEquals(button.Command, app.ReviewMuteRecoveryCommand));

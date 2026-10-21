@@ -105,7 +105,8 @@ internal static class UiSmoke
         object? iconEnvironment = null;
         var pageEndLayouts = new List<object>();
         var store = new MemoryStore(); var engine = new MockFactory();
-        await using var app = new AppViewModel(store, new MockDiscovery(), new MockAutostart(), new MockAudio(), engine, Application.Current.Dispatcher) { EngineVersion = "0.1.0（模拟）" };
+        var discovery = new MockDiscovery(); var audio = new MockAudio();
+        await using var app = new AppViewModel(store, discovery, new MockAutostart(), audio, engine, Application.Current.Dispatcher) { EngineVersion = "0.1.0（模拟）" };
         var panel = new ControlPanel(app); SettingsWindow? settings = null;
         // Verification must never bind the production GUID to a test executable path.
         var guidIndex = Array.IndexOf(args, "--tray-guid");
@@ -165,6 +166,7 @@ internal static class UiSmoke
             await Until(() => app.Snapshot.State == PlaybackState.Streaming);
             CheckPanelIcons(panel, app, checks);
             Check(engine.Commands.Any(c => c.Text("command") == "start"), "panel start reaches engine", checks);
+            await VerifyNoticeDismissalAsync(panel, app, discovery, engine, audio, checks);
             Invoke(playbackButton);
             await Until(() => app.Snapshot.State == PlaybackState.Idle);
             CheckPanelIcons(panel, app, checks);
@@ -172,6 +174,7 @@ internal static class UiSmoke
             await Until(() => app.Snapshot.State == PlaybackState.Streaming);
             CheckPanelIcons(panel, app, checks);
             checks.Add("vector playback button completes play/stop/play with localized accessible labels");
+            Check(!app.HasNotice && app.Notice.Length == 0 && !app.DismissNoticeCommand.CanExecute(null), "a new explicit start clears the previous dismissed notification", checks);
             await Until(() => app.Receivers[0].Volume == 28 && app.Receivers[0].CanSetVolume);
             Check(!engine.Commands.Any(c => c.Text("command") == "set_device_volume"), "initial volume comes from receiver without a write", checks);
             var volumeRow = app.Receivers[0];
@@ -307,6 +310,38 @@ internal static class UiSmoke
         catch (Exception error) { App.WriteOutput(args, new { ok = false, mode = "full", checks, culture = CultureInfo.CurrentCulture.Name, ui_culture = CultureInfo.CurrentUICulture.Name, error = error.ToString() }); return 1; }
         finally { settings?.Close(); panel.ShutdownPanel(); }
     }
+    private static async Task VerifyNoticeDismissalAsync(ControlPanel panel, AppViewModel app, MockDiscovery discovery, MockFactory factory, MockAudio audio, List<string> checks)
+    {
+        var banner = Descendants(panel).OfType<Border>().Single(b => b.Name == "NoticeBanner");
+        var dismiss = Descendants(panel).OfType<Button>().Single(b => b.Name == "DismissNoticeButton");
+        Check(!banner.IsVisible && !app.DismissNoticeCommand.CanExecute(null), "an empty notification has no banner or enabled dismiss command", checks);
+        discovery.PublishFailure(" \t "); await Pump();
+        Check(!app.HasNotice && !banner.IsVisible && !dismiss.IsEnabled, "a whitespace-only notification does not create an empty banner", checks);
+        const string failure = "Synthetic receiver resolution timeout. Discovery will retry.";
+        discovery.PublishFailure(failure); await Pump();
+        Check(app.HasNotice && banner.IsVisible && app.Snapshot.State == PlaybackState.Streaming, "a discovery warning is visible without interrupting active playback", checks);
+        Check(ReferenceEquals(dismiss.Command, app.DismissNoticeCommand) && dismiss.IsEnabled
+            && System.Windows.Automation.AutomationProperties.GetName(dismiss) == L.Get("Dismiss notification")
+            && (string?)dismiss.ToolTip == L.Get("Dismiss notification") && dismiss.Focus() && dismiss.IsKeyboardFocused,
+            "notification dismiss is localized, bound and keyboard accessible", checks);
+        await Until(() => app.Receivers.Single(row => row.Active).ToggleCommand.CanExecute(null));
+        var commands = factory.Commands.Count; var starts = factory.CreatedCount; var restores = audio.Restores; var mutes = audio.Mutes;
+        var owner = app.Session.Capture();
+        Invoke(dismiss); await Pump();
+        Check(!app.HasNotice && !banner.IsVisible && app.Notice == failure && app.ErrorDetails == failure,
+            "dismiss hides the banner while retaining its error details", checks);
+        var details = Descendants(panel).OfType<Expander>().Single(e => Equals(e.Header, L.Get("View error details")));
+        Check(details.IsVisible && factory.Commands.Count == commands && factory.CreatedCount == starts
+            && audio.Restores == restores && audio.Mutes == mutes && app.Snapshot.State == PlaybackState.Streaming
+            && app.Session.Capture() is { } current && current.Owner == owner.Owner && current.AutomaticIntent == owner.AutomaticIntent,
+            "dismiss preserves error access and session ownership without playback or mute operations", checks);
+        discovery.PublishFailure(failure); await Pump();
+        Check(!app.HasNotice && !banner.IsVisible, "an identical discovery retry does not reopen a dismissed warning", checks);
+        discovery.PublishFailure("Synthetic different discovery warning."); await Pump();
+        Check(app.HasNotice && banner.IsVisible && dismiss.IsEnabled && app.ErrorDetails == app.Notice,
+            "a different notification becomes visible after dismissal", checks);
+        Invoke(dismiss); await Pump();
+    }
     private static async Task VerifyStartupFailureAsync(List<string> checks, string directory)
     {
         var attempts = 0;
@@ -336,6 +371,9 @@ internal static class UiSmoke
             var messages = Descendants(panel).OfType<TextBlock>().Where(t => t.Text == app.Notice || t.Text == app.EngineMessage).ToArray();
             Check(messages.Length == 2 && messages[0].TranslatePoint(new(0, messages[0].ActualHeight), panel).Y <= messages[1].TranslatePoint(new(0, 0), panel).Y,
                 "engine and discovery error banners remain readable without overlap", checks);
+            app.DismissNoticeCommand.Execute(null); await Pump();
+            Check(!app.HasNotice && app.EngineFailed && app.EngineMessage.Length > 0 && app.RetryEngineCommand.CanExecute(null)
+                && !receiver.ToggleCommand.CanExecute(null), "dismissing discovery warnings preserves engine failure and retry controls", checks);
             var calls = 0; var dwmErrors = new List<string>();
             foreach (var build in new[] { 17763, 19044, 19045 })
                 WindowThemeService.ApplyAttributes(new(new(10, 0, build), Architecture.X64, Architecture.X64, true), ThemeService.CurrentPalette,
@@ -578,8 +616,8 @@ internal static class UiSmoke
             finally { ActiveEnumerations--; }
         }
         public bool FailMute { get; set; }
-        public int Restores;
-        public Task MuteAsync(string? endpointId) => FailMute ? Task.FromException(new IOException("mock mute failed")) : Task.CompletedTask;
+        public int Restores, Mutes;
+        public Task MuteAsync(string? endpointId) { Mutes++; return FailMute ? Task.FromException(new IOException("mock mute failed")) : Task.CompletedTask; }
         public Task RestoreAsync() { Restores++; return Task.CompletedTask; }
     }
     internal sealed class MockDiscovery : IDiscoveryService
@@ -589,7 +627,8 @@ internal static class UiSmoke
         public int Starts { get; private set; }
         public int Stops { get; private set; }
         public event Action<IReadOnlyList<Receiver>>? Changed;
-        public event Action<string>? Failed { add { } remove { } }
+        public event Action<string>? Failed;
+        public void PublishFailure(string message) => Failed?.Invoke(message);
         public void Start() { if (Running) return; Running = true; Starts++; RunningChanged?.Invoke(true); Publish(); }
         public void Stop() { if (!Running) return; Running = false; Stops++; RunningChanged?.Invoke(false); }
         public string SelectedInterface { get; private set; } = "";
