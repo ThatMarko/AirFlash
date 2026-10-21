@@ -39,6 +39,9 @@ internal static class Program
         if (options.Contains("--ui-perf") && options.Any(option => IsUiVerificationOption(option)
             && option is not ("--ui-perf" or "--ui-language" or "--ui-culture")))
             throw new ArgumentException("UI performance verification accepts only --ui-language and --ui-culture UI options.");
+        if (options.Contains("--tray-smoke") && options.Any(option => IsUiVerificationOption(option)
+            && option is not ("--tray-smoke" or "--ui-language" or "--ui-culture")))
+            throw new ArgumentException("Tray verification accepts only --ui-language and --ui-culture UI options.");
     }
     [STAThread]
     public static int Main(string[] args)

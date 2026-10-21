@@ -213,6 +213,10 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     public void InvalidateAutomaticIntent() => BeginExplicitIntent();
     public long BeginExplicitIntent() { lock (_sync) return ++_automaticIntent; }
     public bool IsIntentCurrent(long intent) { lock (_sync) return !_passiveDisposed && intent == _automaticIntent; }
+    public bool UsesDeviceLatency(string globalLatencyMode)
+    {
+        lock (_sync) return _receiver is { } receiver && _settings.UsesDeviceLatency(receiver, globalLatencyMode);
+    }
     public event Action<SessionSnapshot>? Changed;
     public bool Muted => _muted;
     private static ReceiverOptions ProfileOptions(Receiver receiver, Receiver member, AppSettings settings) => settings.ReadOptions(receiver.IsGroup && !receiver.IsSoftwareGroup ? receiver.Id : member.Id);
@@ -296,7 +300,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         }
         finally { _serial.Release(); }
     }
-    public async Task<bool> TryRestartForEndpointAsync(AppSettings settings, long expectedOwner, long expectedIntent)
+    public async Task<bool> TryRestartForEndpointAsync(AppSettings settings, long expectedOwner, long expectedIntent, SessionSettingsContext? context = null)
     {
         await _serial.WaitAsync().ConfigureAwait(false);
         try
@@ -306,6 +310,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             {
                 if (_passiveDisposed || _generation != expectedOwner || _automaticIntent != expectedIntent || !_snapshot.IsActive
                     || _snapshot.State == PlaybackState.Pairing || _receiver is null || _settings.CaptureMode != "loopback" || settings.CaptureMode != "loopback") return false;
+                settings = context?.Project(settings, _settings, _receiver) ?? settings;
                 receiver = RestartReceiver(_receiver, settings);
             }
             return await StartLockedAsync(receiver, settings, null, "default_endpoint_change", expectedIntent: expectedIntent).ConfigureAwait(false);
@@ -438,13 +443,16 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     }
     public async Task UpdateSettingsAsync(AppSettings settings)
         => await TryUpdateSettingsAsync(settings, Capture()).ConfigureAwait(false);
-    public async Task<bool> TryUpdateSettingsAsync(AppSettings settings, SessionCapture expected)
+    public async Task<bool> TryUpdateSettingsAsync(AppSettings settings, SessionCapture expected, SessionSettingsContext? context = null)
     {
         await _serial.WaitAsync().ConfigureAwait(false);
         try
         {
             lock (_sync)
+            {
                 if (_passiveDisposed || expected.Owner != _generation || expected.AutomaticIntent != _automaticIntent) return false;
+                settings = context?.Project(settings, _settings, _receiver) ?? settings;
+            }
             var old = _settings;
             if (_receiver is { IsSoftwareGroup: true } group && settings.SoftwareGroups.All(g => g.Id != group.Id))
             {

@@ -591,7 +591,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
     private void Log(string message)
     {
         try { _log(message); }
-        catch (Exception error) { System.Diagnostics.Trace.TraceError("Discovery log observer: {0}", error.Message); }
+        catch (Exception error) { TraceObserverFailure("log", error); }
     }
 
     private static void InvokeObservers<T>(Action<T>? observers, T value, string channel)
@@ -599,7 +599,13 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         if (observers is null) return;
         foreach (Action<T> observer in observers.GetInvocationList())
             try { observer(value); }
-            catch (Exception error) { System.Diagnostics.Trace.TraceError("Discovery {0} observer: {1}", channel, error.Message); }
+            catch (Exception error) { TraceObserverFailure(channel, error); }
+    }
+
+    private static void TraceObserverFailure(string channel, Exception error)
+    {
+        try { System.Diagnostics.Trace.TraceError("Discovery {0} observer: {1}", channel, error.Message); }
+        catch { } // A failing fallback sink must not abandon publication or native work.
     }
 
     private static bool Equal(ServiceRecord left, ServiceRecord right) =>
