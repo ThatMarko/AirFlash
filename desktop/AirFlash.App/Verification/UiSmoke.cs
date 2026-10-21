@@ -103,6 +103,7 @@ internal static class UiSmoke
         }
         catch (Exception error) { FocusResult(false, error); return 1; }
         object? iconEnvironment = null;
+        var pageEndLayouts = new List<object>();
         var store = new MemoryStore(); var engine = new MockFactory();
         await using var app = new AppViewModel(store, new MockDiscovery(), new MockAutostart(), new MockAudio(), engine, Application.Current.Dispatcher) { EngineVersion = "0.1.0（模拟）" };
         var panel = new ControlPanel(app); SettingsWindow? settings = null;
@@ -258,17 +259,15 @@ internal static class UiSmoke
                     Render(settings, Path.Combine(directory, $"settings-{(dark ? "dark" : "light")}-{page}.png"), 1);
                     if (page == 0)
                     {
-                        var scroll = Descendants(settings).OfType<ScrollViewer>().First(v => v.ScrollableHeight > 0);
-                        scroll.ScrollToEnd(); await Pump();
+                        await VerifyPageEndAsync(settings, dark, checks, pageEndLayouts, directory);
                         Render(settings, Path.Combine(directory, $"settings-reset-{(dark ? "dark" : "light")}.png"), 1);
-                        scroll.ScrollToHome();
+                        settings.PageScroll.ScrollToHome();
                     }
                     if (page == SettingsViewModel.MonitorPage)
                     {
-                        var scroll = Descendants(settings).OfType<ScrollViewer>().First(v => v.ScrollableHeight > 0);
-                        scroll.ScrollToEnd(); await Pump();
+                        await VerifyPageEndAsync(settings, dark, checks, pageEndLayouts, directory);
                         Render(settings, Path.Combine(directory, $"monitor-details-{(dark ? "dark" : "light")}.png"), 1);
-                        scroll.ScrollToHome();
+                        settings.PageScroll.ScrollToHome();
                     }
                 }
                 settings.Hide(); panel.ShowPanel(); await Pump();
@@ -473,6 +472,36 @@ internal static class UiSmoke
         Color color => color,
         _ => throw new InvalidOperationException($"Resource '{key}' is not a color or brush.")
     };
+    private static async Task VerifyPageEndAsync(SettingsWindow settings, bool dark, List<string> checks, List<object> layouts, string directory)
+    {
+        // Auto scrollbars need not overflow on a large viewport. Verify access
+        // through the actual page viewer for both fitting and overflowing pages.
+        var scroll = settings.PageScroll;
+        scroll.ScrollToBottom(); await Pump();
+        var viewport = scroll.Template.FindName("PART_ScrollContentPresenter", scroll) as ScrollContentPresenter
+            ?? throw new InvalidOperationException("The settings page viewport is unavailable.");
+        var page = settings.PageContainer.Children.OfType<FrameworkElement>().Single(item => item.IsVisible);
+        FrameworkElement target = settings.ViewModel.SelectedPage == 0
+            ? Descendants(page).OfType<Button>().Single(button => ReferenceEquals(button.Command, settings.ViewModel.ResetCommand))
+            : ((StackPanel)page).Children.OfType<TextBlock>().Last();
+        var bounds = target.TransformToAncestor(viewport).TransformBounds(new Rect(0, 0, target.ActualWidth, target.ActualHeight));
+        var dpi = VisualTreeHelper.GetDpi(settings);
+        var label = $"{(dark ? "dark" : "light")} page {settings.ViewModel.SelectedPage} end";
+        layouts.Add(new
+        {
+            label, window_width = settings.ActualWidth, window_height = settings.ActualHeight,
+            dpi_x = dpi.DpiScaleX, dpi_y = dpi.DpiScaleY, extent_height = scroll.ExtentHeight,
+            viewport_height = scroll.ViewportHeight, scrollable_height = scroll.ScrollableHeight, offset = scroll.VerticalOffset,
+            target_bounds = new { bounds.Left, bounds.Top, bounds.Right, bounds.Bottom },
+            viewer_width = scroll.ActualWidth, viewer_height = scroll.ActualHeight,
+            viewport_width = viewport.ActualWidth, viewport_render_height = viewport.ActualHeight, target.IsVisible
+        });
+        File.WriteAllText(Path.Combine(directory, "page-end-layout.json"), JsonSerializer.Serialize(layouts, new JsonSerializerOptions { WriteIndented = true }));
+        Check(Math.Abs(scroll.VerticalOffset - scroll.ScrollableHeight) <= 1, label + " reaches the final scroll position", checks);
+        Check(target.IsVisible && target.ActualWidth > 0 && target.ActualHeight > 0 && viewport.ActualWidth > 0 && viewport.ActualHeight > 0
+            && bounds.Left >= -1 && bounds.Right <= viewport.ActualWidth + 1 && bounds.Top >= -1 && bounds.Bottom <= viewport.ActualHeight + 1,
+            label + " keeps the Reset action or final Monitor explanation inside the viewport", checks);
+    }
     private static async Task Pump() { await Application.Current.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle); await Task.Delay(70); }
     private static async Task Until(Func<bool> predicate)
     {
