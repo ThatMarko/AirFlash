@@ -347,5 +347,10 @@
   "Cannot reset pairing data through a linked directory.": "Kopplungsdaten können nicht über ein verlinktes Verzeichnis zurückgesetzt werden.",
   "Unsupported group sample rate: {0}": "Nicht unterstützte Abtastrate der Gruppe: {0}",
   "Group sample rate: {0} (pending verification)": "Abtastrate der Gruppe: {0} (Verifizierung ausstehend)",
-  "Reset failed and startup settings could not be restored.": "Das Zurücksetzen ist fehlgeschlagen, und die Starteinstellungen konnten nicht wiederhergestellt werden."
+  "Reset failed and startup settings could not be restored.": "Das Zurücksetzen ist fehlgeschlagen, und die Starteinstellungen konnten nicht wiederhergestellt werden.",
+  "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "Einige Suchanfragen sind pausiert, weil native DNS-Ressourcen nicht sicher freigegeben werden können. Die Suche wird nach deren Freigabe fortgesetzt; andernfalls muss die App neu gestartet werden.",
+  "DNS cancellation failed: {0}. Native resources remain safely owned; restarting the app is the final recovery if completion cannot be established.": "DNS-Abbruch fehlgeschlagen: {0}. Native Ressourcen bleiben sicher erhalten; kann der Abschluss nicht bestätigt werden, muss die App neu gestartet werden.",
+  "DNS request did not remain pending: {0}. Discovery will retry with backoff.": "Die DNS-Anfrage blieb nicht ausstehend: {0}. Die Suche versucht es nach einer Wartezeit erneut.",
+  "Receiver resolution failed: {0}. Discovery will retry with backoff.": "Empfängerauflösung fehlgeschlagen: {0}. Die Suche versucht es nach einer Wartezeit erneut.",
+  "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "Zeitüberschreitung bei der Empfängerauflösung: {0}. Die Suche versucht es nach einer Wartezeit erneut."
 }
