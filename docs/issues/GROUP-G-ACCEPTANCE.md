@@ -1,5 +1,9 @@
 # Group G acceptance — owned local mute recovery
 
+## Later combined endpoint-identity controls — 2026-10-21
+
+[Current readiness](PR-READINESS-2026-10-21.md) records eight additional wrong-returned-endpoint cases in combined `6c1e2ef`, covering both prior bits, normal refresh/restore and both reviewed choices. Access/write counters, retained owner/generation/obligation, disposed handles and subsequent correct-endpoint recovery are asserted. Production mute behavior and standalone G are unchanged by this pass; current full Core and focused recovery pass without real endpoint or physical power-loss testing.
+
 ## Current stable refresh — 2026-10-20
 
 [Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. The subsequent [desktop continuation](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) records newly authorized executions, Connecting, modal-terminal and password-contract repairs, actual modal/dispatcher results and the remaining full-raster limitation. Earlier headless-only claims retain their historical source.

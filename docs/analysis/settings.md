@@ -1,5 +1,9 @@
 # Settings and persistence
 
+## Current settings/application boundary — 2026-10-21
+
+Original stable is now schema-4 `439de626`; the schema-2 table below belongs to its explicitly pinned historical source. Combined `6c1e2ef` preserves canonical persisted settings while projecting a private effective copy for an owned transport whose identity-save raced with newer Pair. Ordinary absence of an old option key is not an explicit reset; raw reset/default and normalized Apply membership intent remain observable, while canonical edits/clears need a unique matching current transport. [Current acceptance/source evidence](../issues/PR-READINESS-2026-10-21.md) records the forty-case Core and actual modal continuations. This pass does not change the settings-store recovery or serialized schema.
+
 This page describes fork `main` at **`06237873dcb6394eb35e97a017c536843bd7743d`**, reviewed on 2026-10-12, including original stable `cf420d97700463c56adc31408510e8336e99e51c`. Final C `5d72da3` is pushed/integrated here, not merged upstream. [Audit](audit.md) and [C acceptance](../issues/GROUP-C-ACCEPTANCE.md) preserve provenance and limits.
 
 Live `AppSettings` belongs to WPF and loads from `%APPDATA%\AirFlash\config.json`. The normal shell performs two Load calls on one store: initial language/theme inspection and view-model construction. Settings edits a draft; the controller clones playback settings; Rust receives selected JSONL values and never reads this file.

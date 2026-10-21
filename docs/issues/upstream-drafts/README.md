@@ -1,5 +1,9 @@
 # Upstream issue drafts and standalone branches
 
+## Current prepared package — 2026-10-21
+
+The [issue](reliability-current-issue.md) and [PR](reliability-current-pr.md) now both use **Improve AirFlash reliability, pairing and diagnostics** and exact candidate `6c1e2ef`. [Current readiness](../PR-READINESS-2026-10-21.md) records the five new commits, 1,016 exact-commit Core, 3,626 local preparation-snapshot assertions, 18 exact-source hosted cells / 11,386 assertions and retained limitations. Eight review sections and separate subsystem history remain. These bodies are unsent; keep #25 open and request approval before upstream publication.
+
 ## Selected flow — user questionnaire
 
 The user selected one umbrella tracking issue and one consolidated draft PR, keeping #25 open until a qualified replacement is published and linked. Preparation is local; upstream publication requires a separate approval. The [tracking issue](reliability-current-issue.md) and [PR prose](reliability-current-pr.md) are prepared and unsent. This selects the consolidated alternative described below without authorizing any issue/PR edit or closure.

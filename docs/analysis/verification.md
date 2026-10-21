@@ -1,5 +1,9 @@
 # Verification boundaries and evidence
 
+## Current qualification — 2026-10-21
+
+[Current readiness](../issues/PR-READINESS-2026-10-21.md) binds final combined `6c1e2ef`, 1,016 exact-commit Core, 15 intended local preparation-snapshot cells / 3,626 assertions and 18 exact-source hosted cells / 11,386 assertions. It preserves the earlier raster failures, the later full GUI pass, the distinct fitting-page fixture correction and the incomplete 60-second runner result. Actual DLL/source hashes and corrected observed language selections matter; apphost hashes or a later green run alone do not establish a repair. Earlier executions below retain their own source.
+
 ## Desktop continuation — 2026-10-20
 
 The user subsequently authorized desktop testing. [Current exact-source qualification](../issues/CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) binds final `0533cbf` to 965 Core tests and six local password/pairing/session/Monitor cells. The earlier fifteen local dispatcher/modal/settings/mute/Monitor/scrolling runs and successful 17-cell hosted matrix belong to `5d43b04`; final-source hosted qualification separately passes all 18 cells / 10,914 assertions with exact initial/final source bytes unchanged. Focused routes explicitly report mode and both cultures; invalid routes fail instead of falling into a different test. The local full-raster failure remains a failure. Prior compiled-only, unobserved-culture and headless-only records below are historical.

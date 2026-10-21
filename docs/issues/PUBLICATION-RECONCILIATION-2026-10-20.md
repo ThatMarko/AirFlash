@@ -1,5 +1,9 @@
 # Current publication reconciliation — 2026-10-20
 
+## Later implementation overlay — 2026-10-21
+
+The all-author/branch/upstream inventory below remains applicable; freshly fetched stable is still `439de626`, with #25 alone open/conflicting and the same seven open issues. The candidate has advanced to `6c1e2ef` with five reviewed commits. [Current readiness](PR-READINESS-2026-10-21.md) binds its 80-file diff, all 37 public commit trees, new acceptance evidence and the continuing publication gate. Local full GUI now passes without explaining historical raster intermittence; do not retain the older blanket "local full raster remains failed" wording as the latest execution status.
+
 This is the current preparation index. It supersedes older *current-state* claims in the dated acceptance records, without changing their source or execution provenance. Observation: October 20, 2026, 22:10 CDT (October 21, 03:10 UTC), followed by the final read-only refresh recorded in the audit receipt. No runtime changes or tests were needed for this reconciliation.
 
 ## Decision and next action

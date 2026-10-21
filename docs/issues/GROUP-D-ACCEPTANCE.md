@@ -1,5 +1,9 @@
 # Group D acceptance — bounded DNS operation ownership
 
+## Later combined diagnostic containment — 2026-10-21
+
+[Current readiness](PR-READINESS-2026-10-21.md) records `af29b9e` in combined `6c1e2ef`: three pre-fix failures show a throwing secondary Trace sink escaping observer-failure handling and abandoning continuation. Fixed regressions require later publication/subscribers and detached native work while preserving unsettled owner counts. This is separate from the historical cancellation/publication schedule repair below; native settlement semantics and regression deadlines are unchanged. Current combined qualification does not modify the standalone D branch.
+
 ## Current stable refresh — 2026-10-20
 
 [Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. The subsequent [desktop continuation](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) records newly authorized executions, Connecting, modal-terminal and password-contract repairs, actual modal/dispatcher results and the remaining full-raster limitation. Earlier headless-only claims retain their historical source.

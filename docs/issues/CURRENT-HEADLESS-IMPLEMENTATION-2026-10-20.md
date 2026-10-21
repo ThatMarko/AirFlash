@@ -1,5 +1,9 @@
 # Current stable implementation and verification — 2026-10-20
 
+## Later implementation and qualification — 2026-10-21
+
+[Current readiness](PR-READINESS-2026-10-21.md) supersedes current-state claims below with combined source `6c1e2ef` on unchanged stable `439de626`. It records the newly reproduced canonical-settings/Pair continuation defect, contained diagnostic sink failures, wrong-endpoint controls and measured page access; exact-commit 1,016 Core and local preparation-snapshot 3,626 application assertions pass. Exact-source hosted qualification passes 18 cells / 11,386 assertions with all 249 source files unchanged. The final full GUI pass does not explain earlier raster failures. Earlier heads, executions, limitations and standalone packaging boundaries remain unchanged as historical evidence.
+
 ## Later publication reconciliation — 2026-10-20 evening
 
 [Current source/branch/issue reconciliation](PUBLICATION-RECONCILIATION-2026-10-20.md) supersedes the earlier publication observations below. Stable remains `439de626` and qualified integration `0533cbf`. Issue #22 closed at 21:39 CDT without a source change. The current authored open issues are #6/#7/#14/#24; all-repository open issues additionally include #16/#28/#30. PR #25 alone remains open/conflicting at old `234167b`; no upstream action occurred in this audit.

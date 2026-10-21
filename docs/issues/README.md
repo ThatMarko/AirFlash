@@ -1,5 +1,9 @@
 # AirFlash implementation backlog
 
+## Implementation and PR readiness — 2026-10-21
+
+[Current readiness](PR-READINESS-2026-10-21.md) binds combined candidate `6c1e2ef`, five new reviewed commits, the eight-section acceptance overlay, 1,016 exact-commit Core and 3,626 local preparation-snapshot assertions. Exact-source hosted validation passes 18 cells / 11,386 assertions with all 249 source files unchanged. It supersedes older current-candidate and blanket local-raster-failure statements below: a full GUI run now passes, while earlier unexplained raster failures remain explicit. Public branches and all 37 outgoing trees exclude fork-only material. Upstream publication and #25 closure remain gated.
+
 ## Selected next step — user questionnaire
 
 The user selected one consolidated draft PR plus one umbrella issue, with local preparation only and explicit approval before upstream publication. Keep #25 open until a qualified replacement is published and linked; no closure is authorized. [Selected package and reviewable drafts](PUBLICATION-RECONCILIATION-2026-10-20.md#decision-and-next-action) retain the audit's source, test and limitation boundaries.

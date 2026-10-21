@@ -1,5 +1,9 @@
 # AirFlash completed implementation and publication plan
 
+## Current qualification — 2026-10-21
+
+The selected combined candidate is now `6c1e2ef`; [current readiness and all eight acceptance sections](PR-READINESS-2026-10-21.md) record the owned-settings continuation repair, discovery diagnostic containment and fixture improvements. Exact-commit 1,016 Core, local preparation-snapshot 3,626 application assertions and exact-source hosted 18 cells / 11,386 assertions pass. Earlier source snapshots remain historical. The next action is approval for the prepared upstream issue and draft PR. Keep #25 open; do not repeat completed E–H or publish standalone B/E with their recorded packaging gaps.
+
 ## Selected publication flow — user questionnaire
 
 The user selected the consolidated draft PR and umbrella tracking issue. Keep #25 open until a qualified replacement is published and linked; this condition does not authorize its closure. Finish preparation locally and request explicit approval before upstream publication. The [selected package](PUBLICATION-RECONCILIATION-2026-10-20.md#decision-and-next-action) replaces the earlier separate-group publication plan; prior source/evidence boundaries remain intact.

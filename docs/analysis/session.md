@@ -1,5 +1,9 @@
 # Session control
 
+## Owned settings continuation — 2026-10-21
+
+Combined `6c1e2ef` adds a frozen `SessionSettingsContext` for application flush/Apply/endpoint updates, applied only after serialized owner/intent checks. Canonical persisted identities can differ from a newer Pair's owned transport; ordinary saves preserve effective owned overrides and software members instead of restarting at defaults or resolving missing canonical members. Canonical edits/clears require a unique matching current transport; explicit membership/reset intent remains separate. The latency hint reads effective owned settings with the current panel global mode. [Current source, regressions and limits](../issues/PR-READINESS-2026-10-21.md) supersede older raw-key update assumptions below; no endpoint alias is persisted by this fix.
+
 ## Desktop continuation — 2026-10-20
 
 Since fork `5d43b04`, selecting StreamRate publishes its current Connecting snapshot, so dispatcher reference rejection cannot strand the application in Idle. Pairing owns one pending event reader throughout PIN/password input, retains it across valid submission, and cancels/joins the prompt on terminal events. The [current regression and desktop evidence](../issues/CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) supersedes historical reader/publication limitations below; original stable remains `439de626`.

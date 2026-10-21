@@ -1,5 +1,9 @@
 # Group B acceptance — session ownership and receiver selection
 
+## Later combined acceptance — 2026-10-21
+
+[Current readiness](PR-READINESS-2026-10-21.md) records `c004187` in combined `6c1e2ef`: canonical persistence can no longer reset a newer Pair's effective receiver options on a later ordinary save. Forty Core cases and actual PIN-to-playback/Pairing-time continuations pass, including empty software-member migration evidence and intentional edits/resets. The current 1,016 Core / 3,626 local application assertions qualify the combined package; they do not advance or qualify unchanged standalone B heads. Canonical resets require a unique current transport binding; retained incidents #6/#7 remain unresolved.
+
 ## Current stable refresh — 2026-10-20
 
 [Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. The subsequent [desktop continuation](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) records newly authorized executions, Connecting, modal-terminal and password-contract repairs, actual modal/dispatcher results and the remaining full-raster limitation. Earlier headless-only claims retain their historical source.

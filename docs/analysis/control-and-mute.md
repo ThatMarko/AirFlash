@@ -1,5 +1,9 @@
 # Control traffic and local mute
 
+## Additional recovery controls — 2026-10-21
+
+Combined `6c1e2ef` adds eight mismatched-returned-endpoint regressions for both original mute bits and normal/reviewed recovery paths. Identity rejection precedes direction/bit access, handles close, unresolved ownership remains, and a correct returning endpoint can complete recovery. Production mute/journal logic is unchanged by this pass; mock proof does not establish physical power-loss durability. [Current evidence](../issues/PR-READINESS-2026-10-21.md) supersedes current-candidate claims below while preserving the historical source map.
+
 Source reviewed on 2026-10-12 at own-fork `main` `06237873dcb6394eb35e97a017c536843bd7743d`, containing original stable `cf420d97700463c56adc31408510e8336e99e51c`. This page describes the integrated fork runtime; original upstream publication and historical test sources are separate.
 
 WPF owns local endpoint mute; Rust owns receiver volume, feedback and PTP workers. Passive discovery absence no longer stops an owned attempt or restores its endpoint. Explicit Stop, terminal failure, cancellation and actual replacement still enter cleanup. See [Playback coupling](playback-coupling.md) and [Failures](failures.md).

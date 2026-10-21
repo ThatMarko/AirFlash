@@ -1,5 +1,9 @@
 # AirFlash on the fork's main branch
 
+## Current implementation overlay — 2026-10-21
+
+The [current readiness/source overlay](../issues/PR-READINESS-2026-10-21.md) describes combined `6c1e2ef` on stable `439de626`, including effective owned settings, discovery diagnostic containment and actual new regression results. Source maps below retain their pinned historical baselines. Local full GUI and exact-source hosted 18 cells / 11,386 assertions pass; this does not resolve earlier unexplained raster failures. Upstream publication remains gated.
+
 ## Desktop continuation — 2026-10-20
 
 The [desktop continuation](../issues/CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) records final fork source `0533cbf`, newly authorized isolated WPF checks, repaired Connecting publication, terminal-event handling during modal input and consistent password validation. Earlier pinned maps/headless limits below retain their own source. Local focused desktop tests pass; the local full-raster failure remains recorded.

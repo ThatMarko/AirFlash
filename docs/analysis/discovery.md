@@ -1,5 +1,9 @@
 # Discovery
 
+## Diagnostic containment — 2026-10-21
+
+Combined `6c1e2ef` contains failures from secondary Trace logging after a log/event observer throws. Three red/fixed regressions prove later publication/subscribers and deferred native work continue while unsettled resource ownership is retained. This changes neither cancel/quiescence contracts nor helper-exit settlement. [Current evidence](../issues/PR-READINESS-2026-10-21.md) retains the earlier cancellation/publication diagnosis separately; a later unchanged green run is not its repair.
+
 ## Discovery preparation supplement — 2026-10-13
 
 Current fork code `c5ddb894e8bf0f977a94920ff26878c3cf5e1004` integrates standalone D `b8ee79511e2fa41ee02651dad83d50e008f9f680`, based on original `cf420d97700463c56adc31408510e8336e99e51c`. Full ServiceRecord/TXT equality now triggers publication, restoring cf420d9 behavior; Describe remains log formatting only. The older gpn/igl/pk/cn notification limitation below belongs to pinned0623787 and is superseded. Helper JSON copies TXT into OrdinalIgnoreCase dictionaries without changing values and rejects case-folded duplicates. Successful replies explicitly emit LF. Browse settlement remains terminal 1223 plus tracked calls/managed consumer sections, not arbitrary native return-stack observation.
