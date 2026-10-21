@@ -815,28 +815,92 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                 await connection.SendAsync(session, "hello", null, cancellation).ConfigureAwait(false);
                 EngineHandshake.RequireCapabilities(await ReadEventAsync(connection, session, _timing.Connect, cancellation).ConfigureAwait(false), member.RequiresPassword ? ["receiver_password"] : []);
                 await connection.SendAsync(session, "pair", new { password_required = member.RequiresPassword, peer = new { host = await ResolveAsync(member.Address, cancellation).ConfigureAwait(false), port = member.Port } }, cancellation).ConfigureAwait(false);
+                await using var events = new PairingEvents(connection, session, cancellation);
                 while (true)
                 {
-                    var item = await ReadEventAsync(connection, session, _timing.Connect, cancellation).ConfigureAwait(false);
+                    var item = await events.ReadAsync(_timing.Connect, cancellation).ConfigureAwait(false);
                     switch (item.Text("event"))
                     {
                         case "pin_required":
                         case "password_required":
-                            using (var pinTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation))
                             {
-                                pinTimeout.CancelAfter(_timing.Pin);
-                                var pin = await requestPin(member with { RequiresPassword = item.Text("event") == "password_required" }, pinTimeout.Token).ConfigureAwait(false);
-                                if (string.IsNullOrWhiteSpace(pin)) { Publish(epoch, PlaybackState.Idle, L.Get("Pairing cancelled.")); throw new PairCancelledException(); }
+                                var passwordPrompt = item.Text("event") == "password_required";
+                                var input = await RequestPairingInputAsync(events, member with { RequiresPassword = passwordPrompt }, requestPin, cancellation).ConfigureAwait(false);
+                                if (input.Paired) goto Paired;
+                                var pin = input.Pin;
+                                if (passwordPrompt ? string.IsNullOrEmpty(pin) : string.IsNullOrWhiteSpace(pin)) { Publish(epoch, PlaybackState.Idle, L.Get("Pairing cancelled.")); throw new PairCancelledException(); }
                                 await connection.SendAsync(session, "pair_pin", new { pin }, cancellation).ConfigureAwait(false);
                             }
                             break;
                         case "paired": goto Paired;
                         case "error": throw new EngineFailure(EngineNotice.Parse(item));
+                        case "stopped": throw new IOException(L.Get("The audio session ended unexpectedly."));
                     }
                 }
             Paired:;
             }
             finally { ClearConnection(connection); await RequestStopAsync(connection, session).ConfigureAwait(false); }
+        }
+    }
+    private async Task<(string? Pin, bool Paired)> RequestPairingInputAsync(PairingEvents events, Receiver member,
+        Func<Receiver, CancellationToken, Task<string?>> requestPin, CancellationToken cancellation)
+    {
+        using var promptCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        promptCancellation.CancelAfter(_timing.Pin);
+        Task<string?>? prompt = null;
+        try
+        {
+            // The same single read survives input submission. Canceling a pending
+            // StreamReader read here could consume a reply without delivering it.
+            var pending = events.Pending;
+            prompt = requestPin(member, promptCancellation.Token);
+            while (true)
+            {
+                await Task.WhenAny(prompt, pending).WaitAsync(promptCancellation.Token).ConfigureAwait(false);
+                // A terminal event already observed by the reader wins over a
+                // concurrently completed prompt, before any pair_pin is sent.
+                if (pending.IsCompleted)
+                {
+                    var item = await events.ReadAsync(Timeout.InfiniteTimeSpan, cancellation).ConfigureAwait(false);
+                    switch (item.Text("event"))
+                    {
+                        case "error": throw new EngineFailure(EngineNotice.Parse(item));
+                        case "stopped": throw new IOException(L.Get("The audio session ended unexpectedly."));
+                        case "paired": return (null, true);
+                    }
+                    pending = events.Pending;
+                    continue;
+                }
+                return (await prompt.ConfigureAwait(false), false);
+            }
+        }
+        finally
+        {
+            // Close and join a cancellation-aware dialog before publishing a
+            // fault or opening the next member. Its cleanup cannot replace the
+            // original engine error, EOF, timeout or caller cancellation.
+            try { await promptCancellation.CancelAsync().ConfigureAwait(false); } catch { }
+            if (prompt is not null) try { await prompt.ConfigureAwait(false); } catch { }
+        }
+    }
+    private sealed class PairingEvents(IEngineConnection connection, string session, CancellationToken cancellation) : IAsyncDisposable
+    {
+        private readonly CancellationTokenSource _lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        private Task<JsonElement>? _pending;
+        public Task<JsonElement> Pending => _pending ??= ReadEventAsync(connection, session, Timeout.InfiniteTimeSpan, _lifetime.Token);
+        public async Task<JsonElement> ReadAsync(TimeSpan wait, CancellationToken token)
+        {
+            JsonElement item;
+            try { item = await Pending.WaitAsync(wait, token).ConfigureAwait(false); }
+            catch (TimeoutException) { throw new TimeoutException(L.Get("The audio engine response timed out.")); }
+            _pending = null;
+            return item;
+        }
+        public async ValueTask DisposeAsync()
+        {
+            try { await _lifetime.CancelAsync().ConfigureAwait(false); } catch { }
+            if (_pending is not null) try { await _pending.ConfigureAwait(false); } catch { }
+            _lifetime.Dispose();
         }
     }
     private EngineNotice? RecordFailure(long epoch, Exception error)
