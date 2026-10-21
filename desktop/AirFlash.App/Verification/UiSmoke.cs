@@ -43,7 +43,9 @@ internal static class UiSmoke
             "both startup stages are recorded in isolated smoke logs", checks);
         foreach (var arguments in new[] { new[] { "--ui-pairing-smoke" }, new[] { "--ui-pairing-smoek" }, new[] { "--receiver-settings-regression" },
             new[] { "--ui-smoke", "--ui-perf" }, new[] { "--ui-smoke", "--ui-smoke" }, new[] { "--ui-smoke", "--audio-check" },
-            new[] { "--ui-smoke", "--discovery-check" }, new[] { "--ui-perf", "--ui-pairing-smoke" }, new[] { "--ui-perf", "--ui-unknown" }, new[] { "--ui-perf", "--receiver-settings-regression" } })
+            new[] { "--ui-smoke", "--discovery-check" }, new[] { "--ui-perf", "--ui-pairing-smoke" }, new[] { "--ui-perf", "--ui-unknown" }, new[] { "--ui-perf", "--receiver-settings-regression" },
+            new[] { "--tray-smoke", "--ui-password-smoke" }, new[] { "--tray-smoke", "--ui-session-lifecycle-smoke" },
+            new[] { "--tray-smoke", "--receiver-settings-regression" }, new[] { "--tray-smoke", "--ui-pairing-clipboard" }, new[] { "--tray-smoke", "--ui-unknown" } })
         {
             Check(Program.NeedsDiagnosticIsolation(arguments) && Program.IsDiagnostic(arguments),
                 "invalid UI requests retain diagnostic isolation and a nonmodal failure surface: " + string.Join(" ", arguments), checks);
@@ -56,6 +58,10 @@ internal static class UiSmoke
             "an option value cannot select a UI mode", checks);
         Check(!Program.StartupOptions(["--ui-smoke", "--ui-language", "--audio-check"]).Contains("--audio-check"),
             "an option value cannot select the real audio diagnostic before UI verification", checks);
+        Program.ValidateUiVerificationArguments(["--tray-smoke", "--ui-language", "en", "--ui-culture", "en-US", "--tray-guid", Guid.NewGuid().ToString()]);
+        checks.Add("tray verification permits culture, language and isolated identity options");
+        Program.ValidateUiVerificationArguments(["--tray-smoke", "--output", "--ui-password-smoke"]);
+        checks.Add("a tray output value cannot select a focused verification route");
         var focusFlags = new[] { "--ui-discovery-smoke", "--ui-regression", "--ui-regression-smoke", "--receiver-settings-regression",
             "--ui-mute-recovery-smoke", "--ui-settings-recovery-smoke", "--ui-diagnostics-smoke", "--ui-session-lifecycle-smoke",
             "--ui-scroll-smoke", "--ui-pairing-smoke", "--ui-password-smoke" };
