@@ -12,7 +12,12 @@
     "pull_25_state": "conflicting at historical 234167b; refreshed E is a separate branch",
     "consolidated_issue_draft": "reliability-current-issue.md",
     "consolidated_pr_draft": "reliability-current-pr.md",
-    "publication_state": "local-proposal-unsent; consolidated flow proposed, not selected publication authorization",
+    "publication_state": "consolidated flow selected by user; locally prepared and unsent; upstream publication requires separate approval",
+    "user_selection": {
+      "flow": "one consolidated draft PR with one umbrella tracking issue",
+      "pull_25_policy": "keep open until a qualified replacement is published and linked; closure not yet authorized",
+      "authorization": "prepare locally; ask before upstream publication"
+    },
     "upstream_actions_authorized": false,
     "standalone_readiness_gaps": {
       "B_5749b74": "Stale broad hidden-active-row smoke assertion; focused 3x115 results do not execute it",

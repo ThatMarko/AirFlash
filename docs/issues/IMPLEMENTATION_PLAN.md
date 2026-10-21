@@ -1,5 +1,9 @@
 # AirFlash completed implementation and publication plan
 
+## Selected publication flow — user questionnaire
+
+The user selected the consolidated draft PR and umbrella tracking issue. Keep #25 open until a qualified replacement is published and linked; this condition does not authorize its closure. Finish preparation locally and request explicit approval before upstream publication. The [selected package](PUBLICATION-RECONCILIATION-2026-10-20.md#decision-and-next-action) replaces the earlier separate-group publication plan; prior source/evidence boundaries remain intact.
+
 ## Publication organization — 2026-10-20 evening
 
 [Current reconciliation](PUBLICATION-RECONCILIATION-2026-10-20.md) supersedes earlier queue and remaining-scope claims: all stable contributors/merge resolutions, thirty-nine local branches, seventeen reports and fifteen accessible PRs are accounted for. The proposed plan is one umbrella tracking issue and one consolidated **draft** from qualified public integration `0533cbf`, with subsystem review boundaries and a smaller-split fallback. This is a reviewable alternative to the original separate-group publication plan, not permission to publish it. Existing canonical issues and PR history stay intact; #6/#7 are not proven resolved.

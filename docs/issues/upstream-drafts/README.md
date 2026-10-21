@@ -1,5 +1,9 @@
 # Upstream issue drafts and standalone branches
 
+## Selected flow — user questionnaire
+
+The user selected one umbrella tracking issue and one consolidated draft PR, keeping #25 open until a qualified replacement is published and linked. Preparation is local; upstream publication requires a separate approval. The [tracking issue](reliability-current-issue.md) and [PR prose](reliability-current-pr.md) are prepared and unsent. This selects the consolidated alternative described below without authorizing any issue/PR edit or closure.
+
 ## Current reconciliation — 2026-10-20 evening
 
 [Current publication inventory and recommendation](../PUBLICATION-RECONCILIATION-2026-10-20.md) supersedes older current-state claims below. Issue #22 is now closed without a new Main commit; only PR #25 is open/conflicting. Preserve #14/#24 as canonical and #6/#7 as unresolved incidents. All earlier bodies/hashes/test records retain their historical source.

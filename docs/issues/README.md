@@ -1,5 +1,9 @@
 # AirFlash implementation backlog
 
+## Selected next step — user questionnaire
+
+The user selected one consolidated draft PR plus one umbrella issue, with local preparation only and explicit approval before upstream publication. Keep #25 open until a qualified replacement is published and linked; no closure is authorized. [Selected package and reviewable drafts](PUBLICATION-RECONCILIATION-2026-10-20.md#decision-and-next-action) retain the audit's source, test and limitation boundaries.
+
 ## Current publication reconciliation — 2026-10-20 evening
 
 [The current reconciliation](PUBLICATION-RECONCILIATION-2026-10-20.md) checks all branches, all seventeen reports, all authors' stable commits and all accessible PRs. It confirms four open issues authored by ThatMarko (#6/#7/#14/#24), seven open repository issues, and only PR #25 open/conflicting at its old head. Issue #22 closed at 21:39 CDT without changing Main. Original A, scrolling, installer, C and F are integrated; the current A/C/F branches contain new follow-ups. Earlier observations below retain their own timestamps.
