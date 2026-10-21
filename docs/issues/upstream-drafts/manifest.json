@@ -14,11 +14,12 @@
     "consolidated_pr_draft": "reliability-current-pr.md",
     "consolidated_draft_sha256_lf": {
       "issue": "0ba3e819a68c5921ee59baffc30dc73859200622bfd1aa64698d67399b4cf567",
-      "pr": "7d5e65d706f856cc70e33bec8cc466ffcf2217e863e99e5aee806b9bc517d744"
+      "pr": "035e7668eb54a4d82458eb6eb14169286c7fd3859651b0245efe204f8282422e"
     },
     "review_guide": "reliability-current-pr.md#review-guide",
     "publication_state": "consolidated flow selected by user; locally prepared and unsent; upstream publication requires separate approval",
     "user_selection": {
+      "pr_title": "Improve AirFlash reliability, pairing and diagnostics",
       "flow": "one consolidated draft PR with one umbrella tracking issue",
       "pull_25_policy": "keep open until a qualified replacement is published and linked; closure not yet authorized",
       "authorization": "prepare locally; ask before upstream publication",

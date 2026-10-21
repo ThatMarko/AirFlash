@@ -1,4 +1,4 @@
-# Complete session, discovery and recovery safeguards
+# Improve AirFlash reliability, pairing and diagnostics
 
 Queued receiver work can outlive user intent, missing DNS completions can suppress retries, and terminal engine events can leave pairing input open. This change addresses those paths alongside owned mute recovery, exact input handling and bounded diagnostics.
 
