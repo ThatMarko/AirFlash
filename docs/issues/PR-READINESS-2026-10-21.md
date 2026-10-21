@@ -1,22 +1,50 @@
 # Consolidated PR readiness — 2026-10-21
 
-## History preparation — 2026-10-21
+## Linear review history — 2026-10-21
 
-Current upstream Main is still `439de626`; the qualified source remains `6c1e2ef`. The selected next step is a **new linear review branch** with focused subsystem commits, preserving the existing integration branch, every historical ref and all upstream contributors. New commits use truthful current metadata; original commit IDs and executions remain historical evidence. The final source tree and each intermediate commit will be checked before adopting the new head.
+New candidate **`bbe283c8e641b059370d07033622df65522c9d61`** is on **`codex/reliability-review`**, directly based on unchanged original stable `439de626`. Its nine linear commits preserve every implementation/test blob from qualified `6c1e2ef`. All nine clean checkpoints passed their complete Core suite and zero-warning Release build. New commits use truthful current metadata; the original 37-commit DAG, every older branch and all upstream contributors remain preserved.
 
-The live upstream inventory now has eight open issues (#6/#7/#14/#16/#24/#28/#30/#35) and only PR #25 open/conflicting. The new iPhone-wake dropout report #35 has no established root cause. Only #14 and #24 currently qualify for closing references after final acceptance; the other incidents/features remain separate. Upstream publication, #25 closure, merges and releases remain gated.
+The live upstream inventory now has eight open issues (#6/#7/#14/#16/#24/#28/#30/#35) and only PR #25 open/conflicting. The new iPhone-wake dropout report #35 has no established root cause. Source regressions and final qualification support #14/#24 closing references. The user now reports #6/#7 fixed in manual testing; tested build/duration/conditions are being confirmed before attributing those resolutions. The other incidents/features remain separate. Upstream publication, #25 closure, merges and releases remain gated.
 
 This is the current implementation and qualification overlay. Earlier dated audits, standalone heads, failures and execution receipts keep their original provenance. The selected publication package remains **Improve AirFlash reliability, pairing and diagnostics**: one umbrella tracking issue and one consolidated draft PR. Upstream publication and closing #25 still require explicit authorization.
 
 ## Source and publication boundary
 
-Candidate **`6c1e2ef4fd59afb9397fd070df2556fe300eddf2`** is on `codex/desktop-qualification` and `codex/integrate-current-stable`, based on original stable **`439de6260e01efbfca528a12cf4d4c1010b3583e`**. Both feature heads are normally pushed to the own fork and their exact remote hashes were checked. The public diff has **80 files (+15,214/-767)** and **37 outgoing commits**, including 11 integration merges. All 37 commit trees and the resolved diff exclude fork-only analysis/issues/planning/artifact material. All older branches, tips, worktrees and evidence remain preserved.
+The code-only review diff is **75 files (+15,047/-755)** in **nine commits, zero merges**. All nine complete trees and their diffs exclude fork-only planning/artifact material and contain no documentation changes. Upstream Main is an exact ancestor, retaining the other authors' stable work. Normal own-fork push has been verified at `bbe283c`.
 
-Fresh upstream still has only PR #25 open, conflicting at old `234167b`; authored open issues are #6/#7/#14/#24, with #16/#28/#30 also open across other authors. Original A, scrolling, installer refresh, C and F integrations remain distinguished from new follow-ups. The [all-author/branch reconciliation](PUBLICATION-RECONCILIATION-2026-10-20.md) retains the complete inventory; its old current-candidate and local-raster observations are superseded here.
+The user explicitly selected **all documentation changes on fork Main only**. Therefore `docs/` and `installer/README.md` on the new branch match original stable unchanged. Exactly five old-to-new document differences are intentional: discovery diagnostics, mute recovery, preview notes, releasing and installer README. Every other tracked Git blob matches qualified `6c1e2ef` exactly; whole-tree identity is deliberately not claimed. Old `codex/desktop-qualification` and `codex/integrate-current-stable` stay at `6c1e2ef`, preserving all 37 original commits, their merge resolutions and earlier execution provenance.
+
+Fresh upstream still has only PR #25 open, conflicting at old `234167b`; authored open issues are #6/#7/#14/#24, with #16/#28/#30/#35 also open across other authors. Original A, scrolling, installer refresh, C and F integrations remain distinguished from new follow-ups. The [all-author/branch reconciliation](PUBLICATION-RECONCILIATION-2026-10-20.md) retains the complete inventory; its old current-candidate and local-raster observations are superseded here.
 
 The [issue](upstream-drafts/reliability-current-issue.md) and [PR](upstream-drafts/reliability-current-pr.md) drafts are unsent and retain eight acceptance/review sections. #14/#24 remain canonical reports; #6/#7 are incidents whose causes and resolution are not established by these changes. Keep #25 open through any separately authorized qualified replacement/linking step; no closure is authorized by preparation alone.
 
-## New source-confirmed repairs
+## Linear commits and intermediate qualification
+
+| Order / scope | New commit | Core passed at this exact clean checkpoint |
+| --- | --- | ---: |
+| 1 / package boundaries and host selection | `a30c050` | 403 |
+| 2 / loaded settings shape | `46f4f8d` | 422 |
+| 3 / terminal IPC query consumers | `3be9fbb` | 472 |
+| 4 / DNS lifetime and publication | `c4c292a` | 587 |
+| 5 / diagnostics and capture padding | `7e7ecb8` | 621 |
+| 6 / owned mute recovery | `9cd4338` | 726 |
+| 7 / session intent and owned settings | `039dd84` | 884 |
+| 8 / authentication errors and complete input | `4334e6e` | 1,016 |
+| 9 / shared desktop verification | `bbe283c` | 1,016 |
+
+Every row has zero failures/skips and a locked Release build with zero warnings/errors using selected SDK 10.0.402 from `desktop`. The eight behavior review sections remain; the ninth commit contains shared actual-control, routing and page-access assertions. All 26 original nonmerge commit IDs map once to these nine scopes. Original merge-resolved code is retained exactly. Independent history review confirmed ancestry, messages, dates, per-commit boundaries, TRX counters and source-tree identities.
+
+Fresh final-head Python passed **173**, with one Windows symlink-privilege skip. Exact-source [desktop 39630589971](https://github.com/ThatMarko/AirFlash/actions/runs/39630589971) and [headless 39630594304](https://github.com/ThatMarko/AirFlash/actions/runs/39630594304) both **passed** for `bbe283c`, distinct from workflow carrier `abb0883`:
+
+- Desktop: **18 cells / 11,386 assertions**, seven full regional cells and clipboard; all **248** initial/final source-byte entries equal the frozen clean checkout. Archive/report/mode/culture and stable apphost/DLL checks pass. Observed DPI 96 / scale 1.
+- Headless: **1,016 Core / 174 Python / 105 native**, zero Core/Python skips and two intentional native ignores (physical recording endpoint and thirty-minute localhost soak). Locked Release builds, Ruff, Clippy and static checks pass. All 248 initial source entries match; its final control is HEAD/tracked status, not a second full-byte map.
+- Desktop artifact **12360595412** SHA-256 `4897d624d3f78076115f202a46198280d9522e841f420eb8b5beb0d5302e8b8e`; headless artifact **12360545000** SHA-256 `6414749e4a6ee55312b82e6558186999316861647f459f47fd4ae44f4b20b964`. Both ZIPs and every extracted file were verified.
+
+The first desktop artifact verifier failed only when summing OrderedDictionary records. Original checker, raw artifact and failed receipt remain preserved. A separately frozen v2 projects numeric counts and writes a new review directory; its negative controls and full artifact verification pass without runtime changes, CI rerun or redownload. A lead wrapper initially used v1's manifest field name against v2; a separate strict check confirms all 16 frozen v1/v2 files match their pre-execution READY hashes. Prior executions below retain their recorded source; no result is relabelled by history cleanup.
+
+The user reports #6/#7 fixed in manual testing. Exact tested build, duration and previous trigger conditions are awaiting clarification before assigning those resolutions to this package; no agent-operated device probe was performed.
+
+## Repairs retained from the qualified source
 
 | Commit | Behavior and decisive evidence |
 | --- | --- |
@@ -41,7 +69,7 @@ The settings context is captured under the application settings gate and project
 | G / 13 | Durable intent/lease/ownership and conservative unresolved recovery remain. Eight additional mismatched-endpoint cases pass within full Core; focused recovery passes 103. No real endpoint or physical power-loss qualification. [G acceptance](GROUP-G-ACCEPTANCE.md). |
 | H / 15,16,17 | Monitor copy/optional padding counters and localization cleanup remain. Focused diagnostics passes 73; new page-end checks cover the final explanation's viewport access. Native shared-pull accounting tree is unchanged. [H acceptance](GROUP-H-ACCEPTANCE.md). |
 
-## Actual verification
+## Earlier verification retained at its recorded source
 
 - Fresh unchanged `0533cbf` baseline: forced locked restore, zero-warning/error Release solution build and **965 Core**, zero skips. This distinguishes inherited behavior from new regressions.
 - Exact clean final commit **`6c1e2ef`**: forced locked restore, **1,016 Core**, zero skips, and Release solution build with **zero warnings/errors** on selected SDK **10.0.402**, resolved from `desktop/global.json` (`10.0.100/latestFeature`). Generated application revision metadata also identifies `6c1e2ef`. The earlier precommit candidate had independently passed the same owning suite; its receipts remain retained.
@@ -63,4 +91,4 @@ The selected SDK's first-run output reported installing an ASP.NET Core HTTPS de
 
 Physical DPI/multimonitor, Windows 10, real receiver/audio/network reliability and physical power-loss durability remain unqualified. Four inherited Rust formatting files, 152 unconfirmed static imports and two intentional native device/soak ignores keep their earlier evidence boundaries. Standalone B/E packaging gaps remain separate from the selected combined source.
 
-Hosted evidence is verified and fork Main contains the candidate with identical desktop/native/scripts/tests/installer trees; documentation remains separate from both public branches. Final fork synchronization hashes are recorded in the ignored handoff. The next user decision is upstream publication of the concrete umbrella issue and consolidated draft PR. Do not close/reopen existing upstream items, merge or release as part of preparation.
+Earlier hosted evidence remains verified at its recorded source. Fork Main retains the operational documentation and identical implementation blobs; the new review branch deliberately preserves upstream documentation unchanged. Exact-new-head CI verification is complete; finish final prose/attribution review before requesting upstream publication of the concrete umbrella issue and consolidated draft PR. Do not close/reopen existing upstream items, merge upstream PRs or release as part of preparation.

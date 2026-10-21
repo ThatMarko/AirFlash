@@ -1,14 +1,14 @@
 # AirFlash completed implementation and publication plan
 
-## History preparation — 2026-10-21
+## Linear review history — 2026-10-21
 
-Current upstream Main is still `439de626`; the qualified source remains `6c1e2ef`. The selected next step is a **new linear review branch** with focused subsystem commits, preserving the existing integration branch, every historical ref and all upstream contributors. New commits use truthful current metadata; original commit IDs and executions remain historical evidence. The final source tree and each intermediate commit will be checked before adopting the new head.
+New code-only review branch **`codex/reliability-review` at `bbe283c`** starts from unchanged original stable `439de626`. Nine linear commits retain every implementation/test blob from qualified `6c1e2ef`; all nine clean checkpoints pass their complete Core suite and a zero-warning Release build. The original 37-commit branches, all historical refs and upstream contributors remain preserved. All documentation changes stay on fork Main; the review branch inherits upstream documentation unchanged.
 
-The live upstream inventory now has eight open issues (#6/#7/#14/#16/#24/#28/#30/#35) and only PR #25 open/conflicting. The new iPhone-wake dropout report #35 has no established root cause. Only #14 and #24 currently qualify for closing references after final acceptance; the other incidents/features remain separate. Upstream publication, #25 closure, merges and releases remain gated.
+The live upstream inventory now has eight open issues (#6/#7/#14/#16/#24/#28/#30/#35) and only PR #25 open/conflicting. The new iPhone-wake dropout report #35 has no established root cause. Source regressions and final qualification support #14/#24 closing references. The user now reports #6/#7 fixed in manual testing; tested build/duration/conditions are being confirmed before attributing those resolutions. The other incidents/features remain separate. Upstream publication, #25 closure, merges and releases remain gated.
 
-## Current qualification — 2026-10-21
+## Earlier qualification — 2026-10-21, before history cleanup
 
-The selected combined candidate is now `6c1e2ef`; [current readiness and all eight acceptance sections](PR-READINESS-2026-10-21.md) record the owned-settings continuation repair, discovery diagnostic containment and fixture improvements. Exact-commit 1,016 Core, local preparation-snapshot 3,626 application assertions and exact-source hosted 18 cells / 11,386 assertions pass. Earlier source snapshots remain historical. The next action is approval for the prepared upstream issue and draft PR. Keep #25 open; do not repeat completed E–H or publish standalone B/E with their recorded packaging gaps.
+The candidate before history cleanup was `6c1e2ef`; [current readiness and all eight acceptance sections](PR-READINESS-2026-10-21.md) record the owned-settings continuation repair, discovery diagnostic containment and fixture improvements. Exact-commit 1,016 Core, local preparation-snapshot 3,626 application assertions and exact-source hosted 18 cells / 11,386 assertions pass. Earlier source snapshots remain historical. The next action is approval for the prepared upstream issue and draft PR. Keep #25 open; do not repeat completed E–H or publish standalone B/E with their recorded packaging gaps.
 
 ## Selected publication flow — user questionnaire
 

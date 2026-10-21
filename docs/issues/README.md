@@ -1,14 +1,14 @@
 # AirFlash implementation backlog
 
-## History preparation — 2026-10-21
+## Linear review history — 2026-10-21
 
-Current upstream Main is still `439de626`; the qualified source remains `6c1e2ef`. The selected next step is a **new linear review branch** with focused subsystem commits, preserving the existing integration branch, every historical ref and all upstream contributors. New commits use truthful current metadata; original commit IDs and executions remain historical evidence. The final source tree and each intermediate commit will be checked before adopting the new head.
+New code-only review branch **`codex/reliability-review` at `bbe283c`** starts from unchanged original stable `439de626`. Nine linear commits retain every implementation/test blob from qualified `6c1e2ef`; all nine clean checkpoints pass their complete Core suite and a zero-warning Release build. The original 37-commit branches, all historical refs and upstream contributors remain preserved. All documentation changes stay on fork Main; the review branch inherits upstream documentation unchanged.
 
-The live upstream inventory now has eight open issues (#6/#7/#14/#16/#24/#28/#30/#35) and only PR #25 open/conflicting. The new iPhone-wake dropout report #35 has no established root cause. Only #14 and #24 currently qualify for closing references after final acceptance; the other incidents/features remain separate. Upstream publication, #25 closure, merges and releases remain gated.
+The live upstream inventory now has eight open issues (#6/#7/#14/#16/#24/#28/#30/#35) and only PR #25 open/conflicting. The new iPhone-wake dropout report #35 has no established root cause. Source regressions and final qualification support #14/#24 closing references. The user now reports #6/#7 fixed in manual testing; tested build/duration/conditions are being confirmed before attributing those resolutions. The other incidents/features remain separate. Upstream publication, #25 closure, merges and releases remain gated.
 
-## Implementation and PR readiness — 2026-10-21
+## Earlier qualification — 2026-10-21, before history cleanup
 
-[Current readiness](PR-READINESS-2026-10-21.md) binds combined candidate `6c1e2ef`, five new reviewed commits, the eight-section acceptance overlay, 1,016 exact-commit Core and 3,626 local preparation-snapshot assertions. Exact-source hosted validation passes 18 cells / 11,386 assertions with all 249 source files unchanged. It supersedes older current-candidate and blanket local-raster-failure statements below: a full GUI run now passes, while earlier unexplained raster failures remain explicit. Public branches and all 37 outgoing trees exclude fork-only material. Upstream publication and #25 closure remain gated.
+Before the history cleanup, [readiness](PR-READINESS-2026-10-21.md) bound candidate `6c1e2ef`, five reviewed commits, the eight-section acceptance overlay, 1,016 exact-commit Core and 3,626 local preparation-snapshot assertions. Exact-source hosted validation passes 18 cells / 11,386 assertions with all 249 source files unchanged. It supersedes older current-candidate and blanket local-raster-failure statements below: a full GUI run now passes, while earlier unexplained raster failures remain explicit. Public branches and all 37 outgoing trees exclude fork-only material. Upstream publication and #25 closure remain gated.
 
 ## Selected next step — user questionnaire
 

@@ -1,16 +1,22 @@
-# Upstream issue drafts and standalone branches
+# Upstream issue drafts and prepared review branches
 
 ## Current prepared package — 2026-10-21
 
-The [issue](reliability-current-issue.md) and [PR](reliability-current-pr.md) now both use **Improve AirFlash reliability, pairing and diagnostics** and exact candidate `6c1e2ef`. [Current readiness](../PR-READINESS-2026-10-21.md) records the five new commits, 1,016 exact-commit Core, 3,626 local preparation-snapshot assertions, 18 exact-source hosted cells / 11,386 assertions and retained limitations. Eight review sections and separate subsystem history remain. These bodies are unsent; keep #25 open and request approval before upstream publication.
+The selected [issue](reliability-current-issue.md) and [PR](reliability-current-pr.md) use **Improve AirFlash reliability, pairing and diagnostics**, now targeting `ThatMarko:codex/reliability-review` at **`bbe283c8e641b059370d07033622df65522c9d61`**, based on upstream **`439de626`**. The review branch has **nine linear commits**, with eight behavior sections and a ninth shared-verification section, and a **75-file (+15,047/-755)** code-only diff.
 
-## Selected flow — user questionnaire
+The eight behavior commits are A `a30c050`, C `46f4f8d`, F `3be9fbb`, D `c4c292a`, H `7e7ecb8`, G `9cd4338`, B `039dd84` and E `4334e6e`; shared fixtures finish at `bbe283c`. Every checkpoint passes a clean warning-free Release solution build and its available Core suite (403 / 422 / 472 / 587 / 621 / 726 / 884 / 1,016 / 1,016). Final Python passes 173 with one symlink-privilege skip.
 
-The user selected one umbrella tracking issue and one consolidated draft PR, keeping #25 open until a qualified replacement is published and linked. Preparation is local; upstream publication requires a separate approval. The [tracking issue](reliability-current-issue.md) and [PR prose](reliability-current-pr.md) are prepared and unsent. This selects the consolidated alternative described below without authorizing any issue/PR edit or closure.
+All non-documentation blobs match qualified `6c1e2ef`. **All documentation changes stay on fork Main**, including operational docs and installer documentation; the new branch retains upstream documentation unchanged. Therefore the new whole Git tree deliberately differs from `6c1e2ef`. The original 37-commit integration history and existing branches remain preserved; no published history is force-rewritten. Upstream contributors' existing commits are retained by the new stable base.
 
-The next preparation choice is to polish those descriptions, retain the existing subsystem commits and include an eight-section review guide in the PR body. Run targeted checks after changes and broader checks before publication. Documentation edits do not requalify runtime behavior or require repeating unchanged runtime suites.
+Fresh exact-head [desktop](https://github.com/ThatMarko/AirFlash/actions/runs/39630589971) and [headless/native](https://github.com/ThatMarko/AirFlash/actions/runs/39630594304) qualification **passed** for input `bbe283c`, carried by fork Main `abb0883`: 18 desktop cells / 11,386 assertions and 1,016 Core / 174 Python / 105 native, with two intentional native ignores. Artifact digests, reports and source identities are verified. Desktop has full before/after byte maps; headless has an initial full map and final HEAD/tracked-status control. The [readiness record](../PR-READINESS-2026-10-21.md) retains original failures, source-bound evidence and limits.
 
-The [eight-section review guide](reliability-current-pr.md#review-guide) is embedded directly in the PR description and links exact candidate code/tests and existing commits. Shared integration resolutions and later harness fixes are identified separately. At authorized publication, refresh Main/evidence, link the actual umbrella issue from the PR and retain #25; do not insert private planning links or infer closure of incident #6/#7.
+## Selected publication flow
+
+Prepare one umbrella tracking issue and one consolidated **draft** PR. Both bodies remain unsent; upstream publication still requires explicit approval. Keep #25 open and preserve its published history until a separately authorized replacement/linking decision; preparation does not authorize closure.
+
+Exact-head qualification now supports the prepared **Fixes #14** and **Fixes #24** relationships, plus the actual new umbrella issue number once one exists. The author now reports #6/#7 fixed in manual testing; identifying the tested build and conditions remains necessary before attributing those resolutions or adding their closing references. Incidents #16/#35, configured-pair completeness #28 and media-key volume #30 remain separate scope. No upstream item has been modified.
+
+The [nine-commit review guide](reliability-current-pr.md#review-guide) preserves eight behavior boundaries with code/test anchors and a separate shared-fixture commit. At publication refresh upstream Main, the exact head and actual CI results. Do not include fork planning links or treat old per-group drafts, hashes or open-PR ancestry as current integrated proof. Historical entries below retain their recorded source and publication states.
 
 ## Current reconciliation — 2026-10-20 evening
 
