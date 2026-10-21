@@ -307,7 +307,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
             var row = Receivers.FirstOrDefault(r => r.Receiver.Id == receiver.Id);
             if (row is null)
             {
-                row = new(receiver, options, current => PairRequested?.Invoke(current), () => RemoveManual(receiver.Id), () => CanEdit, () => App.EngineReady && !App.IsClosing, App);
+                row = new(receiver, options, current => PairRequested?.Invoke(current), () => RemoveManual(receiver.Id), () => CanEdit, () => App.EngineReady && App.MuteReady && !App.IsClosing, App);
                 row.GroupRate = () => Draft.SoftwareGroups.FirstOrDefault(g => g.LeftId == row.Receiver.Id || g.RightId == row.Receiver.Id)?.SampleRate;
                 Receivers.Insert(index, row);
             }
