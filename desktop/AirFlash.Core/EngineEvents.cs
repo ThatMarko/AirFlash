@@ -1,6 +1,23 @@
 using System.Text.Json;
 namespace AirFlash.Core;
 
+// Direct replies belong to the queried child. Session event filtering remains
+// separate; only the defined process-owned rejection bypasses correlation.
+public static class EngineResponses
+{
+    public static void ThrowIfRejected(JsonElement item)
+    {
+        if (EngineEvents.IsProcessRejection(item)) throw new EngineFailure(EngineNotice.Parse(item));
+    }
+
+    public static async ValueTask<JsonElement?> ReadAsync(IEngineConnection connection, CancellationToken cancellation)
+    {
+        var item = await EngineEvents.ReadAsync(connection, cancellation).ConfigureAwait(false);
+        if (item is { } reply) ThrowIfRejected(reply);
+        return item;
+    }
+}
+
 // A command process owns its empty-correlated terminal rejection. Ordinary events
 // still belong to their session; missing fields must not match through defaults.
 internal static class EngineEvents
