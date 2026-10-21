@@ -1,5 +1,6 @@
 using AirFlash.App.Services;
 using AirFlash.Core;
+using System.Diagnostics;
 using Xunit;
 namespace AirFlash.Tests;
 
@@ -723,6 +724,73 @@ public sealed class DiscoveryLifecycleTests
         Assert.Equal("10.0.0.2", Assert.Single(fixture.Catalog).Address);
     }
 
+    [Theory]
+    [InlineData("log")]
+    [InlineData("catalog")]
+    [InlineData("failure")]
+    public void ThrowingTraceFallbackCannotAbandonPublicationOrDeferredNativeWork(string channel)
+    {
+        var marker = "synthetic-discovery-trace-" + Guid.NewGuid().ToString("N");
+        using var fixture = new Fixture(_ =>
+        {
+            if (channel == "log") throw new InvalidOperationException(marker + " log observer");
+        });
+        fixture.Dns.SettleOnCancel = false;
+        fixture.Dns.OnCreated = operation => operation.CancelStatus = 5;
+        fixture.Adapters = [new("wifi", "Wi-Fi", "Physical", "10.0.0.3", true, 17)];
+        fixture.Discovery.Changed += _ =>
+        {
+            if (channel == "catalog") throw new InvalidOperationException(marker + " catalog observer");
+        };
+        fixture.Discovery.Failed += _ =>
+        {
+            if (channel == "failure") throw new InvalidOperationException(marker + " failure observer");
+        };
+        var cancellationDiagnostics = 0;
+        fixture.Discovery.Failed += _ => cancellationDiagnostics++;
+        var laterCatalogs = 0;
+        var publishedAddresses = new List<string>();
+        var restarted = false;
+        fixture.Discovery.Changed += receivers =>
+        {
+            laterCatalogs++;
+            publishedAddresses.AddRange(receivers.Select(receiver => receiver.Address));
+            if (restarted || receivers.Count == 0) return;
+            restarted = true;
+            fixture.Discovery.SetInterface("wifi");
+        };
+        var trace = new ThrowingDiscoveryTraceListener(marker);
+        try
+        {
+            // Match only this fixture's unique messages; parallel tests keep
+            // their own trace listeners and never trigger this injected failure.
+            Trace.Listeners.Add(trace);
+            fixture.StartAndAnnounce();
+            var error = Xunit.Record.Exception(() => fixture.Dns.Resolves[0].Resolved(0, Record("10.0.0.1")));
+            Assert.True(trace.ThrowCount > 0, "The secondary trace sink must actually throw.");
+            Assert.Null(error);
+            Assert.Equal(new[] { "10.0.0.1" }, publishedAddresses);
+            Assert.True(restarted, "Fallback failure must not skip a later catalog subscriber.");
+            Assert.Equal(3, cancellationDiagnostics);
+            Assert.Equal(5, fixture.Discovery.Snapshot.NativeOwners);
+            Assert.All(fixture.Dns.Browses.Take(2), operation => Assert.Equal(1, operation.CancelCalls));
+            Assert.All(fixture.Dns.Browses.Skip(2), operation => Assert.Equal(1, operation.StartCalls));
+            Assert.Equal(2, laterCatalogs);
+            fixture.Announce();
+            fixture.Dns.Resolves[^1].Resolved(0, Record("10.0.0.2"));
+            Assert.Equal(1, fixture.Discovery.Snapshot.CachedRecords);
+            Assert.Equal("10.0.0.2", Assert.Single(fixture.Catalog).Address);
+            Assert.Equal(new[] { "10.0.0.1", "10.0.0.2" }, publishedAddresses);
+            Assert.Equal(3, laterCatalogs);
+            Assert.Equal(4, cancellationDiagnostics);
+        }
+        finally
+        {
+            Trace.Listeners.Remove(trace);
+            trace.Dispose();
+        }
+    }
+
     [Fact]
     public void QueuedCancellationFailureIsReportedForRetainedOwnerAndIgnoredAfterSettlementOrDispose()
     {
@@ -905,6 +973,20 @@ public sealed class DiscoveryLifecycleTests
         }
         finally { release.Set(); }
         await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    private sealed class ThrowingDiscoveryTraceListener(string marker) : TraceListener
+    {
+        private int _throws;
+        public int ThrowCount => Volatile.Read(ref _throws);
+        public override void Write(string? message) => ThrowIfTagged(message);
+        public override void WriteLine(string? message) => ThrowIfTagged(message);
+        private void ThrowIfTagged(string? message)
+        {
+            if (message?.Contains(marker, StringComparison.Ordinal) != true) return;
+            Interlocked.Increment(ref _throws);
+            throw new InvalidOperationException("Synthetic trace listener failure: " + marker);
+        }
     }
 
     private sealed class Fixture : IDisposable
