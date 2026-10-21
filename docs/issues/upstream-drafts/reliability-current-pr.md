@@ -7,7 +7,7 @@ Base: `Ding-Kyoma:main` at `439de6260e01efbfca528a12cf4d4c1010b3583e`. Head: `Th
 Fixes #14.
 Fixes #24.
 
-This includes the updated authentication scope originally proposed in #25, which remains open. The author reports that #6/#7 are now fixed in manual testing; the tested build and conditions are being confirmed before attributing their resolution to this PR. Incidents #16/#35 have no established root-cause relationship to these changes. Configured-pair completeness (#28) and media-key volume (#30) are separate scope.
+This includes the updated authentication scope originally proposed in #25, which remains open. The author considers #6/#7 fixed after a few days on [fork v0.4.1](https://github.com/ThatMarko/AirFlash/releases/tag/v0.4.1) (`fb6721d`), explicitly reporting no disconnects. That is field evidence for the older fork build, not manual qualification of this refreshed head or an isolated crackle cause. Separate status updates preserve that distinction. Incidents #16/#35 have no established root-cause relationship to these changes. Configured-pair completeness (#28) and media-key volume (#30) are separate scope.
 
 Upstream contributors' software stereo, application capture/standby, schema-4 settings, receiver profiles/rates, password pairing and language catalogs are retained. Already-integrated SDK preflight, scrolling, installer refresh, configuration recovery, passive transport retention and native IPC/EQ results remain intact. The sections below describe the remaining fixes and additions.
 
