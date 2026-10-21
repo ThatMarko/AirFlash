@@ -26,6 +26,20 @@ Installer lifecycle tests run only in the disposable GitHub runner. First releas
 
 Local agent instructions, worktree hooks and history backups are deliberately not distributed. They live only in the maintainer's Git common directory and ignored files.
 
+## Own-fork preview artifacts
+
+The fork's **Fork integration validation** workflow can build a runnable preview from an exact Main commit without reserving a version, pushing tags or creating a GitHub Release:
+
+```powershell
+gh workflow run fork-integration-validation.yml --repo ThatMarko/AirFlash --ref main -f source_commit=<full-main-commit> -f package_version=6.0.0 -f package_channel=preview -f complete_ui_matrix=true
+```
+
+Use the actual full Main SHA in place of the placeholder. The defaults remain the unreserved 0.3.1 validation package in the stable filename format. Selecting `preview` produces `AirFlash.exe`, `AirFlash-6.0.0-rc.1.msi`, checksums and a source manifest in the successful run's artifact. EXE/assembly/MSI numeric versions are 6.0.0; informational metadata carries the preview suffix and source SHA, and the application displays Preview. Numeric inputs are checked before SDK/dependency/native/package work, including the assembly-version build limit and the installer's lower-predecessor requirement. Artifact retention is fourteen days.
+
+Review history `bbe283c` was merged into fork Main at `f8472e5` without changing the existing Main tree. The public review branch remains unchanged; this workflow and documentation stay on fork Main. The build tests fake services and installation only on the disposable runner; downloading its artifact does not install or launch anything on the local computer.
+
+An ordinary portable launch shares the installed application's profile. Close the running application and preserve the old configuration before a manual comparison: saving migrated schema-4 settings prevents the older schema-2 fork release from loading that configuration. Native credentials and the mute journal have independent per-user locations. Do not restore a journal backup as a configuration rollback. A numeric 6.0.0 MSI also prevents a later lower-numbered MSI upgrade until it is uninstalled; the portable EXE avoids that installer registration change.
+
 ## Single-NIC discovery preview
 
 Keep the feature on `codex/nic-discovery-preview` and open a PR against `main`; do not merge until users validate it. Dispatch the existing **Release** workflow with branch `codex/nic-discovery-preview` (`gh workflow run release.yml --ref codex/nic-discovery-preview`). The selected branch is the explicit preview channel; `main` remains the stable channel. The preview branch's workflow reserves the next numeric version (including any previous preview reservations), runs the same tests, builds and verifies the EXE/MSI, checks installer lifecycle in a disposable runner, and uploads an artifact named `airflash-preview-<version>-<sha>`. A failed attempt consumes its reserved version; fix the branch and dispatch again for a new one.

@@ -22,6 +22,17 @@ on:
         required: false
         default: true
         type: boolean
+      package_version:
+        description: Unreserved numeric package version; does not publish or reserve a release
+        required: false
+        default: '0.3.1'
+        type: string
+      package_channel:
+        description: Artifact flavor only; preview displays the rc.1 suffix
+        required: false
+        default: stable
+        type: choice
+        options: [stable, preview]
 permissions:
   contents: read
 jobs:
@@ -35,7 +46,8 @@ jobs:
       DOTNET_NOLOGO: '1'
       DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
       # Unreserved test-package version, not a stable release or repository version change.
-      VALIDATION_VERSION: '0.3.1'
+      VALIDATION_VERSION: ${{ inputs.package_version || '0.3.1' }}
+      PACKAGE_CHANNEL: ${{ inputs.package_channel || 'stable' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -44,7 +56,14 @@ jobs:
       - name: Verify requested source
         shell: pwsh
         run: |
-          if ($env:SOURCE_COMMIT -cnotmatch '^[0-9a-f]{40}$' -or (git rev-parse HEAD).Trim() -cne $env:SOURCE_COMMIT) { throw 'An exact source checkout is required.' }
+          if ($env:SOURCE_COMMIT -cnotmatch '\A[0-9a-f]{40}\z' -or (git rev-parse HEAD).Trim() -cne $env:SOURCE_COMMIT) { throw 'An exact source checkout is required.' }
+          # Inputs remain data and must fail before SDK/dependency/native/package work.
+          if ($env:VALIDATION_VERSION -cnotmatch '\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z') { throw 'Package version must be canonical X.Y.Z.' }
+          . ./scripts/build-package.ps1
+          $null = Get-AirFlashReleaseArtifactVersion -Version $env:VALIDATION_VERSION -ReleaseChannel $env:PACKAGE_CHANNEL
+          $numericVersion = [Version]$env:VALIDATION_VERSION
+          if ($numericVersion.Build -gt 65534) { throw 'Package build component must fit AssemblyVersion (0..65534).' }
+          if ($numericVersion -eq [Version]'0.0.0') { throw 'Installer lifecycle requires a version with a lower test predecessor.' }
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: '10.0.x'
@@ -84,7 +103,9 @@ jobs:
           $root = (Get-Location).Path
           $publish = Join-Path $root 'artifacts/fork-integration/publish'
           $version = $env:VALIDATION_VERSION
-          $info = "$version-fork-validation.$env:SOURCE_COMMIT"
+          . ./scripts/build-package.ps1
+          $artifactVersion = Get-AirFlashReleaseArtifactVersion -Version $version -ReleaseChannel $env:PACKAGE_CHANNEL
+          $info = if ($env:PACKAGE_CHANNEL -eq 'preview') { "$artifactVersion+fork-validation.$env:SOURCE_COMMIT" } else { "$version-fork-validation.$env:SOURCE_COMMIT" }
           ./scripts/dotnet.ps1 publish (Join-Path $root 'desktop/AirFlash.App/AirFlash.App.csproj') -c Release -r win-x64 --self-contained true '-p:RestoreLockedMode=true' '-p:IncludeNativeLibrariesForSelfExtract=true' '-p:PublishTrimmed=false' '-p:EnableCompressionInSingleFile=true' '-p:DebugType=None' '-p:DebugSymbols=false' "-p:PathMap=$root=/_/" "-p:Version=$version" "-p:InformationalVersion=$info" "-p:FileVersion=$version.0" "-p:AssemblyVersion=$version.0" -o $publish
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Path dist -Force | Out-Null
@@ -99,12 +120,12 @@ jobs:
           $audit | Add-Member -NotePropertyName published_exe_sha256 -NotePropertyValue $packageHash -Force
           $audit | Add-Member -NotePropertyName published_version -NotePropertyValue $version -Force
           $audit | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $auditPath -Encoding utf8
-          ./scripts/build-installer.ps1 -PublishPath $publish -OutputPath dist
+          ./scripts/build-installer.ps1 -PublishPath $publish -OutputPath dist -ProductVersion $version -ArtifactVersion $artifactVersion
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           . ./scripts/dotnet-common.ps1
           $context = Get-AirFlashDotnetContext -RepoRoot $root
           $explicit = Join-Path $root 'artifacts/fork-integration/explicit-installer'
-          ./scripts/build-installer.ps1 -PublishPath $publish -OutputPath $explicit -DotnetPath $context.Path
+          ./scripts/build-installer.ps1 -PublishPath $publish -OutputPath $explicit -DotnetPath $context.Path -ProductVersion $version -ArtifactVersion $artifactVersion
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           if (@(Get-ChildItem -LiteralPath $explicit -Filter 'AirFlash-*.msi').Count -ne 1) { throw 'Expected one explicit-host MSI.' }
           # A real runtime-only override must reject before creating installer output.
@@ -117,7 +138,7 @@ jobs:
           Copy-Item -LiteralPath (Join-Path $hostRoot 'shared/Microsoft.NETCore.App') -Destination (Join-Path $runtime 'shared') -Recurse
           $rejectedOutput = Join-Path $root 'artifacts/fork-integration/rejected-installer'
           $rejected = $false
-          try { ./scripts/build-installer.ps1 -PublishPath $publish -OutputPath $rejectedOutput -DotnetPath (Join-Path $runtime 'dotnet.exe') }
+          try { ./scripts/build-installer.ps1 -PublishPath $publish -OutputPath $rejectedOutput -DotnetPath (Join-Path $runtime 'dotnet.exe') -ProductVersion $version -ArtifactVersion $artifactVersion }
           catch { if ($_.Exception.Message -notmatch 'cannot resolve the SDK') { throw }; $rejected = $true }
           if (-not $rejected -or (Test-Path -LiteralPath $rejectedOutput)) { throw 'Runtime-only installer did not reject before output creation.' }
           exit 0
@@ -126,7 +147,7 @@ jobs:
         run: ./scripts/test-installer-refresh.ps1 -PublishedExe artifacts/fork-integration/publish/AirFlash.exe
       - name: Verify package and embedded native hello
         shell: pwsh
-        run: ./scripts/verify-release.ps1 -Version $env:VALIDATION_VERSION
+        run: ./scripts/verify-release.ps1 -Version $env:VALIDATION_VERSION -ReleaseChannel $env:PACKAGE_CHANNEL
       - name: Qualify the exact portable UI with fake services
         if: github.event_name != 'workflow_dispatch' || inputs.complete_ui_matrix
         shell: pwsh
@@ -192,8 +213,11 @@ jobs:
           $sdk = Assert-AirFlashDotnetSdk -Context $context
           $files = @(Get-ChildItem -LiteralPath dist -File | Where-Object Extension -In @('.exe','.msi') | Sort-Object Name | ForEach-Object { @{ name = $_.Name; bytes = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } })
           $info = [Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path dist/AirFlash.exe)).ProductVersion
-          if (-not $info.StartsWith("$env:VALIDATION_VERSION-fork-validation.$sha", [StringComparison]::Ordinal)) { throw 'Package informational version differs from validation source.' }
-          $manifest = [ordered]@{ unofficial = $true; source_sha = $sha; workflow_sha = $env:GITHUB_SHA; repository = $env:GITHUB_REPOSITORY; ref = $env:GITHUB_REF; run_id = $env:GITHUB_RUN_ID; run_attempt = $env:GITHUB_RUN_ATTEMPT; validation_version = $env:VALIDATION_VERSION; informational_version = $info; dotnet_sdk = $sdk; rust = (rustc --version); files = $files; complete_ui_matrix = ('${{ github.event_name }}' -ne 'workflow_dispatch' -or '${{ inputs.complete_ui_matrix }}' -eq 'true'); limits = 'Unofficial exact-source package and disposable installer checks; consult step results for optional synthetic UI qualification. No release tag/reservation or real receiver test.' }
+          . ./scripts/build-package.ps1
+          $artifactVersion = Get-AirFlashReleaseArtifactVersion -Version $env:VALIDATION_VERSION -ReleaseChannel $env:PACKAGE_CHANNEL
+          $expectedInfo = if ($env:PACKAGE_CHANNEL -eq 'preview') { "$artifactVersion+fork-validation.$sha" } else { "$env:VALIDATION_VERSION-fork-validation.$sha" }
+          if (-not $info.StartsWith($expectedInfo, [StringComparison]::Ordinal)) { throw 'Package informational version differs from validation source.' }
+          $manifest = [ordered]@{ unofficial = $true; source_sha = $sha; workflow_sha = $env:GITHUB_SHA; repository = $env:GITHUB_REPOSITORY; ref = $env:GITHUB_REF; run_id = $env:GITHUB_RUN_ID; run_attempt = $env:GITHUB_RUN_ATTEMPT; validation_version = $env:VALIDATION_VERSION; package_channel = $env:PACKAGE_CHANNEL; artifact_version = $artifactVersion; informational_version = $info; dotnet_sdk = $sdk; rust = (rustc --version); files = $files; complete_ui_matrix = ('${{ github.event_name }}' -ne 'workflow_dispatch' -or '${{ inputs.complete_ui_matrix }}' -eq 'true'); limits = 'Unofficial exact-source package and disposable installer checks; consult step results for optional synthetic UI qualification. No release tag/reservation or real receiver test.' }
           $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath dist/validation-manifest.json -Encoding utf8
       - name: Preserve verified unofficial build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
