@@ -1,5 +1,10 @@
 # Desktop shell, startup and Windows integration
 
+## Desktop continuation — 2026-10-20
+
+Fork `5d43b04` isolates and rejects orphan/conflicting UI verification arguments before restart coordination and WPF startup. Program, App and the harness share tokenized option selection; values cannot dispatch real audio/discovery checks. The [desktop continuation](../issues/CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) records exact launch controls, actual modal terminal closure, restored Connecting/Stop presentation and remaining raster qualification limits.
+
+
 This page maps fork main at **`06237873dcb6394eb35e97a017c536843bd7743d`**, reviewed on 2026-10-12. It describes the ordinary WPF shell and its consumers beyond the issue fixes. Source and receipt boundaries are in [Audit](audit.md); [Settings](settings.md), [Session](session.md), [Discovery](discovery.md), and [owned mute recovery](control-and-mute.md) retain their subsystem contracts. This review reads source and existing assertions; it does not launch the application or touch user data.
 
 ## Shutdown correction — 2026-10-18

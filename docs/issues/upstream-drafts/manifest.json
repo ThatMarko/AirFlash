@@ -1,5 +1,43 @@
 {
   "original_stable": "cf420d97700463c56adc31408510e8336e99e51c",
+  "current_fork_qualification_2026_10_20": {
+    "original_stable": "439de6260e01efbfca528a12cf4d4c1010b3583e",
+    "integration": "0533cbff37cb7e0a2d0b80cee0d1aed48737ed15",
+    "report": "../CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md",
+    "core_passed": 965,
+    "core_skipped": 0,
+    "release_build_warnings": 0,
+    "local_final_desktop_cells": 6,
+    "local_final_desktop_assertions": 1394,
+    "hosted_desktop_run": "https://github.com/ThatMarko/AirFlash/actions/runs/39517562675",
+    "hosted_desktop_status": "success; archive/source/receipt review complete",
+    "hosted_desktop_cells": 18,
+    "hosted_desktop_assertions": 10914,
+    "hosted_source_files_unchanged": 247,
+    "current_unsent_pr_drafts": [
+      {
+        "group": "B",
+        "branch": "codex/refresh-session-lifecycle",
+        "head": "5749b74a2cf10c613f47f9a9ba4d9d7fb663f650",
+        "draft": "group-b-current-pr.md",
+        "core_passed_at_unchanged_core_parent": 521,
+        "core_qualified_commit": "ba64a8631081d5dae86d369ac7e60f7c02c627bc",
+        "standalone_desktop_cells": 3,
+        "standalone_desktop_assertions_each": 115
+      },
+      {
+        "group": "E",
+        "branch": "codex/refresh-auth-storage",
+        "head": "ed0347563a9119106e6afec2e67ff13cf276eca6",
+        "draft": "group-e-current-pr.md",
+        "core_passed": 535,
+        "standalone_desktop_executed": false,
+        "native_provenance": "Exact unchanged native tree from 932f7a5: 97 passed, two intentional ignores; no new native execution"
+      }
+    ],
+    "limits": "Local full raster remains failed; no physical DPI/multimonitor, Windows 10, real-device or power-loss qualification. No new upstream issue/PR edits, reopen, merge or release.",
+    "historical_records": "The earlier observation and records below preserve old source bases, published body hashes and executions. They are not current publication-ready heads or retested results. Revalidate every selected scope before separate publication authorization."
+  },
   "upstream_observation_2026_10_20": {
     "main": "439de6260e01efbfca528a12cf4d4c1010b3583e",
     "schema": 4,

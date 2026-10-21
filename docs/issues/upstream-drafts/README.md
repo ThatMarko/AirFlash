@@ -1,5 +1,11 @@
 # Upstream issue drafts and standalone branches
 
+## Current preparation — 2026-10-20 desktop continuation
+
+The [current implementation and desktop evidence](../CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) supersedes earlier remaining-work and branch claims below. Public integration is `0533cbf` on original `439de626`; B/E have refreshed standalone branches (`5749b74` / `ed03475`), while original PR #25 remains conflicting at its historical head. Four earlier current-base defects are repaired; new Connecting-publication, open-prompt terminal-event and password-contract repairs have controlled regressions. Local focused desktop checks pass and local full raster remains failed; hosted exact-source desktop qualification is recorded centrally. These are fork improvements, not new upstream publications. Installer's clean local branch now fast-forwards to origin `3e743666`; its old head is retained in ancestry. Revalidate selected branch/draft/actual checks before any separately authorized publication; do not reuse historical body hashes or test counts as current evidence.
+
+Current unsent PR descriptions: [session/receiver ownership](group-b-current-pr.md) and [pairing/credential errors](group-e-current-pr.md). These are reviewable local text only; no issue/PR edit, reopen or publication has occurred. Recheck the selected head and canonical issue relationship before separately authorized submission.
+
 ## Live publication update — 2026-10-20
 
 [Current integration verification](../UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) confirms #21/#27 merged, and #23 closed without direct merge while C reached Main through #34. Issue #22 remains open. E #25 conflicts against schema-4 stable `439de626`; old passing checks do not qualify a current merge. B #15 remains closed/unmerged; D/G/H remain unpublished. Dated manifest observations retain original body hashes/bases/results. Installer's remote advanced to `3e743666` by the maintainer; local `74cba07` is preserved. Do not overwrite that remote with the old tip.

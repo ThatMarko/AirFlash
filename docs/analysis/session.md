@@ -1,5 +1,10 @@
 # Session control
 
+## Desktop continuation — 2026-10-20
+
+Since fork `5d43b04`, selecting StreamRate publishes its current Connecting snapshot, so dispatcher reference rejection cannot strand the application in Idle. Pairing owns one pending event reader throughout PIN/password input, retains it across valid submission, and cancels/joins the prompt on terminal events. The [current regression and desktop evidence](../issues/CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) supersedes historical reader/publication limitations below; original stable remains `439de626`.
+
+
 This page describes fork `main` at **`06237873dcb6394eb35e97a017c536843bd7743d`**, reviewed on 2026-10-12, including original stable `cf420d97700463c56adc31408510e8336e99e51c`. Final B/F/G/H changes are integrated and pushed. [SessionController](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.Core/SessionController.cs) owns desktop playback; [AppViewModel](https://github.com/ThatMarko/AirFlash/blob/06237873dcb6394eb35e97a017c536843bd7743d/desktop/AirFlash.App/ViewModels/AppViewModel.cs) coordinates callers. Rust remains a separate JSONL process. [Audit](audit.md) defines qualification limits.
 
 ## Doors into the controller

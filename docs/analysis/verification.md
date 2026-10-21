@@ -1,5 +1,10 @@
 # Verification boundaries and evidence
 
+## Desktop continuation — 2026-10-20
+
+The user subsequently authorized desktop testing. [Current exact-source qualification](../issues/CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) binds final `0533cbf` to 965 Core tests and six local password/pairing/session/Monitor cells. The earlier fifteen local dispatcher/modal/settings/mute/Monitor/scrolling runs and successful 17-cell hosted matrix belong to `5d43b04`; final-source hosted qualification separately passes all 18 cells / 10,914 assertions with exact initial/final source bytes unchanged. Focused routes explicitly report mode and both cultures; invalid routes fail instead of falling into a different test. The local full-raster failure remains a failure. Prior compiled-only, unobserved-culture and headless-only records below are historical.
+
+
 ## Comprehensive audit supplement — 2026-10-18
 
 [Current comprehensive evidence](../issues/COMPREHENSIVE-VERIFICATION-2026-10-18.md) binds runtime merge `a1182b0` separately from starting Main `5c798ae` and older results below. New standalone B `d7782a3` adds 46 actual shared-shell assertions after a controlled older automatic Start/mute failure. Five existing diagnostic controls make the focused route 51; full B runs contain 810 and integrated runs 1,121. The same helper is called by App.Quit and the fake-service harness, covering its previously untested pre-disposal waits. Both SDKs pass 304 standalone / 677 combined Core. Public PR/issue information, native/package/clipboard/DNS provenance and limitations are recorded independently; CI diagnostics retrieval is not source review. Historical source/count receipts are not overwritten.

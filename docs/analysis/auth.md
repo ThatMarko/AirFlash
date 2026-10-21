@@ -1,5 +1,12 @@
 # Authentication
 
+## Desktop continuation — 2026-10-20
+
+The historical open-prompt event-reader limitation below is repaired on fork `5d43b04`: terminal IPC/scoped errors, EOF, malformed output, unexpected Stop and paired completion cancel/join the actual input prompt; successful input retains its pending reader. [Current evidence](../issues/CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) includes deterministic terminal-vs-input controls and real synthetic PIN/password dialogs. Clipboard cases execute only on the disposable fork runner. Native accessory-keyed current-user DPAPI/authentication selection is unchanged by this continuation.
+
+Fork `0533cbf` additionally preserves nonempty whitespace passwords according to the actual `password_required` event, irrespective of the advertised receiver flag. Dialog enablement and final submission share strict UTF-8 validation matching native `auth.rs`: 1–256 bytes, no CR/LF/NUL, no trimming or replacement of malformed UTF-16. The separate PasswordBox editing limit remains 128 UTF-16 units. WPF's plaintext getter truncates at NUL while the secure backing copy retains every character. Both paths therefore compare their UTF-16 lengths and reject a mismatch, disposing the copy; no prefix is submitted. Actual modal regressions assert both representations, disabled Pair and forced-submit rejection. Controlled pre-fix failures, exact fake payloads and current branch qualifications are bound in the same evidence report.
+
+
 Source reviewed on 2026-10-12 at own-fork `main` `06237873dcb6394eb35e97a017c536843bd7743d`, containing original stable `cf420d97700463c56adc31408510e8336e99e51c`. This page describes that integrated fork source, not an unmerged feature checkout or original upstream runtime.
 
 Playback still chooses one authentication method per connection. Group E makes the earlier credential lookup preserve errors and makes the PIN dialog submit the same normalized representation that it validates. It does not change the HAP pairing protocol, current-user DPAPI or accessory identity checks. E is integrated into this fork's main and remains separate from original stable publication.

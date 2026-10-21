@@ -2,11 +2,13 @@
 
 ## Current stable refresh — 2026-10-20
 
-[Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. New dispatcher/UI fixtures are compiled and source-reviewed only: desktop execution is explicitly deferred.
+[Current headless implementation and evidence](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) supersedes older branch/base and remaining-work claims below. The code follows original stable `439de626` and its schema-4 features; the linked report binds current branches, source, actual headless checks, reviews and limitations. The subsequent [desktop continuation](CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) records newly authorized executions, Connecting, modal-terminal and password-contract repairs, actual modal/dispatcher results and the remaining full-raster limitation. Earlier headless-only claims retain their historical source.
 
 Prior dated records retain their own executed provenance. Own-fork integration is not upstream integration or a release. New upstream publication, B reopening/replacement, upstream merges and releases still require explicit authorization.
 
-## Refresh required — 2026-10-20
+Current standalone `codex/refresh-auth-storage` is `ed0347563a9119106e6afec2e67ff13cf276eca6`: 535 Core tests and locked Release solution build pass without warnings/errors. It includes open-prompt terminal cleanup, actual-prompt password cancellation, shared strict UTF-8 password validation and rejection of truncated control values. Twelve whitespace-password cases fail before the Core correction with 29 controls, then all 41 focused pairing cases pass. Native source retains the earlier exact-source `932f7a5` qualification (97 passed, two ignored). Integrated actual dialog/payload checks and exact-source hosted results are recorded separately in the current report; the standalone build is not relabeled as a desktop execution. The existing upstream PR #25 remains at its old conflicting head; [the current PR draft](upstream-drafts/group-e-current-pr.md) is unsent.
+
+## Earlier refresh investigation — 2026-10-20 (superseded above)
 
 PR #25 remains open and now conflicts with stable `439de626`. [Current investigation](UPSTREAM-INTEGRATION-VERIFICATION-2026-10-20.md) finds dashed ASCII PIN formatting independently fixed upstream, with new password dialog/authentication consumers to preserve. Refresh error-preserving lookup for both HAP credentials and stored passwords; old branch checks below do not qualify a current-base merge. No refreshed implementation is claimed.
 

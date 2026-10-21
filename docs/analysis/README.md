@@ -1,5 +1,10 @@
 # AirFlash on the fork's main branch
 
+## Desktop continuation — 2026-10-20
+
+The [desktop continuation](../issues/CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md#desktop-continuation--2026-10-20) records final fork source `0533cbf`, newly authorized isolated WPF checks, repaired Connecting publication, terminal-event handling during modal input and consistent password validation. Earlier pinned maps/headless limits below retain their own source. Local focused desktop tests pass; the local full-raster failure remains recorded.
+
+
 ## Current-source boundary — 2026-10-20
 
 The subsystem maps below retain their audited historical source/base. Current original stable is `439de626` with schema 4, software stereo, per-receiver profiles/rates, application capture and password authentication. Consult the [current stable implementation and verification overlay](../issues/CURRENT-HEADLESS-IMPLEMENTATION-2026-10-20.md) and actual current source before applying older trace details. Fork runtime follows the reviewed current-base integration described there; its headless evidence does not qualify desktop or real-device behavior.
