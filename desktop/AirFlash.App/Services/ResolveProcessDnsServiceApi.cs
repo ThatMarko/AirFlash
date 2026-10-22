@@ -41,7 +41,7 @@ internal sealed class ResolveProcessDnsServiceApi(IDnsServiceApi browse, IResolv
         lock (Admission)
         {
             // Starting, running, and killed-but-not-observed-exited all count.
-            if (Owners.Count >= ProcessLimit) throw new DnsServiceCapacityException();
+            if (Owners.Count >= ProcessLimit) throw new DnsServiceCapacityException(DnsServiceCapacityReason.ResolveConcurrency);
             var token = DnsServiceOwnership.Acquire();
             try
             {

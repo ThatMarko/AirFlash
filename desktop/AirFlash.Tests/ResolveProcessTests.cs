@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using AirFlash.App.Services;
@@ -167,7 +168,9 @@ public sealed class ResolveProcessTests
                 await fixture.Factory.Next.StartEntered.Task.WaitAsync(TimeSpan.FromSeconds(5)); operation.Cancel();
                 await fixture.Factory.Next.KillEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             }
-            using var extra = new Fixture(); Assert.Throws<DnsServiceCapacityException>(() => extra.Create());
+            using var extra = new Fixture();
+            var capacity = Assert.Throws<DnsServiceCapacityException>(() => extra.Create());
+            Assert.Equal(DnsServiceCapacityReason.ResolveConcurrency, capacity.Reason);
             Assert.All(fixtures, fixture => Assert.False(fixture.Operation!.IsSettled));
             fixtures[0].Factory.Next.Exit.SetResult(); await fixtures[0].Settled.Task.WaitAsync(TimeSpan.FromSeconds(5));
             var resumed = extra.Create(); Assert.Equal(baseline + fixtures.Count, ResolveProcessDnsServiceApi.ProcessOwnerCount);
@@ -231,6 +234,142 @@ public sealed class ResolveProcessTests
             discovery.Stop(); foreach (var child in factory.Children) { child.Exit.TrySetResult(); child.Reply.TrySetResult(null); }
             await Task.WhenAll(api.Settlements).WaitAsync(TimeSpan.FromSeconds(5));
         }
+    }
+    [Fact]
+    public async Task HealthyResolveConcurrencyDefersExtraAdvertisementsWithoutOwnershipWarning()
+    {
+        var factory = new BatchFactory(); var browsers = new Browsers();
+        var api = new TrackingApi(new ResolveProcessDnsServiceApi(browsers, factory));
+        using var discovery = new WindowsDiscovery(api, new ManualClock(),
+            () => [new("synthetic", "LAN", "LAN", "192.0.2.254", true, 42)], _ => { });
+        discovery.SetInterface("synthetic");
+        var baseline = ResolveProcessDnsServiceApi.ProcessOwnerCount;
+        var errors = new ConcurrentQueue<string>();
+        var firstBatch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allPublished = new TaskCompletionSource<IReadOnlyList<Receiver>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        discovery.Failed += errors.Enqueue;
+        discovery.Changed += rows =>
+        {
+            if (rows.Count == 8) firstBatch.TrySetResult();
+            if (rows.Count == 9) allPublished.TrySetResult(rows);
+        };
+        var names = Enumerable.Range(0, 9).Select(index => $"Synthetic{index}.{Type}").ToArray();
+        try
+        {
+            discovery.Start(); browsers.Latest[0].Announce(names);
+            Assert.Equal(8, ResolveProcessDnsServiceApi.ProcessLimit);
+            Assert.Equal(8, factory.Children.Count);
+            Assert.Equal(8, discovery.Snapshot.PendingResolves);
+            Assert.Equal(baseline + 8, ResolveProcessDnsServiceApi.ProcessOwnerCount);
+            var firstSettled = api.Resolves.Select(SettlementAfterCoordinator).ToArray();
+            await Task.WhenAll(factory.Children.Select(item => item.Child.StartEntered.Task)).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Empty(errors); // A ninth healthy advertisement is ordinary queueing, not unsafe native ownership.
+
+            for (var index = 0; index < 8; ++index) factory.Complete(index);
+            await firstBatch.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.WhenAll(firstSettled).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(baseline, ResolveProcessDnsServiceApi.ProcessOwnerCount);
+            Assert.Equal(2, discovery.Snapshot.NativeOwners); // Only the two synthetic browsers remain.
+
+            discovery.Tick(); // Deterministic maintenance admits the still-advertised ninth name.
+            Assert.Equal(9, factory.Children.Count);
+            Assert.Equal(1, discovery.Snapshot.PendingResolves);
+            Assert.Equal(baseline + 1, ResolveProcessDnsServiceApi.ProcessOwnerCount);
+            var lastSettled = SettlementAfterCoordinator(api.LatestResolve!);
+            await factory.Children[8].Child.StartEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            factory.Complete(8);
+            var rows = await allPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await lastSettled.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(names.Order(), rows.Select(row => row.Name + "." + Type).Order());
+            Assert.Equal(9, rows.Select(row => row.DeviceId).Distinct().Count());
+            Assert.Equal(0, discovery.Snapshot.PendingResolves);
+            Assert.Empty(errors);
+        }
+        finally
+        {
+            discovery.Stop();
+            foreach (var item in factory.Children) { item.Child.Reply.TrySetResult(null); item.Child.Exit.TrySetResult(); }
+            await Task.WhenAll(api.Settlements).WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        Assert.Equal(0, discovery.Snapshot.NativeOwners);
+        Assert.Equal(baseline, ResolveProcessDnsServiceApi.ProcessOwnerCount);
+        Assert.All(factory.Children, item => { Assert.True(item.Child.Disposed); Assert.Equal(1, item.Child.Disposals); });
+    }
+    [Fact]
+    public async Task RetainedHelperBatchReportsProlongedDeferralAndOneObservedExitAdmitsWaitingName()
+    {
+        var fixtures = new List<Fixture>();
+        var factory = new BatchFactory(); var browsers = new Browsers(); var clock = new ManualClock();
+        var api = new TrackingApi(new ResolveProcessDnsServiceApi(browsers, factory));
+        using var discovery = new WindowsDiscovery(api, clock,
+            () => [new("synthetic", "LAN", "LAN", "192.0.2.254", true, 42)], _ => { });
+        discovery.SetInterface("synthetic");
+        var baseline = ResolveProcessDnsServiceApi.ProcessOwnerCount;
+        var errors = new ConcurrentQueue<string>();
+        var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        discovery.Failed += errors.Enqueue;
+        discovery.Changed += rows => { if (rows.Count == 1) published.TrySetResult(); };
+        try
+        {
+            Assert.Equal(0, baseline);
+            for (var index = 0; index < 8; ++index)
+            {
+                var fixture = new Fixture(); fixtures.Add(fixture);
+                var operation = fixture.Create(); operation.Start();
+                await fixture.Factory.Next.StartEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                operation.Cancel(); await fixture.Factory.Next.KillEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            discovery.Start(); browsers.Latest[0].Announce(Name);
+            Assert.Empty(factory.Children); Assert.Empty(errors);
+            Assert.Equal(8, ResolveProcessDnsServiceApi.ProcessOwnerCount);
+            Assert.All(fixtures, fixture => Assert.False(fixture.Operation!.IsSettled));
+
+            clock.Advance(TimeSpan.FromSeconds(5) - TimeSpan.FromTicks(1)); discovery.Tick();
+            browsers.Latest[0].Announce(Name); // Repeated PTRs cannot postpone the deferral notice.
+            Assert.Empty(errors);
+            clock.Advance(TimeSpan.FromTicks(1)); discovery.Tick(); discovery.Tick();
+            Assert.Equal(L.Get("Receiver discovery is waiting for earlier DNS queries to finish. It will retry automatically; restart AirFlash if it remains paused."), Assert.Single(errors));
+            Assert.Empty(factory.Children);
+            Assert.Equal(0, discovery.Snapshot.PendingResolves);
+            Assert.Equal(8, ResolveProcessDnsServiceApi.ProcessOwnerCount);
+            Assert.All(fixtures, fixture => { Assert.False(fixture.Operation!.IsSettled); Assert.False(fixture.Factory.Next.Disposed); });
+
+            browsers.Latest[0].Withdraw(Name); browsers.Latest[0].Announce(Name);
+            discovery.Tick(); Assert.Single(errors); // Removal starts a new continuous wait, not an immediate repeat.
+            clock.Advance(TimeSpan.FromSeconds(5) - TimeSpan.FromTicks(1)); discovery.Tick(); Assert.Single(errors);
+            clock.Advance(TimeSpan.FromTicks(1)); discovery.Tick(); Assert.Equal(2, errors.Count);
+
+            fixtures[0].Factory.Next.Exit.SetResult();
+            await fixtures[0].Settled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            discovery.Tick();
+            Assert.Single(factory.Children); Assert.Equal(1, discovery.Snapshot.PendingResolves);
+            Assert.Equal(8, ResolveProcessDnsServiceApi.ProcessOwnerCount);
+            var settled = SettlementAfterCoordinator(api.LatestResolve!);
+            await factory.Children[0].Child.StartEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            factory.Complete(0);
+            await published.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await settled.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(2, errors.Count); Assert.Equal(0, discovery.Snapshot.PendingResolves);
+            Assert.Equal(7, ResolveProcessDnsServiceApi.ProcessOwnerCount);
+        }
+        finally
+        {
+            discovery.Stop();
+            foreach (var item in factory.Children) { item.Child.Reply.TrySetResult(null); item.Child.Exit.TrySetResult(); }
+            foreach (var fixture in fixtures) fixture.Factory.Next.Exit.TrySetResult();
+            await Task.WhenAll(api.Settlements.Concat(fixtures.Select(fixture => fixture.Settled.Task))).WaitAsync(TimeSpan.FromSeconds(5));
+            foreach (var fixture in fixtures) fixture.Dispose();
+        }
+        Assert.Equal(baseline, ResolveProcessDnsServiceApi.ProcessOwnerCount);
+        Assert.Equal(0, discovery.Snapshot.NativeOwners);
+    }
+    private static Task SettlementAfterCoordinator(IDnsServiceOperation operation)
+    {
+        // Register after WindowsDiscovery so this joins its owner removal as well
+        // as child exit/disposal. The child cannot exit until the fixture permits it.
+        var settled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        operation.Settled += () => settled.TrySetResult();
+        return settled.Task;
     }
     [Fact]
     public async Task WireRejectsOversizeTruncatedAndInvalidUtf8Output()
@@ -333,14 +472,40 @@ public sealed class ResolveProcessTests
         public readonly List<Child> Children = [];
         public IResolveChild Create(ResolveRequest request) { Assert.Equal(Request, request); var child = new Child(); Children.Add(child); return child; }
     }
+    private sealed class BatchFactory : IResolveChildFactory
+    {
+        public readonly List<(ResolveRequest Request, Child Child)> Children = [];
+        public IResolveChild Create(ResolveRequest request)
+        {
+            Assert.Equal(Type, request.Type); Assert.Equal(42u, request.InterfaceIndex);
+            var child = new Child(); Children.Add((request, child)); return child;
+        }
+        public void Complete(int index)
+        {
+            var (request, child) = Children[index];
+            child.Reply.SetResult(JsonSerializer.Serialize(new ResolveReply(1, 0,
+                new(request.Name, request.Type, $"192.0.2.{index + 1}", 7000,
+                    new Dictionary<string, string> { ["deviceid"] = $"synthetic-{index}" }))));
+            child.Exit.SetResult();
+        }
+    }
+    private sealed class ManualClock : TimeProvider
+    {
+        private long _timestamp;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => _timestamp;
+        public void Advance(TimeSpan elapsed) => _timestamp += elapsed.Ticks;
+    }
     private sealed class TrackingApi(IDnsServiceApi inner) : IDnsServiceApi
     {
         public IDnsServiceOperation? LatestResolve;
+        public readonly List<IDnsServiceOperation> Resolves = [];
         public readonly List<Task> Settlements = [];
         public IDnsServiceOperation CreateBrowse(string type, uint index, Action<uint, IReadOnlyList<DnsAnnouncement>> callback) => inner.CreateBrowse(type, index, callback);
         public IDnsServiceOperation CreateResolve(string name, string type, uint index, Action<uint, ServiceRecord?> callback)
         {
             LatestResolve = inner.CreateResolve(name, type, index, callback);
+            Resolves.Add(LatestResolve);
             var settled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             LatestResolve.Settled += () => settled.TrySetResult(); Settlements.Add(settled.Task);
             return LatestResolve;
@@ -367,7 +532,9 @@ public sealed class ResolveProcessTests
             public event Action<string>? CallbackFailed { add { } remove { } }
             public uint Start() => 9506;
             public uint Cancel() { if (!IsSettled) { Cancellations++; IsSettled = true; Settled?.Invoke(); } return 0; }
-            public void Announce() => callback(0, [new(Name: ResolveProcessTests.Name, Ttl: 120)]);
+            public void Announce(params string[] names) => callback(0,
+                (names.Length == 0 ? [ResolveProcessTests.Name] : names).Select(name => new DnsAnnouncement(name, 120)).ToArray());
+            public void Withdraw(string name) => callback(0, [new(name, 0)]);
         }
     }
     private sealed class Child : IResolveChild

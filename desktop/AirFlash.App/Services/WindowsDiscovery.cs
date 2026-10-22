@@ -39,6 +39,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
     private bool _started;
     private bool _disposed;
     private bool _capacityReported;
+    private bool _concurrencyReported;
     private bool _running;
     private Work? _deferredNativeWork;
     public event Action<IReadOnlyList<Receiver>>? Changed;
@@ -114,7 +115,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
             if (_disposed || !_started) return;
             _started = false; ++_epoch; ++_restartSequence; timer = _timer; _timer = null;
             foreach (var owner in _owners.Values) RetireLocked(owner, work);
-            _pending.Clear(); _advertised.Clear();
+            _pending.Clear(); _advertised.Clear(); _concurrencyReported = false;
             foreach (var browser in _browsers.Values) browser.Owner = null;
             if (_enableInfrastructure)
             {
@@ -146,7 +147,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
             if (_disposed || !_started || sequence != _restartSequence || selected != _interfaceId) return;
             ++_epoch; _interfaceIndex = index; _nextAdapterCheck = Now + _policy.RefreshInterval;
             foreach (var owner in _owners.Values) RetireLocked(owner, work);
-            _pending.Clear(); _advertised.Clear();
+            _pending.Clear(); _advertised.Clear(); _concurrencyReported = false;
             // Cached entries remain visible on resume until advertised again.
             foreach (var name in _records.Keys.ToArray())
                 _records[name] = _records[name] with { Expires = Now + TimeSpan.FromSeconds(10) };
@@ -240,6 +241,18 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
                 });
                 owner = new(operation, advertisement.Name, advertisement.Type, _epoch, true) { Deadline = now + _policy.ResolveTimeout };
                 RegisterLocked(owner); _pending[advertisement.Name] = owner; work.Starts.Add(owner); _capacityReported = false;
+                advertisement.ConcurrencyDeferredSince = null; _concurrencyReported = false;
+            }
+            catch (DnsServiceCapacityException error) when (error.Reason == DnsServiceCapacityReason.ResolveConcurrency)
+            {
+                // A full helper batch is ordinary backpressure. Keep the name due
+                // until maintenance retries after exact process exit frees a slot.
+                advertisement.ConcurrencyDeferredSince ??= now;
+                if (!_concurrencyReported && now - advertisement.ConcurrencyDeferredSince.Value >= _policy.ResolveTimeout)
+                {
+                    _concurrencyReported = true;
+                    work.Errors.Add(L.Get("Receiver discovery is waiting for earlier DNS queries to finish. It will retry automatically; restart AirFlash if it remains paused."));
+                }
             }
             catch (DnsServiceCapacityException) { CapacityLocked(work); }
         }
@@ -350,7 +363,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
 
     private void RemoveAdvertisementLocked(string name, Work work)
     {
-        _advertised.Remove(name);
+        if (_advertised.Remove(name)) _concurrencyReported = false;
         if (_records.Remove(name)) work.Publish = true;
         if (_pending.Remove(name, out var pending)) RetireLocked(pending, work);
     }
@@ -648,6 +661,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         public string Type { get; } = type;
         public TimeSpan Expires { get; set; } = expires;
         public TimeSpan NextAttempt { get; set; } = nextAttempt;
+        public TimeSpan? ConcurrencyDeferredSince { get; set; }
         public int Failures { get; set; }
     }
     private sealed record CachedRecord(ServiceRecord Record, TimeSpan Expires);
