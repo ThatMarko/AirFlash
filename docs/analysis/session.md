@@ -2,7 +2,7 @@
 
 ## Reconnect fault details — 2026-10-22
 
-Fork Main `39d34e1` / public `b947081` retains a playback fault's detail while Connecting retries run, followed by a distinct discovery notice. Idle, Streaming, Standby and Pairing do not expose an old playback fault. The [pure formatter](https://github.com/ThatMarko/AirFlash/blob/b94708143b381cd53df54253596b7d9985c8ff43/desktop/AirFlash.App/ViewModels/ErrorDetailsText.cs) is used by the existing view-model binding and is source-linked into eleven headless regressions. This changes presentation, not retry classification or lifecycle ownership. The [field report](../issues/FIELD-REGRESSION-2026-10-21.md) distinguishes the actual clock startup failure, source-confirmed repair and still-required owner retest.
+Fork Main `39d34e1` / public `b947081` retains a playback fault's detail while Connecting retries run, followed by a distinct discovery notice. Idle, Streaming, Standby and Pairing do not expose an old playback fault. The [pure formatter](https://github.com/ThatMarko/AirFlash/blob/b94708143b381cd53df54253596b7d9985c8ff43/desktop/AirFlash.App/ViewModels/ErrorDetailsText.cs) is used by the existing view-model binding and is source-linked into eleven headless regressions. This changes presentation, not retry classification or lifecycle ownership. Subsequent test-only follow-ups are integrated at Main `40b0b04` / public `a1fce31`; they leave this formatter unchanged. The corrective 6.0.2-rc.1 package is qualified, with owner field retest still pending. The [field report](../issues/FIELD-REGRESSION-2026-10-21.md) distinguishes the actual clock startup failure, source-confirmed repair and still-required owner retest.
 
 ## Owned settings continuation — 2026-10-21
 
