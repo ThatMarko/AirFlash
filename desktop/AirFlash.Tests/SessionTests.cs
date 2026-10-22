@@ -690,6 +690,18 @@ public sealed class SessionTests
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3)); while (!predicate()) await Task.Delay(5, timeout.Token);
     }
+    private static async Task<SessionSnapshot> SnapshotAsync(SessionController controller, Func<SessionSnapshot, bool> predicate)
+    {
+        var reached = new TaskCompletionSource<SessionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Changed(SessionSnapshot snapshot) { if (predicate(snapshot)) reached.TrySetResult(snapshot); }
+        controller.Changed += Changed;
+        try
+        {
+            Changed(controller.Snapshot);
+            return await reached.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        finally { controller.Changed -= Changed; }
+    }
     [Fact]
     public async Task DeviceVolumeReadsWithoutWritingAndDebouncesLatestTarget()
     {
@@ -757,27 +769,117 @@ public sealed class SessionTests
         var (receiver, settings) = SoftwareGroup();
         settings.CaptureMode = "application"; settings.CaptureApplicationPath = @"C:\Player.exe";
         settings.SoftwareGroups[0].SampleRate = "48000"; settings.StandbyEnabled = true;
-        await using var controller = new SessionController(factory, audio, timing: Fast);
-        await controller.StartAsync(receiver, settings); await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
-        var start = process.Commands.Single(c => c.Command == "start").Parameters;
-        Assert.Equal("application", start.Text("source")); Assert.Equal("software_stereo", start.Text("group_mode"));
-        Assert.Equal(48000, start.Number("sample_rate")); Assert.Equal(2, start.GetProperty("peers").GetArrayLength());
-        Assert.Equal("buffered", start.GetProperty("peers")[0].GetProperty("profile").Text("transport"));
-        Assert.Equal("right", start.GetProperty("peers")[1].GetProperty("profile").Text("channel"));
-        process.EmitData(new { @event = "device_volume", host = "127.0.0.2", volume = 30, sequence = 0, status = "confirmed", available = true });
-        await Until(() => controller.Snapshot.MemberVolumes?.ContainsKey("b") == true);
-        process.EmitData(new { @event = "standby", reason = "silence" }); await Until(() => controller.Snapshot.State == PlaybackState.Standby);
-        var edit = controller.SetDeviceVolumeAsync("b", 45);
-        await Until(() => process.Commands.Any(c => c.Command == "set_device_volume"));
-        var volume = process.Commands.Single(c => c.Command == "set_device_volume").Parameters;
-        Assert.Equal("127.0.0.2", volume.Text("host"));
-        settings.MasterVolume = 0; settings.StandbySilenceSeconds = 20;
-        await controller.UpdateSettingsAsync(settings);
-        process.Emit("resuming"); process.Emit("streaming"); await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
-        process.EmitData(new { @event = "device_volume", host = "127.0.0.2", volume = 45, sequence = volume.Integer("sequence"), status = "confirmed", available = true });
-        await Until(() => controller.Snapshot.MemberVolumes?["b"].Actual == 45);
-        Assert.Equal(1, factory.OpenCount); Assert.Equal(0, audio.MuteCalls);
-        await controller.StopAsync(); await edit;
+        // Keep the production read policy while this fixture owns Stop and joins each transition.
+        // Quiet-stream expiry during a held settings send is exercised separately below.
+        await using var controller = new SessionController(factory, audio, timing: Fast with { Read = SessionTiming.Default.Read });
+        var volumeSent = new TaskCompletionSource<EngineCommand>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gainEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGain = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        process.CommandSent = command => { if (command.Command == "set_device_volume") volumeSent.TrySetResult(command); };
+        process.BeforeSend = async (command, cancellation) =>
+        {
+            if (command.Command != "set_gain") return;
+            gainEntered.TrySetResult(); await releaseGain.Task.WaitAsync(cancellation);
+        };
+        Task edit = Task.CompletedTask; Task? update = null;
+        try
+        {
+            await controller.StartAsync(receiver, settings);
+            await SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Streaming);
+            var start = process.Commands.Single(c => c.Command == "start").Parameters;
+            Assert.Equal("application", start.Text("source")); Assert.Equal("software_stereo", start.Text("group_mode"));
+            Assert.Equal(48000, start.Number("sample_rate")); Assert.Equal(2, start.GetProperty("peers").GetArrayLength());
+            Assert.Equal("buffered", start.GetProperty("peers")[0].GetProperty("profile").Text("transport"));
+            Assert.Equal("right", start.GetProperty("peers")[1].GetProperty("profile").Text("channel"));
+            process.EmitData(new { @event = "device_volume", host = "127.0.0.2", volume = 30, sequence = 0, status = "confirmed", available = true });
+            await SnapshotAsync(controller, snapshot => snapshot.MemberVolumes?.GetValueOrDefault("b")?.Actual == 30);
+            process.EmitData(new { @event = "standby", reason = "silence" });
+            await SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Standby);
+            edit = controller.SetDeviceVolumeAsync("b", 45);
+            var volume = (await volumeSent.Task.WaitAsync(TimeSpan.FromSeconds(5))).Parameters;
+            Assert.Single(process.Commands, command => command.Command == "set_device_volume");
+            Assert.Equal("127.0.0.2", volume.Text("host")); Assert.Equal(45, volume.Number("volume"));
+            settings.MasterVolume = 0; settings.StandbySilenceSeconds = 20;
+            update = controller.UpdateSettingsAsync(settings);
+            await gainEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(update.IsCompleted); Assert.Equal(PlaybackState.Standby, controller.Snapshot.State);
+            releaseGain.TrySetResult(); await update.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(0, process.Commands.Last(command => command.Command == "set_gain").Parameters.Number("gain"));
+            Assert.Equal(20, process.Commands.Last(command => command.Command == "set_standby").Parameters.Number("silence_seconds"));
+            var resuming = SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Connecting);
+            process.Emit("resuming"); await resuming;
+            var streaming = SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Streaming);
+            process.Emit("streaming"); await streaming;
+            process.EmitData(new { @event = "device_volume", host = "127.0.0.2", volume = 45, sequence = volume.Integer("sequence"), status = "confirmed", available = true });
+            await SnapshotAsync(controller, snapshot => snapshot.MemberVolumes?.GetValueOrDefault("b")?.Actual == 45);
+            Assert.Equal(1, factory.OpenCount); Assert.Equal(0, audio.MuteCalls);
+        }
+        finally
+        {
+            releaseGain.TrySetResult(); process.BeforeSend = null; process.CommandSent = null;
+            try { if (update is not null) await update.WaitAsync(TimeSpan.FromSeconds(5)); }
+            finally { await controller.StopAsync(); await edit; }
+        }
+    }
+    [Fact]
+    public async Task QuietApplicationStandbyStillExpiresItsReadWatchdogDuringSettingsUpdate()
+    {
+        var process = new FakeConnection(autoReady: false); var retryProcess = new FakeConnection(autoReady: false);
+        var factory = new FakeFactory(process, retryProcess); var audio = new FakeAudio();
+        var (receiver, settings) = SoftwareGroup();
+        settings.CaptureMode = "application"; settings.CaptureApplicationPath = @"C:\Player.exe";
+        settings.StandbyEnabled = true; settings.MaxReconnectAttempts = 1;
+        await using var controller = new SessionController(factory, audio,
+            timing: Fast with { Connect = SessionTiming.Default.Connect, Read = TimeSpan.FromMilliseconds(50) });
+        var gainEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGain = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var expired = new TaskCompletionSource<SessionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var retryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? update = null;
+        process.BeforeSend = async (command, cancellation) =>
+        {
+            if (command.Command != "set_gain") return;
+            gainEntered.TrySetResult(); await releaseGain.Task.WaitAsync(cancellation);
+        };
+        retryProcess.BeforeSend = async (command, cancellation) =>
+        {
+            if (command.Command != "hello") return;
+            retryEntered.TrySetResult(); await releaseGain.Task.WaitAsync(cancellation);
+        };
+        void Changed(SessionSnapshot snapshot)
+        {
+            if (snapshot.State == PlaybackState.Standby && update is null)
+            {
+                // Enter the held settings send before the worker starts its standby read deadline.
+                settings.MasterVolume = 0; settings.StandbySilenceSeconds = 20;
+                update = controller.UpdateSettingsAsync(settings);
+            }
+            if (snapshot.State == PlaybackState.Error) expired.TrySetResult(snapshot);
+        }
+        controller.Changed += Changed;
+        try
+        {
+            await controller.StartAsync(receiver, settings);
+            await process.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            process.EmitData(new { @event = "standby", reason = "application_unavailable" });
+            await gainEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var failure = await expired.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await retryEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.NotNull(update); Assert.False(update.IsCompleted);
+            Assert.Equal(L.Get("The audio engine response timed out."), failure.Diagnostics?.LastFault?.Message);
+            Assert.Equal("host_error", failure.Diagnostics?.LastFault?.Code);
+            Assert.Equal("desktop", failure.Diagnostics?.LastFault?.Channel);
+            Assert.Equal(PlaybackState.Error, failure.State); Assert.True(process.Disposed);
+            Assert.Equal(PlaybackState.Connecting, controller.Snapshot.State);
+            Assert.Equal(2, factory.OpenCount); Assert.Equal(0, audio.MuteCalls);
+        }
+        finally
+        {
+            releaseGain.TrySetResult(); process.BeforeSend = null; retryProcess.BeforeSend = null; controller.Changed -= Changed;
+            try { if (update is not null) await update.WaitAsync(TimeSpan.FromSeconds(5)); }
+            finally { await controller.StopAsync(); }
+        }
+        Assert.True(retryProcess.Disposed); Assert.Equal(0, audio.MuteCalls);
     }
     [Fact]
     public async Task SoftwareGroupSerializesMemberProfilesAndReconnectsTogetherWithoutGlobalForceReconnect()
@@ -861,6 +963,7 @@ public sealed class SessionTests
         public TaskCompletionSource Disposing { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource? BlockDispose { get; init; }
         public Func<EngineCommand, CancellationToken, Task>? BeforeSend { get; set; }
+        public Action<EngineCommand>? CommandSent { get; set; }
         public string Session { get; private set; } = "";
         public bool Disposed { get; private set; }
         public bool RespondHello { get; init; } = true;
@@ -872,6 +975,7 @@ public sealed class SessionTests
             if (BeforeSend is { } beforeSend) await beforeSend(outgoing, cancellation);
             cancellation.ThrowIfCancellationRequested();
             Commands.Enqueue(outgoing);
+            CommandSent?.Invoke(outgoing);
             switch (command)
             {
                 case "hello": Session = session; if (RespondHello) EmitHello(); break;
