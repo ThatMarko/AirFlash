@@ -1,5 +1,9 @@
 # AirFlash implementation backlog
 
+## Current field repair — 2026-10-22
+
+Public `codex/reliability-review` is now `a1fce31` (sixteen linear commits). Runtime repairs integrated into fork Main at `39d34e1` have exact-source headless qualification at `b947081`; the subsequent standby fixture correction passes 1,030 Core tests locally. The first corrective preview failed before packaging on that fixture; a new-source unreserved 6.0.2-rc.1 preview is required. **Upstream publication and reliability acceptance remain on hold until successful owner field retest** after the reported 6.0.1 PTP startup failure. [The field report](FIELD-REGRESSION-2026-10-21.md) and [current readiness](PR-READINESS-2026-10-21.md) bind the repairs, preserved failures, deterministic fixture corrections and actual evidence. Earlier checkpoints below retain their original sources; no upstream closure or release is authorized.
+
 ## Linear review history — 2026-10-21
 
 New code-only review branch **`codex/reliability-review` at `bbe283c`** starts from unchanged original stable `439de626`. Nine linear commits retain every implementation/test blob from qualified `6c1e2ef`; all nine clean checkpoints pass their complete Core suite and a zero-warning Release build. The original 37-commit branches, all historical refs and upstream contributors remain preserved. All documentation changes stay on fork Main; the review branch inherits upstream documentation unchanged.

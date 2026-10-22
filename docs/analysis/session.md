@@ -1,5 +1,9 @@
 # Session control
 
+## Reconnect fault details — 2026-10-22
+
+Fork Main `39d34e1` / public `b947081` retains a playback fault's detail while Connecting retries run, followed by a distinct discovery notice. Idle, Streaming, Standby and Pairing do not expose an old playback fault. The [pure formatter](https://github.com/ThatMarko/AirFlash/blob/b94708143b381cd53df54253596b7d9985c8ff43/desktop/AirFlash.App/ViewModels/ErrorDetailsText.cs) is used by the existing view-model binding and is source-linked into eleven headless regressions. This changes presentation, not retry classification or lifecycle ownership. The [field report](../issues/FIELD-REGRESSION-2026-10-21.md) distinguishes the actual clock startup failure, source-confirmed repair and still-required owner retest.
+
 ## Owned settings continuation — 2026-10-21
 
 Combined `6c1e2ef` adds a frozen `SessionSettingsContext` for application flush/Apply/endpoint updates, applied only after serialized owner/intent checks. Canonical persisted identities can differ from a newer Pair's owned transport; ordinary saves preserve effective owned overrides and software members instead of restarting at defaults or resolving missing canonical members. Canonical edits/clears require a unique matching current transport; explicit membership/reset intent remains separate. The latency hint reads effective owned settings with the current panel global mode. [Current source, regressions and limits](../issues/PR-READINESS-2026-10-21.md) supersede older raw-key update assumptions below; no endpoint alias is persisted by this fix.
