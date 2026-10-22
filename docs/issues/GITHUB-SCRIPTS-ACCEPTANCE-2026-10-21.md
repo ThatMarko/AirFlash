@@ -1,5 +1,7 @@
 # GitHub workflow and script audit — 2026-10-21
 
+**Field follow-up:** the owner now reports 6.0.1-rc.1 fails with `clock_not_ready` while 6.0.0-rc.1 worked. [The active investigation](FIELD-REGRESSION-2026-10-21.md) supersedes any implication of real-device readiness below. Retain the executed build/mock/package results at their recorded sources; they did not exercise the production receiver's PTP startup exchange. Publication is on hold.
+
 Public candidate: `codex/reliability-review` **`07dd238903fcbe102e37c52fa16f75ed289abf7e`**, based on verified original stable `439de626`. Tooling commit `af715fe` and notice commit `07dd238` follow the nine previously qualified commits. Main integrates them at `8b94f3b`; its separate workflow commit is `b533c93`. All implementation, shared scripts and shared tests match between the two branches. The six fork-only workflows, their synthetic guard tests and every documentation change remain on fork Main. No upstream publication or release is authorized by this audit.
 
 ## Audited surface

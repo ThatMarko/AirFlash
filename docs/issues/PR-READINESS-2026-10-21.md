@@ -1,5 +1,9 @@
 # Consolidated PR readiness — 2026-10-21
 
+## Field regression hold
+
+The owner reports 6.0.1-rc.1 connection failure after successful 6.0.0-rc.1 use. An authorized log read confirms repeated `clock_not_ready` failures after receiver-follow PTP negotiation. [Current investigation](FIELD-REGRESSION-2026-10-21.md) records the source-confirmed startup subscription gap, independent DNS warning and test limits. Publication/reliability acceptance is on hold pending repair and field verification; the automated qualification below does not establish successful real-device playback.
+
 ## Workflow and notice follow-up
 
 Current pushed public candidate is **`07dd238903fcbe102e37c52fa16f75ed289abf7e`** on `codex/reliability-review`, still based on verified upstream `439de626`. Two reviewed follow-ups (`af715fe` tooling, `07dd238` notice dismissal) follow the original nine commits. The complete public diff is **80 files (+15,717/-810), eleven linear commits**; every outgoing tree still has upstream documentation unchanged. Main integrates these at `8b94f3b`, with fork-only workflow guards at `b533c93`. Earlier qualifications below remain bound to their recorded sources.
