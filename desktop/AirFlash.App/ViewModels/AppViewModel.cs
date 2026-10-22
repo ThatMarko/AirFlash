@@ -111,7 +111,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             return summary;
         }
     }
-    public string ErrorDetails => _snapshot.State == PlaybackState.Error ? _snapshot.Message : Notice;
+    public string ErrorDetails => ErrorDetailsText.For(_snapshot, Notice);
     public string EngineVersion { get; set; } = L.Get("Unknown");
     public bool EngineReady => _engine is null || _engine.State == EngineAvailability.Ready;
     public bool EngineFailed => _engine?.State == EngineAvailability.Failed;
