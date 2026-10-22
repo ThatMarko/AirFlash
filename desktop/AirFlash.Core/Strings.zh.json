@@ -29,6 +29,7 @@
   "Quit": "退出",
   "Receiver discovery failed: {0}. You can add a receiver manually.": "设备发现失败：{0}。可手动添加接收器。",
   "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "无法安全释放原生 DNS 资源，部分发现请求已暂停。资源安全释放后将恢复发现；最终恢复方式是重启应用。",
+  "Receiver discovery is waiting for earlier DNS queries to finish. It will retry automatically; restart AirFlash if it remains paused.": "接收器发现正在等待先前的 DNS 查询完成。系统会自动重试；如果仍处于暂停状态，请重启 AirFlash。",
   "DNS cancellation failed: {0}. Native resources remain safely owned; restarting the app is the final recovery if completion cannot be established.": "DNS 取消失败：{0}。原生资源将安全保留；若无法确认操作结束，最终恢复方式是重启应用。",
   "DNS request did not remain pending: {0}. Discovery will retry with backoff.": "DNS 请求未保持待处理状态：{0}。发现将延迟重试。",
   "Receiver resolution failed: {0}. Discovery will retry with backoff.": "接收器解析失败：{0}。发现将延迟重试。",

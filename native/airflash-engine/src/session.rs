@@ -915,6 +915,9 @@ fn run_stream(
         {
             cancel.check()?;
             if Instant::now() >= until {
+                // Preserve the actual exchange/subscription state even when no
+                // media loop was reached, so a startup failure is diagnosable.
+                emit(clock_status(timer, &members));
                 return Err(Fault::new(
                     "",
                     "clock",
@@ -1172,18 +1175,7 @@ fn send_packets(
             }
             if now >= next_metrics {
                 if let Some(timer) = &ptp {
-                    let snapshots: Vec<_> = timer
-                        .snapshots()
-                        .into_iter()
-                        .filter(|s| {
-                            members
-                                .iter()
-                                .any(|m| m.selection.ptp && m.peer.host == s.host)
-                        })
-                        .collect();
-                    emit(
-                        json!({"event":"clock_status","members":snapshots,"mmcss":*timer.mmcss.lock().unwrap()}),
-                    );
+                    emit(clock_status(timer, members));
                 }
                 if let Some(source) = &live {
                     emit(json!({"event":"capture_metrics","metrics":source.metrics()}));
@@ -1280,6 +1272,19 @@ fn send_packets(
         m.close();
     }
     outcome
+}
+
+fn clock_status(timer: &PtpMaster, members: &[Member]) -> Json {
+    let snapshots: Vec<_> = timer
+        .snapshots()
+        .into_iter()
+        .filter(|s| {
+            members
+                .iter()
+                .any(|m| m.selection.ptp && m.peer.host == s.host)
+        })
+        .collect();
+    json!({"event":"clock_status","members":snapshots,"mmcss":*timer.mmcss.lock().unwrap()})
 }
 
 fn transport_metrics(members: &[Member], schedule: &MediaSchedule) -> Json {

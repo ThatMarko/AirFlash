@@ -112,6 +112,7 @@ struct PeerState {
     source_id: Option<u64>,
     source_port: Option<u16>,
     subscriptions: [Option<Subscription>; 3],
+    last_subscription: Option<Instant>,
     granted_until: [Option<Instant>; 3],
     received_grants: u64,
     last_request: Option<(u8, u16)>,
@@ -140,6 +141,7 @@ struct Subscription {
     interval: i8,
     sent: Instant,
 }
+const SUBSCRIPTION_REPLY_WINDOW: Duration = Duration::from_secs(2);
 fn subscription_index(kind: u8) -> Option<usize> {
     [0, 9, 11].iter().position(|value| *value == kind)
 }
@@ -164,6 +166,54 @@ impl PeerState {
                 .last
                 .is_some_and(|last| now.duration_since(last) < Duration::from_secs(3))
             && (!self.follow || self.offset.is_some())
+    }
+    fn subscribe(
+        &mut self,
+        clock_id: u64,
+        sequence: u16,
+        now: Instant,
+        mut send: impl FnMut(&[u8]) -> bool,
+    ) {
+        if !self.follow {
+            return;
+        }
+        let healthy = self.ready(now)
+            && self.subscriptions.iter().all(Option::is_none)
+            && self
+                .granted_until
+                .iter()
+                .all(|until| until.is_some_and(|until| until > now));
+        // The first request can precede SETUP or the receiver's Announce.
+        // Retrying an unsettled subscription must fit inside startup's 8s gate.
+        let interval = Duration::from_secs(if healthy { 10 } else { 1 });
+        if self
+            .last_subscription
+            .is_some_and(|sent| now.duration_since(sent) < interval)
+        {
+            return;
+        }
+        self.last_subscription = Some(now);
+        let remote = self.source_id.zip(self.source_port);
+        for kind in [0, 9, 11] {
+            let index = subscription_index(kind).unwrap();
+            // Retransmission must not invalidate a delayed, still-valid grant or
+            // extend an old request's reply lifetime indefinitely.
+            let pending = self.subscriptions[index]
+                .filter(|pending| now.duration_since(pending.sent) < SUBSCRIPTION_REPLY_WINDOW);
+            let request = subscription(
+                clock_id,
+                remote,
+                pending.map_or(sequence, |pending| pending.sequence),
+                kind,
+            );
+            if send(&request) && pending.is_none() {
+                self.subscriptions[index] = Some(Subscription {
+                    sequence,
+                    interval: request[49] as i8,
+                    sent: now,
+                });
+            }
+        }
     }
 }
 fn read_timestamp(data: &[u8]) -> Option<u64> {
@@ -343,7 +393,7 @@ fn receive_grants(s: &mut PeerState, data: &[u8], own_id: u64, now: Instant) {
                     let interval = body[1] as i8;
                     let seconds = u32::from_be_bytes(body[2..6].try_into().unwrap());
                     if sequence == pending.sequence
-                        && now.duration_since(pending.sent) < Duration::from_secs(2)
+                        && now.duration_since(pending.sent) < SUBSCRIPTION_REPLY_WINDOW
                         && body[0] & 15 == 0
                         && body[6] & !1 == 0
                         && body[7] == 0
@@ -514,31 +564,18 @@ fn ptp_loop(
     let mut seq = 0u16;
     let mut last_announce = Instant::now() - Duration::from_secs(2);
     let mut next_sync = Instant::now();
-    let mut next_subscription = Instant::now();
     let mut buf = [0u8; 2048];
     while !stop.is_cancelled() {
         let now = Instant::now();
         if now >= next_sync {
             for peer in peers {
                 if followers.contains(peer) {
-                    if now >= next_subscription {
-                        let remote = state
-                            .lock()
-                            .unwrap()
-                            .get(peer)
-                            .and_then(|s| s.source_id.zip(s.source_port));
-                        for kind in [0, 9, 11] {
-                            let request = subscription(clock_id, remote, seq, kind);
-                            if general.send_to(&request, (*peer, 320)).is_ok() {
-                                state.lock().unwrap().get_mut(peer).unwrap().subscriptions
-                                    [subscription_index(kind).unwrap()] = Some(Subscription {
-                                    sequence: seq,
-                                    interval: request[49] as i8,
-                                    sent: now,
-                                });
-                            }
-                        }
-                    }
+                    state.lock().unwrap().get_mut(peer).unwrap().subscribe(
+                        clock_id,
+                        seq,
+                        now,
+                        |request| general.send_to(request, (*peer, 320)).is_ok(),
+                    );
                     if now.duration_since(last_announce) >= Duration::from_secs(1) {
                         let mut req = header(1, 44, clock_id, seq, 0x0408, 0);
                         let sent = clock.now_ns();
@@ -563,9 +600,6 @@ fn ptp_loop(
                 last_announce = now;
             }
             seq = seq.wrapping_add(1);
-            if now >= next_subscription {
-                next_subscription = now + Duration::from_secs(10);
-            }
             next_sync = now + Duration::from_millis(125);
         }
         for socket in [&event, &general] {
@@ -655,6 +689,274 @@ impl Drop for PtpMaster {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn requests(peer: &mut PeerState, sequence: u16, now: Instant) -> Vec<Vec<u8>> {
+        let mut sent = Vec::new();
+        peer.subscribe(7, sequence, now, |packet| {
+            sent.push(packet.to_vec());
+            true
+        });
+        sent
+    }
+    fn grants(peer: &mut PeerState, source: u64, requests: &[Vec<u8>], now: Instant) {
+        for request in requests {
+            let sequence = u16::from_be_bytes([request[30], request[31]]);
+            for grant in unicast_grants(request, source, sequence) {
+                followed_packet(peer, &grant, 0, now, 7);
+            }
+        }
+    }
+    fn exchange(peer: &mut PeerState, source: u64, sequence: u16, now: Instant) {
+        let base = 1_000_000_000u64 + u64::from(sequence) * 1_000_000_000;
+        let (sync, follow) = sync_pair(source, sequence, base + 1_000_000);
+        followed_packet(peer, &sync, base + 100_000, now, 7);
+        followed_packet(peer, &follow, base + 110_000, now, 7);
+        peer.delay = Some((sequence, base + 200_000));
+        peer.delay_age = Some(now);
+        let mut response = header(9, 54, source, sequence, 0x0408, 0);
+        timestamp(&mut response[34..44], base + 1_300_000);
+        response[44..52].copy_from_slice(&7u64.to_be_bytes());
+        response[52..54].copy_from_slice(&0x8005u16.to_be_bytes());
+        followed_packet(peer, &response, base + 400_000, now, 7);
+    }
+
+    #[test]
+    fn follower_retries_a_lost_initial_request_inside_the_startup_budget() {
+        let now = Instant::now();
+        let mut peer = PeerState {
+            follow: true,
+            ..Default::default()
+        };
+        // The synthetic receiver drops the first batch. No socket is opened.
+        assert_eq!(requests(&mut peer, 0, now).len(), 3);
+        assert!(requests(&mut peer, 7, now + Duration::from_millis(999)).is_empty());
+        let retry_at = now + Duration::from_secs(1);
+        let retry = requests(&mut peer, 8, retry_at);
+        assert_eq!(retry.len(), 3);
+        followed_packet(&mut peer, &announce(8, 0, 0), 0, retry_at, 7);
+        let matched = requests(&mut peer, 9, retry_at + Duration::from_millis(125));
+        assert_eq!(matched.len(), 3);
+        assert!(
+            matched
+                .iter()
+                .all(|packet| packet[34..42] == 8u64.to_be_bytes())
+        );
+        grants(
+            &mut peer,
+            8,
+            &matched,
+            retry_at + Duration::from_millis(150),
+        );
+        assert_eq!(peer.received_grants, 3);
+        for sequence in 0..3 {
+            exchange(
+                &mut peer,
+                8,
+                sequence,
+                retry_at + Duration::from_millis(250 + u64::from(sequence) * 1000),
+            );
+        }
+        assert!(peer.ready(now + Duration::from_millis(3250)));
+    }
+
+    #[test]
+    fn follower_retry_preserves_a_delayed_grants_sequence_and_reply_lifetime() {
+        let now = Instant::now();
+        let mut peer = PeerState {
+            follow: true,
+            ..Default::default()
+        };
+        followed_packet(&mut peer, &announce(8, 0, 0), 0, now, 7);
+        let first = requests(&mut peer, 3, now);
+        let retry = requests(&mut peer, 4, now + Duration::from_secs(1));
+        assert_eq!(first, retry);
+        assert!(
+            peer.subscriptions
+                .iter()
+                .flatten()
+                .all(|pending| pending.sent == now)
+        );
+        // A 1.5s reply remains valid across the 1s retry, including a lost first grant.
+        grants(&mut peer, 8, &first, now + Duration::from_millis(1500));
+        assert_eq!(peer.received_grants, 3);
+        assert!(peer.subscriptions.iter().all(Option::is_none));
+        assert!(!peer.ready(now + Duration::from_millis(1500)));
+
+        let mut lost = PeerState {
+            follow: true,
+            ..Default::default()
+        };
+        followed_packet(&mut lost, &announce(8, 0, 0), 0, now, 7);
+        let stale = requests(&mut lost, 3, now);
+        requests(&mut lost, 4, now + Duration::from_secs(1));
+        let fresh = requests(&mut lost, 5, now + SUBSCRIPTION_REPLY_WINDOW);
+        assert_eq!(fresh.len(), 3);
+        assert!(
+            fresh
+                .iter()
+                .all(|packet| packet[30..32] == 5u16.to_be_bytes())
+        );
+        grants(&mut lost, 8, &stale, now + Duration::from_millis(2100));
+        assert_eq!(lost.received_grants, 0);
+        grants(&mut lost, 8, &fresh, now + Duration::from_millis(2200));
+        assert_eq!(lost.received_grants, 3);
+    }
+
+    #[test]
+    fn follower_recovers_grants_before_announce_without_accepting_unknown_sources() {
+        let now = Instant::now();
+        let mut peer = PeerState {
+            follow: true,
+            ..Default::default()
+        };
+        let initial = requests(&mut peer, 3, now);
+        grants(&mut peer, 8, &initial, now + Duration::from_millis(10));
+        assert_eq!(peer.received_grants, 0);
+        followed_packet(
+            &mut peer,
+            &announce(8, 0, 0),
+            0,
+            now + Duration::from_millis(20),
+            7,
+        );
+        let retry = requests(&mut peer, 4, now + Duration::from_millis(125));
+        assert_eq!(retry.len(), 3);
+        // First Announce preserves the valid initial pending sequence while
+        // making a request to the now-confirmed source immediately possible.
+        assert!(
+            retry
+                .iter()
+                .all(|packet| packet[30..32] == 3u16.to_be_bytes())
+        );
+        grants(&mut peer, 9, &initial, now + Duration::from_millis(150));
+        assert_eq!(peer.received_grants, 0);
+        grants(&mut peer, 8, &retry, now + Duration::from_millis(200));
+        assert_eq!(peer.received_grants, 3);
+        assert!(!peer.ready(now + Duration::from_millis(200)));
+        for sequence in 0..3 {
+            exchange(
+                &mut peer,
+                8,
+                sequence,
+                now + Duration::from_millis(250 + u64::from(sequence) * 1000),
+            );
+        }
+        assert!(peer.ready(now + Duration::from_millis(2250)));
+    }
+
+    #[test]
+    fn healthy_follower_renews_at_ten_seconds_independently_of_unready_peers() {
+        let now = Instant::now();
+        let mut healthy = PeerState {
+            follow: true,
+            ..Default::default()
+        };
+        let mut unsettled = PeerState {
+            follow: true,
+            ..Default::default()
+        };
+        followed_packet(&mut healthy, &announce(8, 0, 0), 0, now, 7);
+        let initial = requests(&mut healthy, 0, now);
+        grants(&mut healthy, 8, &initial, now);
+        requests(&mut unsettled, 0, now);
+        exchange(&mut healthy, 8, 0, now);
+        exchange(&mut healthy, 8, 1, now + Duration::from_millis(125));
+        exchange(&mut healthy, 8, 2, now + Duration::from_millis(250));
+        for second in 1..10 {
+            let at = now + Duration::from_secs(second);
+            exchange(&mut healthy, 8, second as u16 + 2, at);
+            assert!(healthy.ready(at));
+            assert!(requests(&mut healthy, second as u16 * 8, at).is_empty());
+            assert_eq!(requests(&mut unsettled, second as u16 * 8, at).len(), 3);
+        }
+        assert!(requests(&mut healthy, 79, now + Duration::from_millis(9999)).is_empty());
+        assert_eq!(
+            requests(&mut healthy, 80, now + Duration::from_secs(10)).len(),
+            3
+        );
+    }
+
+    #[test]
+    fn expired_leases_and_changed_sources_resume_bounded_follower_retries() {
+        let now = Instant::now();
+        let mut peer = PeerState {
+            follow: true,
+            ..Default::default()
+        };
+        followed_packet(&mut peer, &announce(8, 0, 0), 0, now, 7);
+        let initial = requests(&mut peer, 0, now);
+        for request in &initial {
+            let mut grant = unicast_grants(request, 8, 0).remove(0);
+            grant[50..54].copy_from_slice(&1u32.to_be_bytes());
+            followed_packet(&mut peer, &grant, 0, now, 7);
+        }
+        exchange(&mut peer, 8, 0, now);
+        exchange(&mut peer, 8, 1, now + Duration::from_millis(125));
+        exchange(&mut peer, 8, 2, now + Duration::from_millis(250));
+        assert!(peer.ready(now + Duration::from_secs(1)));
+        let expired = requests(&mut peer, 8, now + Duration::from_secs(1));
+        assert_eq!(expired.len(), 3);
+        followed_packet(
+            &mut peer,
+            &announce(9, 0, 0),
+            0,
+            now + Duration::from_millis(1100),
+            7,
+        );
+        let changed = requests(&mut peer, 9, now + Duration::from_millis(1125));
+        assert_eq!(changed.len(), 3);
+        assert!(
+            changed
+                .iter()
+                .all(|packet| packet[34..42] == 9u64.to_be_bytes())
+        );
+        grants(&mut peer, 8, &expired, now + Duration::from_millis(1150));
+        assert_eq!(peer.received_grants, 0);
+        grants(&mut peer, 9, &changed, now + Duration::from_millis(1200));
+        assert_eq!(peer.received_grants, 3);
+        assert!(!peer.ready(now + Duration::from_millis(1200)));
+        let mut changed_port = announce(9, 0, 0);
+        changed_port[28..30].copy_from_slice(&0x8006u16.to_be_bytes());
+        followed_packet(
+            &mut peer,
+            &changed_port,
+            0,
+            now + Duration::from_millis(1250),
+            7,
+        );
+        let port_retry = requests(&mut peer, 10, now + Duration::from_millis(1375));
+        assert_eq!(port_retry.len(), 3);
+        assert!(
+            port_retry
+                .iter()
+                .all(|packet| packet[42..44] == 0x8006u16.to_be_bytes())
+        );
+        grants(&mut peer, 9, &changed, now + Duration::from_millis(1400));
+        assert_eq!(peer.received_grants, 0);
+    }
+
+    #[test]
+    fn failed_subscription_sends_are_bounded_and_sender_role_is_unchanged() {
+        let now = Instant::now();
+        assert!(requests(&mut PeerState::default(), 0, now).is_empty());
+        let mut peer = PeerState {
+            follow: true,
+            ..Default::default()
+        };
+        let mut attempts = 0;
+        peer.subscribe(7, 0, now, |_| {
+            attempts += 1;
+            false
+        });
+        assert_eq!(attempts, 3);
+        assert!(peer.subscriptions.iter().all(Option::is_none));
+        assert!(requests(&mut peer, 1, now + Duration::from_millis(125)).is_empty());
+        assert_eq!(
+            requests(&mut peer, 8, now + Duration::from_secs(1)).len(),
+            3
+        );
+    }
+
     #[test]
     fn readiness_requires_exchange_streak_and_expires() {
         let now = Instant::now();

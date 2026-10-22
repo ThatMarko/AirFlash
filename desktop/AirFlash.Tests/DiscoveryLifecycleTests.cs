@@ -679,6 +679,7 @@ public sealed class DiscoveryLifecycleTests
         Assert.Equal(2, fixture.Dns.Resolves.Count);
         Assert.Equal(4, fixture.Discovery.Snapshot.NativeOwners);
         Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        Assert.Contains(fixture.Failures, message => message == L.Get("Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery."));
         fixture.Dns.Resolves[0].Resolved(995, null);
         fixture.Discovery.Tick();
         Assert.Equal(2, fixture.Dns.Resolves.Count);

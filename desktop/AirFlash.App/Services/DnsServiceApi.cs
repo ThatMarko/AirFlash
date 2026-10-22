@@ -43,9 +43,14 @@ internal static class DnsServiceOwnership
     }
     internal static void Release() { lock (Gate) --_count; }
 }
+internal enum DnsServiceCapacityReason { RetainedOwnership, ResolveConcurrency }
 internal sealed class DnsServiceCapacityException : InvalidOperationException
 {
-    public DnsServiceCapacityException() : base(L.Get("Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.")) { }
+    public DnsServiceCapacityReason Reason { get; }
+    public DnsServiceCapacityException(DnsServiceCapacityReason reason = DnsServiceCapacityReason.RetainedOwnership)
+        : base(reason == DnsServiceCapacityReason.ResolveConcurrency ? "The DNS resolve helper concurrency limit has been reached."
+            : L.Get("Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery."))
+    { Reason = reason; }
 }
 internal sealed record DiscoveryPolicy
 {

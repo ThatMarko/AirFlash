@@ -832,7 +832,7 @@ public sealed class SessionLifecycleTests
     [InlineData(true)]
     public async Task DeferredEndpointRestoreRejectsSupersededIntentOrOwner(bool replaceOwner)
     {
-        var first = new Connection(); var second = new Connection(); var factory = new Factory(first, second); var audio = new Audio();
+        var first = new Connection(); var second = new Connection { AutoStreaming = false }; var factory = new Factory(first, second); var audio = new Audio();
         await using var controller = new SessionController(factory, audio, timing: Timing);
         var final = await HoldFinalRestoreAsync(controller, first, audio);
         Task? replacement = null;
@@ -847,9 +847,23 @@ public sealed class SessionLifecycleTests
             if (replacement is not null)
             {
                 await replacement.WaitAsync(Deadline); await second.Started.Task.WaitAsync(Deadline);
+                // Join stale recovery before allowing the new worker's legitimate
+                // Streaming restore (MuteWhileStreaming=false). Started alone can
+                // race that restore and is not a stable operation-count boundary.
                 Assert.Equal(restores + 1, audio.RestoreCount); Assert.Equal(2, factory.OpenCount);
+                Assert.Equal(PlaybackState.Connecting, controller.Snapshot.State);
+                Assert.Equal("b", controller.Snapshot.Receiver?.Id);
+                Assert.NotEqual(captured.Owner, controller.Capture().Owner);
+                second.Emit(new { @event = "streaming" });
+                await SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Streaming && snapshot.Receiver?.Id == "b");
+                Assert.Equal(restores + 2, audio.RestoreCount);
             }
-            else { Assert.Equal(restores, audio.RestoreCount); Assert.Equal(1, factory.OpenCount); }
+            else
+            {
+                Assert.Equal(restores, audio.RestoreCount); Assert.Equal(1, factory.OpenCount);
+                Assert.Equal(captured.Owner, controller.Capture().Owner);
+                Assert.NotEqual(captured.AutomaticIntent, controller.Capture().AutomaticIntent);
+            }
         }
         finally { final.Release.TrySetResult(); if (replacement is not null) await replacement.WaitAsync(Deadline); }
     }
