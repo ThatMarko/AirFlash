@@ -331,7 +331,7 @@
   "Waiting for the selected application to start.": "Warten auf den Start der ausgewählten Anwendung.",
   "Multiple application instances are running. Select an instance in Settings → Audio capture.": "Es werden mehrere Instanzen der Anwendung ausgeführt. Wählen Sie unter Einstellungen → Audioaufnahme eine Instanz aus.",
   "AirPlay session released. Waiting for audio.": "AirPlay-Sitzung freigegeben. Warten auf Audio.",
-  "Audio detected; reconnecting…": "Audio erkannt; erneute Verbindung…",
+  "Audio detected; connecting…": "Audio erkannt; Verbindung wird hergestellt…",
   "Reset settings": "Einstellungen zurücksetzen",
   "Reset and restart": "Zurücksetzen und neu starten",
   "Delete all settings and receiver pairing, then restart AirFlash. Logs and engine caches are retained.": "Löschen Sie alle Einstellungen und Empfängerkopplungen, und starten Sie AirFlash neu. Protokolle und Engine-Caches bleiben erhalten.",

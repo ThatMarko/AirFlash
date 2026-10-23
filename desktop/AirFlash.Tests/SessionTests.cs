@@ -585,6 +585,69 @@ public sealed class SessionTests
         Assert.Equal(PlaybackState.Standby, controller.Snapshot.State); Assert.False(audio.Muted);
         await controller.StopAsync(); Assert.True(process.Disposed); Assert.Equal(1, factory.OpenCount);
     }
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task AudioDetectionReportsConnectingBeforeAndAfterStandby(bool waitForApplication, bool streamedBeforeStandby)
+    {
+        var process = new FakeConnection(false); var factory = new FakeFactory(process); var audio = new FakeAudio();
+        await using var controller = new SessionController(factory, audio, timing: SessionTiming.Default);
+        var settings = Settings(); settings.StandbyEnabled = true;
+        if (waitForApplication)
+        {
+            settings.CaptureMode = "application"; settings.CaptureApplicationPath = @"C:\SyntheticPlayer.exe";
+        }
+        await controller.StartAsync(Pod(), settings);
+        await process.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        if (streamedBeforeStandby)
+        {
+            var initialStream = SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Streaming);
+            process.Emit("streaming"); await initialStream;
+            Assert.True(audio.Muted);
+        }
+        if (waitForApplication || streamedBeforeStandby)
+        {
+            var standby = SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Standby);
+            process.EmitData(new { @event = "standby", reason = waitForApplication ? "application_unavailable" : "silence" });
+            await standby;
+        }
+        Assert.False(audio.Muted);
+        var muteCalls = audio.MuteCalls;
+        // Native resuming also precedes its very first transport connection.
+        // Observe the event's message rather than the initial Connecting state.
+        var connecting = SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Connecting && snapshot.Message != L.Get("Connecting…"));
+        process.Emit("resuming");
+        var connectingSnapshot = await connecting;
+        Assert.Equal(L.Get("Audio detected; connecting…"), connectingSnapshot.Message);
+        Assert.Equal(1, factory.OpenCount); Assert.False(audio.Muted); Assert.Equal(muteCalls, audio.MuteCalls);
+
+        var streaming = SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Streaming);
+        process.Emit("streaming"); await streaming;
+        Assert.Equal(!waitForApplication, audio.Muted); Assert.Equal(1, factory.OpenCount);
+        var failed = SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Error);
+        process.EmitData(new { @event = "error", code = "peer_closed", message = "synthetic resumed transport failure", retryable = false });
+        var failure = await failed;
+        Assert.Equal("synthetic resumed transport failure", failure.Diagnostics?.LastFault?.Message);
+        Assert.True(process.Disposed); Assert.False(audio.Muted); Assert.Equal(1, factory.OpenCount);
+        await controller.StopAsync(); Assert.Equal(PlaybackState.Idle, controller.Snapshot.State);
+    }
+    [Fact]
+    public async Task TransportFailureAfterPlaybackStillReportsAnActualReconnect()
+    {
+        var process = new FakeConnection(); var factory = new FakeFactory(process); var audio = new FakeAudio();
+        await using var controller = new SessionController(factory, audio, timing: SessionTiming.Default with { Retry = TimeSpan.FromSeconds(30) });
+        var settings = Settings(); settings.ForceReconnect = true; settings.MaxReconnectAttempts = 2;
+        await controller.StartAsync(Pod(), settings);
+        await SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Streaming);
+        var retrying = SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Connecting && snapshot.Message == L.Format("Disconnected; reconnecting ({0}/{1})", 1, 2));
+        process.EmitData(new { @event = "error", code = "peer_closed", message = "synthetic transport failure", retryable = true });
+        var retry = await retrying;
+        Assert.Equal("peer_closed", retry.Diagnostics?.LastFault?.Code);
+        Assert.True(process.Disposed); Assert.False(audio.Muted); Assert.Equal(1, factory.OpenCount);
+        // Stop cancels the retry delay; no second fake process is needed.
+        await controller.StopAsync(); Assert.Equal(PlaybackState.Idle, controller.Snapshot.State);
+    }
     [Fact]
     public async Task StandbyEditsDuringHelloWaitForStartAndKeepLatestPolicy()
     {
