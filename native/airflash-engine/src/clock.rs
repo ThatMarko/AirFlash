@@ -1051,8 +1051,8 @@ mod tests {
             (47, 7),
             (48, 0x90),
             (49, (-4i8) as u8),
-            (54, 2),
-            (55, 1),
+            (54, 1),
+            (55, 2),
         ] {
             let mut bad = grant.clone();
             bad[index] = value;
@@ -1072,6 +1072,95 @@ mod tests {
         let mut bad = request;
         bad[43] = 1;
         assert!(unicast_grants(&bad, 8, 3).is_empty());
+    }
+
+    // Encode this grant independently of the production grant writer: the
+    // eight-byte GRANT_UNICAST_TRANSMISSION body ends in reserved, then flags.
+    fn independent_grant() -> [u8; 56] {
+        [
+            0x1c, 2, 0, 56, 0, 0, 4, 8, // Signaling header, domain zero.
+            0, 0, 0, 0, 0, 0, 0, 0, // Correction.
+            0, 0, 0, 0, // Reserved.
+            0, 0, 0, 0, 0, 0, 0, 8, 0x80, 5, // Remote source identity and port.
+            0, 3, 5, 0x7f, // Sequence, control, interval.
+            0, 0, 0, 0, 0, 0, 0, 7, 0x80, 5, // Local target identity and port.
+            0, 5, 0, 8, // Grant TLV type and body length.
+            0, 0xfd, 0, 0, 0, 30, 0, 1, // Sync, -3, 30 seconds, reserved, R.
+        ]
+    }
+
+    #[test]
+    fn follower_accepts_independent_grants_with_either_renewal_flag() {
+        let now = Instant::now();
+        for renewal in [0, 1] {
+            let mut peer = PeerState {
+                follow: true,
+                ..Default::default()
+            };
+            followed_packet(&mut peer, &announce(8, 0, 0), 0, now, 7);
+            assert_eq!(requests(&mut peer, 3, now).len(), 3);
+            for kind in [0, 9, 11] {
+                let mut grant = independent_grant();
+                grant[48] = kind << 4;
+                grant[49] = if kind == 0 { (-3i8) as u8 } else { 0 };
+                grant[55] = renewal;
+                followed_packet(&mut peer, &grant, 0, now + Duration::from_millis(10), 7);
+            }
+            assert_eq!(peer.received_grants, 3);
+            assert_eq!(peer.granted_until, [Some(now + Duration::from_millis(30010)); 3]);
+            assert!(peer.subscriptions.iter().all(Option::is_none));
+            assert!(!peer.ready(now)); // A grant still cannot replace an exchange.
+            for sequence in 0..3 {
+                exchange(&mut peer, 8, sequence, now + Duration::from_millis(20 + u64::from(sequence) * 125));
+            }
+            assert!(peer.ready(now + Duration::from_millis(270)));
+            assert!(requests(&mut peer, 11, now + Duration::from_secs(1)).is_empty());
+            exchange(&mut peer, 8, 4, now + Duration::from_secs(10));
+            exchange(&mut peer, 8, 5, now + Duration::from_millis(10125));
+            exchange(&mut peer, 8, 6, now + Duration::from_millis(10250));
+            assert_eq!(requests(&mut peer, 12, now + Duration::from_millis(10250)).len(), 3);
+        }
+    }
+
+    #[test]
+    fn follower_independent_grants_retain_reserved_flag_and_correlation_guards() {
+        let now = Instant::now();
+        for (index, value) in [
+            (20, 1), // Source identity.
+            (29, 6), // Source port.
+            (41, 1), // Target identity.
+            (43, 6), // Target port.
+            (31, 4), // Pending sequence.
+            (47, 7), // TLV body length.
+            (48, 1), // Reserved message-type bits.
+            (49, (-4i8) as u8), // Faster interval than requested.
+            (54, 1), // Reserved octet, including the previously accepted bit zero.
+            (55, 2), // Unknown flag bit, not Renewal Invited.
+        ] {
+            let mut peer = PeerState { follow: true, ..Default::default() };
+            followed_packet(&mut peer, &announce(8, 0, 0), 0, now, 7);
+            requests(&mut peer, 3, now);
+            let mut invalid = independent_grant();
+            invalid[index] = value;
+            followed_packet(&mut peer, &invalid, 0, now, 7);
+            assert_eq!(peer.received_grants, 0, "accepted byte {index}={value}");
+            assert!(peer.granted_until.iter().all(Option::is_none));
+        }
+        for seconds in [0u32, 31] {
+            let mut peer = PeerState { follow: true, ..Default::default() };
+            followed_packet(&mut peer, &announce(8, 0, 0), 0, now, 7);
+            requests(&mut peer, 3, now);
+            let mut invalid = independent_grant();
+            invalid[50..54].copy_from_slice(&seconds.to_be_bytes());
+            followed_packet(&mut peer, &invalid, 0, now, 7);
+            assert_eq!(peer.received_grants, 0);
+        }
+        let mut peer = PeerState { follow: true, ..Default::default() };
+        followed_packet(&mut peer, &announce(8, 0, 0), 0, now, 7);
+        requests(&mut peer, 3, now);
+        followed_packet(&mut peer, &independent_grant(), 0, now + SUBSCRIPTION_REPLY_WINDOW, 7);
+        assert_eq!(peer.received_grants, 0);
+        assert!(peer.granted_until.iter().all(Option::is_none));
     }
     #[test]
     fn wire_clock_and_lengths() {
