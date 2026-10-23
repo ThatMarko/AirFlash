@@ -185,7 +185,9 @@ internal static class UiScrolling
             { Model = "HomePod mini" }).ToArray();
         var discovery = new UiSmoke.MockDiscovery { Items = receivers };
         await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), audio, engine, Application.Current.Dispatcher);
-        var panel = new ControlPanel(app) { SizeToContent = SizeToContent.Manual, Height = 600 };
+        var requestedDpi = 96;
+        var panel = new ControlPanel(app, () => new MonitorArea(new PixelRect(0, 0, 1600, 1200), requestedDpi / 96d))
+            { SizeToContent = SizeToContent.Manual, Height = 600, MenuOpen = true };
         try
         {
             app.Start(); await app.Startup;
@@ -199,6 +201,7 @@ internal static class UiScrolling
                 ThemeService.SetForVerification(dark); await Pump();
                 foreach (var dpi in new[] { 96, 120 })
                 {
+                    requestedDpi = dpi;
                     await UseDpiAsync(panel, dpi);
                     foreach (var width in new[] { 440d, 520d })
                     {
@@ -206,8 +209,17 @@ internal static class UiScrolling
                         panel.Height = Math.Min(600, panel.MaxHeight);
                         await ReceiversAsync(app, discovery, receivers);
                         var scroll = panel.DeviceScroll;
+                        discovery.PublishFailure($"Synthetic discovery warning for receiver scrolling {dark} {width:F0} {dpi}.");
+                        await Pump();
+                        var details = UiSmoke.Descendants(panel).OfType<Expander>().Single();
+                        details.IsExpanded = true; await Pump();
                         scroll.ScrollToTop(); await Pump();
                         var label = $"receiver scroll {(dark ? "dark" : "light")} {width:F0} DIP {dpi} DPI";
+                        var finalDpi = VisualTreeHelper.GetDpi(panel);
+                        Observe(Math.Abs(panel.ActualWidth - width) <= 1 && finalDpi.DpiScaleX == dpi / 96d && finalDpi.DpiScaleY == dpi / 96d,
+                            $"{label}: final logical width and window DPI match the requested geometry", checks, failures);
+                        Observe(panel.NoticeBanner.IsVisible && details.IsVisible && details.IsExpanded,
+                            $"{label}: receiver scrolling remains usable with a notice and expanded error details", checks, failures);
                         var vertical = scroll.Template.FindName("PART_VerticalScrollBar", scroll) as ScrollBar
                             ?? throw new InvalidOperationException("The receiver vertical scrollbar is unavailable.");
                         var viewport = scroll.Template.FindName("PART_ScrollContentPresenter", scroll) as ScrollContentPresenter
@@ -285,7 +297,7 @@ internal static class UiScrolling
             File.WriteAllText(Path.Combine(directory, "ui-panel-scrolling-report.json"), JsonSerializer.Serialize(new
             {
                 ok = failures.Count == 0, failures, measurements,
-                note = "Actual mock ControlPanel geometry, scroll input and keyboard access at 440/520 DIP and synthetic 96/120 DPI. Synthetic window DPI does not replace physical display testing."
+                note = "Actual mock ControlPanel geometry, notice/error details, scroll input and keyboard access at 440/520 DIP and synthetic 96/120 DPI with an injected work area. No physical display qualification."
             }, new JsonSerializerOptions { WriteIndented = true }));
             if (failures.Count > 0) throw new InvalidOperationException($"Receiver scrolling regression: {failures.Count} failed checks; first: {failures[0]}. See ui-panel-scrolling-report.json.");
         }
