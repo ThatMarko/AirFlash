@@ -337,7 +337,7 @@
   "Waiting for the selected application to start.": "正在等待所选应用启动。",
   "Multiple application instances are running. Select an instance in Settings → Audio capture.": "应用正在运行多个实例，请在设置 → 音频采集中选择实例。",
   "AirPlay session released. Waiting for audio.": "已释放 AirPlay 会话，正在等待声音。",
-  "Audio detected; reconnecting…": "检测到声音，正在重新连接…",
+  "Audio detected; connecting…": "检测到声音，正在连接…",
   "Reset settings": "重置设置",
   "Reset and restart": "重置并重启",
   "Delete all settings and receiver pairing, then restart AirFlash. Logs and engine caches are retained.": "删除所有设置和接收器配对后重启 AirFlash，保留日志和引擎缓存。",

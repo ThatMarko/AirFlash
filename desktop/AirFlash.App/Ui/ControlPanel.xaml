@@ -66,6 +66,8 @@
       </Border>
       </StackPanel>
       <ScrollViewer x:Name="DeviceScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="480">
+        <Grid>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <StackPanel>
           <Border x:Name="EmptyState" Padding="18,28">
             <Border.Style>
@@ -170,6 +172,9 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         </StackPanel>
+          <!-- Fluent scrollbars overlay the viewport. Keep receiver controls clear of the bar. -->
+          <Border Grid.Column="1" Width="{DynamicResource {x:Static SystemParameters.VerticalScrollBarWidthKey}}" Margin="8,0,0,0" IsHitTestVisible="False" Visibility="{Binding ComputedVerticalScrollBarVisibility, ElementName=DeviceScroll}"/>
+        </Grid>
       </ScrollViewer>
       <StackPanel Grid.Row="3">
         <Grid Margin="2,4,2,14" Visibility="{Binding Settings.ShowStreamingModes, Converter={StaticResource BoolVisibility}}">

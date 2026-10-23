@@ -737,7 +737,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         else if (kind == "resuming")
                         {
                             startedAt = 0; deadline = DateTime.UtcNow + _timing.Connect;
-                            Publish(epoch, PlaybackState.Connecting, L.Get("Audio detected; reconnecting…"));
+                            Publish(epoch, PlaybackState.Connecting, L.Get("Audio detected; connecting…"));
                         }
                         else if (kind == "device_volume" && startedAt != 0 && receiver.IsSoftwareGroup)
                         {
