@@ -20,7 +20,7 @@ internal static class PairingHintRegression
         var receiver = new Receiver("hint-manual", "Pairing hint test", "192.0.2.10") { IsManual = true };
         var engine = new MockFactory { AutoReady = false };
         await using var app = new AppViewModel(new MemoryStore(), new MockDiscovery { Items = [receiver] },
-            new MockAutostart(), new MockAudio(), engine, Application.Current.Dispatcher);
+            new MockAutostart(), new MockAudio(), engine, Application.Current.Dispatcher, isolatedVerification: true);
         app.SetPanelVisible(true); app.Start(); await app.Startup;
         var panel = new ControlPanel(app) { MenuOpen = true };
         panel.ShowPanel(); await Pump();

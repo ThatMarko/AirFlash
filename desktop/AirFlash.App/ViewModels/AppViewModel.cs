@@ -89,6 +89,8 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     public string MonitorQueue => _snapshot.Metrics?.MaxQueueAge is { } ms ? $"{ms:F1} ms" : "—";
     public string MonitorUnderruns => _snapshot.Metrics?.Underruns?.ToString() ?? "—";
     public string MonitorDrops => _snapshot.Metrics?.DroppedFrames?.ToString() ?? "—";
+    public string MonitorPaddedFrames => _snapshot.Metrics?.PaddedFrames?.ToString() ?? "—";
+    public string MonitorFullyPaddedPackets => _snapshot.Metrics?.FullyPaddedPackets?.ToString() ?? "—";
     public string MonitorRate => _snapshot.Metrics is { InputRate: > 0 } m ? $"{m.InputRate:N0} Hz" : "—";
     public string MonitorStreamRate => _snapshot.StreamRate is { } rate and > 0 ? $"{rate:N0} Hz · 16-bit" : "—";
     public string MonitorRecoveries => _snapshot.Diagnostics?.Transport?.SenderLateRecoveries?.ToString() ?? "—";
@@ -107,6 +109,8 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             if (_snapshot.Diagnostics is not { LastFault: not null } diagnostics) return "—";
             var capture = diagnostics.CaptureBeforeFault;
             var summary = L.Format("Local underruns: {0}; local drops: {1}; local p95: {2}", capture?.Underruns?.ToString() ?? "—", capture?.DroppedFrames?.ToString() ?? "—", capture?.CaptureToSendP95 is { } ms ? $"{ms:F1} ms" : "—");
+            summary += "\n" + L.Format("Local padded output frames: {0}; wholly padded capture pulls: {1}",
+                capture?.PaddedFrames?.ToString() ?? "—", capture?.FullyPaddedPackets?.ToString() ?? "—");
             if (diagnostics.TransportBeforeFault is { } transport)
             {
                 summary += "\n" + L.Format("Sender recoveries: {0}; skipped packets: {1}", transport.SenderLateRecoveries?.ToString() ?? "—", transport.SkippedPackets?.ToString() ?? "—");
@@ -140,7 +144,12 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     public AsyncCommand MuteCommand { get; }
     public event Action? SettingsChanged;
     public event Action? CatalogChanged;
-    public AppViewModel(ISettingsStore store, IDiscoveryService discovery, IAutostart autostart, IAudioService audio, IEngineFactory factory, Dispatcher dispatcher, EngineInitialization? engine = null, IApplicationCatalog? applications = null, IReceiverCapabilityCatalog? receiverCapabilities = null, IRestartService? restart = null)
+    private sealed class EmptyNowPlayingSource : INowPlayingSource
+    {
+        public Task<NowPlaying?> ReadAsync(CancellationToken cancellation) => Task.FromResult<NowPlaying?>(null);
+    }
+
+    public AppViewModel(ISettingsStore store, IDiscoveryService discovery, IAutostart autostart, IAudioService audio, IEngineFactory factory, Dispatcher dispatcher, EngineInitialization? engine = null, IApplicationCatalog? applications = null, IReceiverCapabilityCatalog? receiverCapabilities = null, IRestartService? restart = null, bool isolatedVerification = false)
     {
         _engine = engine;
         _restart = restart ?? new RestartService();
@@ -154,26 +163,34 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         Endpoints.Failed += ShowError;
         _settings = store.Load();
         _discovery.SetInterface(_settings.DiscoveryInterfaceId);
-        Session = new(factory, audio, AppPaths.Log);
+        Session = new(factory, audio, AppPaths.Log, sessionRecords: isolatedVerification ? _ => { } : null);
         Session.Changed += SessionChanged;
         // A receiver's own buttons arrive as transport commands; forward them to the
         // media keys so the app that is playing reacts, without touching the stream.
         _nowPlayingStop = new();
-        var nowPlayingSource = new AirFlash.App.Metadata.SmtcNowPlayingSource(AppPaths.Log);
-        Session.RemoteCommandReceived += command =>
+        if (isolatedVerification)
         {
-            if (command.Name is "play" or "pause")
+            NowPlaying = new NowPlayingPump(new EmptyNowPlayingSource());
+            _nowPlayingWork = Task.CompletedTask;
+        }
+        else
+        {
+            var nowPlayingSource = new AirFlash.App.Metadata.SmtcNowPlayingSource(AppPaths.Log);
+            Session.RemoteCommandReceived += command =>
             {
-                _ = nowPlayingSource.ExecuteAsync(command, _nowPlayingStop.Token);
-                return;
-            }
-            if (command.VirtualKey is not { } key) return;
-            _dispatcher.BeginInvoke(() => AirFlash.App.Input.MediaKeys.Press(key, AppPaths.Log));
-        };
-        // Now Playing is polled from SMTC and pushed only when it actually changed;
-        // the engine turns it into the receiver's SET_PARAMETER payloads.
-        NowPlaying = new NowPlayingPump(nowPlayingSource, log: AppPaths.Log);
-        _nowPlayingWork = Task.Run(() => NowPlaying.RunAsync(now => _ = Session.PublishNowPlayingAsync(now, _nowPlayingStop.Token), _nowPlayingStop.Token));
+                if (command.Name is "play" or "pause")
+                {
+                    _ = nowPlayingSource.ExecuteAsync(command, _nowPlayingStop.Token);
+                    return;
+                }
+                if (command.VirtualKey is not { } key) return;
+                _dispatcher.BeginInvoke(() => AirFlash.App.Input.MediaKeys.Press(key, AppPaths.Log));
+            };
+            // Now Playing is polled from SMTC and pushed only when it actually changed;
+            // the engine turns it into the receiver's SET_PARAMETER payloads.
+            NowPlaying = new NowPlayingPump(nowPlayingSource, log: AppPaths.Log);
+            _nowPlayingWork = Task.Run(() => NowPlaying.RunAsync(now => _ = Session.PublishNowPlayingAsync(now, _nowPlayingStop.Token), _nowPlayingStop.Token));
+        }
         _discovery.Changed += list => _dispatcher.BeginInvoke(() => OnDiscovered(list));
         _discovery.Failed += message => _dispatcher.BeginInvoke(() => ShowError(new IOException(message)));
         _discovery.RunningChanged += running => _dispatcher.BeginInvoke(() =>
@@ -453,6 +470,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         {
             [nameof(MonitorLatency)] = MonitorLatency, [nameof(MonitorQueue)] = MonitorQueue,
             [nameof(MonitorUnderruns)] = MonitorUnderruns, [nameof(MonitorDrops)] = MonitorDrops,
+            [nameof(MonitorPaddedFrames)] = MonitorPaddedFrames, [nameof(MonitorFullyPaddedPackets)] = MonitorFullyPaddedPackets,
             [nameof(MonitorRate)] = MonitorRate, [nameof(MonitorStreamRate)] = MonitorStreamRate,
             [nameof(MonitorRecoveries)] = MonitorRecoveries,
             [nameof(MonitorSkipped)] = MonitorSkipped, [nameof(MonitorReconnects)] = MonitorReconnects,
@@ -697,7 +715,9 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         }
         ResetCompleted?.Invoke();
     }
-    public string Diagnostics() => $"AirFlash {AppPaths.DisplayVersion} / WPF\n" + L.Format("Engine: {0}\nStatus: {1}\n{2}\nLocal p95: {3}\nQueue age: {4}\nUnderruns: {5}; drops: {6}\nEnd-to-end latency: not measured", EngineVersion, StatusTitle, StatusDetail, MonitorLatency, MonitorQueue, MonitorUnderruns, MonitorDrops) + (ActionHint.Length > 0 ? "\n" + ActionHint : "") + "\n" + System.Text.Json.JsonSerializer.Serialize(_snapshot.Diagnostics, AppSettings.JsonOptions);
+    public string Diagnostics() => $"AirFlash {AppPaths.DisplayVersion} / WPF\n" + L.Format("Engine: {0}\nStatus: {1}\n{2}\nLocal p95: {3}\nQueue age: {4}\nUnderruns: {5}; drops: {6}\nEnd-to-end latency: not measured", EngineVersion, StatusTitle, StatusDetail, MonitorLatency, MonitorQueue, MonitorUnderruns, MonitorDrops)
+        + "\n" + L.Format("Local padded output frames: {0}; wholly padded capture pulls: {1}", MonitorPaddedFrames, MonitorFullyPaddedPackets)
+        + (ActionHint.Length > 0 ? "\n" + ActionHint : "") + "\n" + System.Text.Json.JsonSerializer.Serialize(_snapshot.Diagnostics, AppSettings.JsonOptions);
     /// <summary>Write the current engine's redacted diagnostic bundle into the log folder.</summary>
     public async Task<string> ExportDiagnosticsAsync()
     {

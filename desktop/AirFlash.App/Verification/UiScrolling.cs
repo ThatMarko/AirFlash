@@ -25,7 +25,7 @@ internal static class UiScrolling
         {
             Items = Enumerable.Range(1, 6).Select(i => new Receiver($"scroll-{i}", $"Scroll receiver {i}", $"127.0.0.{i}") { Model = "HomePod mini" }).ToArray()
         };
-        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher);
+        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher, isolatedVerification: true);
         // Finish receiver initialization before measuring scrolling-only settings changes.
         app.SetPanelVisible(true);
         app.Start(); await app.Startup; await Pump();

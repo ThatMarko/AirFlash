@@ -13,7 +13,7 @@ internal static class UiEqualizer
     public static async Task RunAsync(List<string> checks, string directory)
     {
         var store = new UiSmoke.MemoryStore(); var audio = new UiSmoke.MockAudio(); var engine = new UiSmoke.MockFactory();
-        await using var app = new AppViewModel(store, new UiSmoke.MockDiscovery(), new UiSmoke.MockAutostart(), audio, engine, Application.Current.Dispatcher);
+        await using var app = new AppViewModel(store, new UiSmoke.MockDiscovery(), new UiSmoke.MockAutostart(), audio, engine, Application.Current.Dispatcher, isolatedVerification: true);
         app.SetPanelVisible(true); app.Start(); await app.Startup;
         var window = new SettingsWindow(app); window.Show(); await Pump();
         try

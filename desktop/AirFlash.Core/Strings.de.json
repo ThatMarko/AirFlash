@@ -393,5 +393,9 @@
   "Stopping playback and disconnecting…": "Wiedergabe wird gestoppt und die Verbindung getrennt…",
   "The audio engine could not stop. Try disconnecting again.": "Die Audio-Engine konnte nicht beendet werden. Versuchen Sie erneut, die Verbindung zu trennen.",
   "In the Home app, set speaker access to “Everyone,” then try again.": "Legen Sie in der Home-App den Lautsprecherzugriff auf „Alle“ fest, und versuchen Sie es dann erneut.",
-  "Receiver session ownership could not be confirmed. Automatic recovery is paused. Reconnect manually to continue.": "Die Sitzung des Empfängers konnte nicht bestätigt werden. Die automatische Wiederherstellung ist pausiert. Verbinden Sie sich manuell erneut, um fortzufahren."
+  "Receiver session ownership could not be confirmed. Automatic recovery is paused. Reconnect manually to continue.": "Die Sitzung des Empfängers konnte nicht bestätigt werden. Die automatische Wiederherstellung ist pausiert. Verbinden Sie sich manuell erneut, um fortzufahren.",
+  "Local padded output frames": "Lokal aufgefüllte Ausgabeframes",
+  "Wholly padded capture pulls": "Vollständig aufgefüllte Erfassungsblöcke",
+  "Local padded output frames: {0}; wholly padded capture pulls: {1}": "Lokal aufgefüllte Ausgabeframes: {0}; vollständig aufgefüllte Erfassungsblöcke: {1}",
+  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "Gezählt werden fehlende Frames mit der Ausgaberate vor dem Equalizer. Ein vollständig aufgefüllter Block ersetzt alle 352 Frames. Erfasste Stille und geplante Stille beim Ausblenden oder Wiederanlauf sind keine fehlenden Erfassungsdaten. Dies sind lokale Erfassungszähler; nicht verfügbare Zähler zeigen —."
 }

@@ -48,7 +48,7 @@ internal static class UiSettingsRecovery
         Check(initial.Validate() is null && !initial.StartAtLogin && !initial.AutoConnectOnDiscover, name + ": first shell load returns valid safe defaults", checks);
         Check(!string.IsNullOrEmpty(store.LoadWarning), name + ": first load reports recovery", checks);
         var discovery = new FixtureDiscovery(); var autostart = new FixtureAutostart(); var audio = new FixtureAudio(); var engine = new UiSmoke.MockFactory();
-        await using var app = new AppViewModel(store, discovery, autostart, audio, engine, Application.Current.Dispatcher);
+        await using var app = new AppViewModel(store, discovery, autostart, audio, engine, Application.Current.Dispatcher, isolatedVerification: true);
         var panel = new ControlPanel(app);
         try
         {
@@ -126,7 +126,7 @@ internal static class UiSettingsRecovery
         File.WriteAllBytes(path, original); var store = new SettingsStore(path); var initial = store.Load();
         Check(initial.Validate() is null && initial.SchemaVersion == 5 && initial.CustomBufferMs == 2000 && initial.Extra?.ContainsKey("stream_sample_rate") != true, "valid settings: legacy migration validates, retires the global rate, and clamps the buffer", checks);
         var discovery = new FixtureDiscovery(); var audio = new FixtureAudio(); var engine = new UiSmoke.MockFactory();
-        await using var app = new AppViewModel(store, discovery, new FixtureAutostart(), audio, engine, Application.Current.Dispatcher);
+        await using var app = new AppViewModel(store, discovery, new FixtureAutostart(), audio, engine, Application.Current.Dispatcher, isolatedVerification: true);
         app.Start(); await app.Startup.WaitAsync(TimeSpan.FromSeconds(5)); await Pump();
         Check(discovery.StartCount == 0, "valid settings: an inactive hidden panel does not browse without automatic demand", checks);
         app.SetPanelVisible(true); await Pump();

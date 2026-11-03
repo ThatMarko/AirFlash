@@ -24,7 +24,7 @@ internal static class UiDiscoveryLifecycle
         using var discovery = new WindowsDiscovery(dns, TimeProvider.System, () => [], _ => { }, queueNative: true);
         var engine = new UiSmoke.MockFactory();
         var app = new AppViewModel(new UiSmoke.MemoryStore(), discovery, new UiSmoke.MockAutostart(),
-            new UiSmoke.MockAudio(), engine, dispatcher);
+            new UiSmoke.MockAudio(), engine, dispatcher, isolatedVerification: true);
         try
         {
             app.SetPanelVisible(true); app.Start(); await app.Startup.WaitAsync(TimeSpan.FromSeconds(10));

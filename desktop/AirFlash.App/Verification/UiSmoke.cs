@@ -51,6 +51,17 @@ internal static class UiSmoke
             }
             catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
         }
+        if (args.Contains("--ui-diagnostics-smoke"))
+        {
+            try
+            {
+                await UiDiagnostics.RunAsync(checks, directory, args.Contains("--ui-diagnostics-dpi"));
+                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
+                    ui_culture = CultureInfo.CurrentUICulture.Name, note = "Synthetic capture metrics and injected diagnostics writer only." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
         if (args.Contains("--ui-regression") || args.Contains("--ui-regression-smoke") || args.Contains("--receiver-settings-regression"))
         {
             try
@@ -114,7 +125,7 @@ internal static class UiSmoke
         }
         object? iconEnvironment = null;
         var store = new MemoryStore(); var engine = new MockFactory();
-        await using var app = new AppViewModel(store, new MockDiscovery(), new MockAutostart(), new MockAudio(), engine, Application.Current.Dispatcher) { EngineVersion = "0.1.0（模拟）" };
+        await using var app = new AppViewModel(store, new MockDiscovery(), new MockAutostart(), new MockAudio(), engine, Application.Current.Dispatcher, isolatedVerification: true) { EngineVersion = "0.1.0（模拟）" };
         var panel = new ControlPanel(app); SettingsWindow? settings = null;
         // Verification must never bind the production GUID to a test executable path.
         var guidIndex = Array.IndexOf(args, "--tray-guid");
@@ -319,6 +330,7 @@ internal static class UiSmoke
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyStartupFailureAsync(checks, directory);
             await UiDiscoveryLifecycle.RunAsync(checks);
+            await UiDiagnostics.RunAsync(checks, directory);
             await UiScrolling.RunAsync(checks, directory);
             await VerifyTrayLifecycleAsync(tray, app, trayGuid, () => menuOpened, () => quitRequestedFromTray, checks);
             App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
@@ -335,7 +347,7 @@ internal static class UiSmoke
             ? Task.FromException<string>(new UnauthorizedAccessException("simulated cache access denied"))
             : Task.FromResult("0.1.0"));
         var factory = new MockFactory();
-        await using var app = new AppViewModel(new MemoryStore(), new MockDiscovery(), new MockAutostart(), new MockAudio(), factory, Application.Current.Dispatcher, engine);
+        await using var app = new AppViewModel(new MemoryStore(), new MockDiscovery(), new MockAutostart(), new MockAudio(), factory, Application.Current.Dispatcher, engine, isolatedVerification: true);
         var panel = new ControlPanel(app);
         try
         {
@@ -371,11 +383,11 @@ internal static class UiSmoke
         finally { panel.ShutdownPanel(); }
         var store = new MemoryStore(); var preferences = store.Load(); preferences.StartAtLogin = true; store.Save(preferences);
         var startup = new MockAutostart();
-        await using var audioFailure = new AppViewModel(store, new MockDiscovery(), startup, new MockAudio { FailDefault = true }, new MockFactory(), Application.Current.Dispatcher);
+        await using var audioFailure = new AppViewModel(store, new MockDiscovery(), startup, new MockAudio { FailDefault = true }, new MockFactory(), Application.Current.Dispatcher, isolatedVerification: true);
         audioFailure.SetPanelVisible(true); audioFailure.Start(); await audioFailure.Startup; await Pump();
         Check(startup.Enabled && audioFailure.Receivers.Count > 0 && audioFailure.Notice.Contains("mock audio failed", StringComparison.Ordinal),
             "audio initialization failure preserves autostart and discovery initialization", checks);
-        await using var startupFailure = new AppViewModel(store, new MockDiscovery(), new MockAutostart { FailEnable = true }, new MockAudio(), new MockFactory(), Application.Current.Dispatcher);
+        await using var startupFailure = new AppViewModel(store, new MockDiscovery(), new MockAutostart { FailEnable = true }, new MockAudio(), new MockFactory(), Application.Current.Dispatcher, isolatedVerification: true);
         startupFailure.SetPanelVisible(true); startupFailure.Start(); await startupFailure.Startup; await Pump();
         Check(startupFailure.Receivers.Count > 0 && startupFailure.Notice.Contains("mock startup failed", StringComparison.Ordinal),
             "autostart initialization failure preserves discovery and the shell model", checks);
