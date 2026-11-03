@@ -189,6 +189,10 @@ jobs:
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
+          $profileRoot = Join-Path $env:RUNNER_TEMP ('airflash-native-tests-' + [guid]::NewGuid().ToString('N'))
+          $env:APPDATA = Join-Path $profileRoot 'roaming'
+          $env:LOCALAPPDATA = Join-Path $profileRoot 'local'
+          New-Item -ItemType Directory -Path $env:APPDATA, $env:LOCALAPPDATA -ErrorAction Stop | Out-Null
           cargo test --manifest-path native/airflash-engine/Cargo.toml --locked 2>&1 | Tee-Object (Join-Path $env:HEADLESS_OUTPUT 'cargo-test.log')
           exit $LASTEXITCODE
       - name: Native release build and static compatibility inspection
