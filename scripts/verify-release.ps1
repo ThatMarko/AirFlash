@@ -1,7 +1,10 @@
-param([Parameter(Mandatory)][string]$Version, [string]$Directory = 'dist')
+param([Parameter(Mandatory)][string]$Version, [string]$Directory = 'dist',
+    [ValidateSet('stable','preview')][string]$ReleaseChannel = 'stable')
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'build-package.ps1')
+$artifactVersion = Get-AirFlashReleaseArtifactVersion -Version $Version -ReleaseChannel $ReleaseChannel
 $exe = Join-Path $Directory 'AirFlash.exe'
-$msi = Join-Path $Directory "AirFlash-$Version.msi"
+$msi = Join-Path $Directory "AirFlash-$artifactVersion.msi"
 $info = [Diagnostics.FileVersionInfo]::GetVersionInfo((Resolve-Path $exe))
 $actual = '{0}.{1}.{2}' -f $info.FileMajorPart,$info.FileMinorPart,$info.FileBuildPart
 if ($actual -ne $Version) { throw "EXE version mismatch: $actual" }
