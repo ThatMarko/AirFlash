@@ -56,10 +56,12 @@ function Assert-AirFlashNumericVersion {
     param([string]$Version)
 
     [Version]$parsed = $null
-    if ($Version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' -or
+    # The same numeric value becomes MSI ProductVersion and AssemblyVersion.
+    # Assembly metadata reserves 65535, so the shared build component stops at 65534.
+    if ($Version -notmatch '\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z' -or
         -not [Version]::TryParse($Version, [ref]$parsed) -or
-        $parsed.Major -gt 255 -or $parsed.Minor -gt 255 -or $parsed.Build -gt 65535) {
-        throw 'Version must be canonical X.Y.Z within MSI limits (255.255.65535).'
+        $parsed.Major -gt 255 -or $parsed.Minor -gt 255 -or $parsed.Build -gt 65534) {
+        throw 'Version must be canonical X.Y.Z within MSI and assembly limits (255.255.65534).'
     }
 }
 
