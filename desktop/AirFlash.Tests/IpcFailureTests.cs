@@ -22,7 +22,7 @@ public sealed class IpcFailureTests
     public async Task ExactProcessRejectionKeepsItsFaultAndTerminatesTheOwnedAttempt(string phase, bool originalMute)
     {
         var connection = new Connection(); var factory = new Factory(connection); var audio = new Audio(originalMute);
-        await using var controller = new SessionController(factory, audio, timing: Timing);
+        await using var controller = TestSessionController.Create(factory, audio, timing: Timing);
         var fault = Signal(); var streaming = Signal();
         controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) fault.TrySetResult(); if (snapshot.State == PlaybackState.Streaming) streaming.TrySetResult(); };
         if (phase == "pairing") await controller.PairAsync(Receiver(), Settings(), (_, _) => throw new InvalidOperationException("No PIN request is scripted"));
@@ -69,7 +69,7 @@ public sealed class IpcFailureTests
     public async Task NearMatchGlobalAndStaleEnvelopesRemainFiltered(string envelope)
     {
         var connection = new Connection(); var factory = new Factory(connection);
-        await using var controller = new SessionController(factory, new Audio(false), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(false), timing: Timing);
         var streaming = Signal(); controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Streaming) streaming.TrySetResult(); };
         await controller.StartAsync(Receiver(), Settings()); await connection.Starting.Task.WaitAsync(Limit);
         connection.Raw(envelope); connection.Current("streaming");
@@ -82,7 +82,7 @@ public sealed class IpcFailureTests
     public async Task MalformedOutputIsAControlledFinalIpcFailure(string raw)
     {
         var connection = new Connection(); var factory = new Factory(connection);
-        await using var controller = new SessionController(factory, new Audio(false), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(false), timing: Timing);
         var fault = Signal(); controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) fault.TrySetResult(); };
         await controller.StartAsync(Receiver(), Settings()); await connection.Started.Task.WaitAsync(Limit); connection.Raw(raw);
         await fault.Task.WaitAsync(Limit);
@@ -95,7 +95,7 @@ public sealed class IpcFailureTests
     public async Task CurrentStructuredPairingFailureKeepsClassificationWithoutPlayback()
     {
         var connection = new Connection(); var factory = new Factory(connection);
-        await using var controller = new SessionController(factory, new Audio(false), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(false), timing: Timing);
         var fault = Signal(); controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) fault.TrySetResult(); };
         await controller.PairAsync(Receiver(), Settings(), (_, _) => throw new InvalidOperationException("No PIN requested"));
         await connection.Started.Task.WaitAsync(Limit);
@@ -110,7 +110,7 @@ public sealed class IpcFailureTests
     public async Task APreemptedStreamGetsItsOwnStateAndNeverAutoReconnects()
     {
         var connection = new Connection(); var factory = new Factory(connection); var audio = new Audio(false);
-        await using var controller = new SessionController(factory, audio, timing: Timing);
+        await using var controller = TestSessionController.Create(factory, audio, timing: Timing);
         var streaming = Signal(); var preempted = Signal();
         controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Streaming) streaming.TrySetResult(); if (snapshot.State == PlaybackState.Preempted) preempted.TrySetResult(); };
         await controller.StartAsync(Receiver(), Settings());
@@ -132,7 +132,7 @@ public sealed class IpcFailureTests
     public async Task PreemptedAtTheTakeoverLimitUsesTheYieldMessage()
     {
         var connection = new Connection(); var factory = new Factory(connection); var audio = new Audio(false);
-        await using var controller = new SessionController(factory, audio, timing: Timing);
+        await using var controller = TestSessionController.Create(factory, audio, timing: Timing);
         var preempted = Signal();
         controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Preempted) preempted.TrySetResult(); };
         await controller.StartAsync(Receiver(), Settings());
@@ -151,7 +151,7 @@ public sealed class IpcFailureTests
     public async Task ClassicOnlySetupFailurePublishesTheCapabilityGateMessage()
     {
         var connection = new Connection(); var factory = new Factory(connection);
-        await using var controller = new SessionController(factory, new Audio(false), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(false), timing: Timing);
         var fault = Signal(); controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) fault.TrySetResult(); };
         var receiver = Receiver() with { Model = "AirPort Express", Features = 0UL, SourceVersion = "220.68" };
         await controller.StartAsync(receiver, Settings());
@@ -168,7 +168,7 @@ public sealed class IpcFailureTests
     public async Task AuthenticationFailurePublishesThePairingGateMessage()
     {
         var connection = new Connection(); var factory = new Factory(connection);
-        await using var controller = new SessionController(factory, new Audio(false), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(false), timing: Timing);
         var fault = Signal(); controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) fault.TrySetResult(); };
         await controller.StartAsync(Receiver(), Settings());
         await connection.Starting.Task.WaitAsync(Limit);
@@ -185,7 +185,7 @@ public sealed class IpcFailureTests
     public async Task TlvTwoAuthenticationFailurePublishesAnImmediateHomeAccessHint(bool pairing)
     {
         var connection = new Connection(); var next = new Connection(); var factory = new Factory(connection, next);
-        await using var controller = new SessionController(factory, new Audio(false), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(false), timing: Timing);
         var fault = Signal(); controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) fault.TrySetResult(); };
         if (pairing) await controller.PairAsync(Receiver(), Settings(), (_, _) => throw new InvalidOperationException("No PIN requested"));
         else await controller.StartAsync(Receiver(), Settings());
@@ -220,7 +220,7 @@ public sealed class IpcFailureTests
     public async Task TlvThreeAuthenticationFailureDoesNotPublishTheHomeAccessHint()
     {
         var connection = new Connection(); var factory = new Factory(connection);
-        await using var controller = new SessionController(factory, new Audio(false), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(false), timing: Timing);
         var fault = Signal(); controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) fault.TrySetResult(); };
         await controller.StartAsync(Receiver(), Settings());
         await connection.Starting.Task.WaitAsync(Limit);
@@ -235,7 +235,7 @@ public sealed class IpcFailureTests
     public async Task SocketFailureBeforeAConnectionExistsPublishesTheNetworkGateMessage()
     {
         var factory = new UnreachableFactory();
-        await using var controller = new SessionController(factory, new Audio(false), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(false), timing: Timing);
         var fault = Signal(); controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) fault.TrySetResult(); };
         await controller.StartAsync(Receiver(), new AppSettings { ForceReconnect = false, MaxReconnectAttempts = 1 });
         await fault.Task.WaitAsync(Limit);
@@ -255,7 +255,7 @@ public sealed class IpcFailureTests
     public async Task LifetimeCancellationRemainsIdleAndDisposesItsConnection()
     {
         var connection = new Connection(); var factory = new Factory(connection);
-        await using var controller = new SessionController(factory, new Audio(true), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(true), timing: Timing);
         await controller.StartAsync(Receiver(), Settings()); await connection.Started.Task.WaitAsync(Limit);
         await connection.Reading.Task.WaitAsync(Limit);
         await controller.StopAsync().WaitAsync(Limit);
