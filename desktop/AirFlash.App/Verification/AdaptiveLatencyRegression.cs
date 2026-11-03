@@ -20,7 +20,7 @@ internal static class AdaptiveLatencyRegression
         var left = new Receiver("adaptive-left", "Left", "127.0.0.1");
         var right = new Receiver("adaptive-right", "Right", "127.0.0.2");
         var receiver = new Receiver("stereo:adaptive", "Adaptive stereo", left.Address) { Members = [left, right] };
-        await using var app = new AppViewModel(new MemoryStore(), new MockDiscovery { Items = [receiver] }, new MockAutostart(), new MockAudio(), engine, Application.Current.Dispatcher);
+        await using var app = new AppViewModel(new MemoryStore(), new MockDiscovery { Items = [receiver] }, new MockAutostart(), new MockAudio(), engine, Application.Current.Dispatcher, isolatedVerification: true);
         app.Start(); await app.Startup;
         await app.Session.StartAsync(receiver, app.Settings);
         await Until(() => engine.EmitEvent is not null);

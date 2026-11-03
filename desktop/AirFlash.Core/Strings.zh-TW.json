@@ -376,5 +376,9 @@
   "Stopping playback and disconnecting…": "正在停止播放並中斷連線…",
   "The audio engine could not stop. Try disconnecting again.": "音訊引擎未能停止，請再次嘗試中斷連線。",
   "In the Home app, set speaker access to “Everyone,” then try again.": "請在「家庭」App 中，將揚聲器存取權限設為「所有人」，然後再試一次。",
-  "Receiver session ownership could not be confirmed. Automatic recovery is paused. Reconnect manually to continue.": "無法確認接收器目前的連線，已暫停自動恢復。請手動重新連線以繼續播放。"
+  "Receiver session ownership could not be confirmed. Automatic recovery is paused. Reconnect manually to continue.": "無法確認接收器目前的連線，已暫停自動恢復。請手動重新連線以繼續播放。",
+  "Local padded output frames": "本機補零輸出影格數",
+  "Wholly padded capture pulls": "整批補零擷取次數",
+  "Local padded output frames: {0}; wholly padded capture pulls: {1}": "本機補零輸出影格數：{0}；整批補零擷取次數：{1}",
+  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "補零計數記錄等化處理前缺少的輸出取樣率影格。整批補零表示一次擷取中的 352 個影格皆缺少。實際擷取的靜音以及排程的淡出或恢復靜音不屬於擷取缺失。這些是本機擷取計數；無法取得的計數顯示為 —。"
 }

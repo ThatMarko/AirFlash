@@ -1019,13 +1019,32 @@ public sealed class SessionTests
     [Fact]
     public async Task EngineStandbyReleasesMuteAndMetricsCannotOverrideState()
     {
-        var process = new FakeConnection(); var factory = new FakeFactory(process); await using var controller = TestSessionController.Create(factory, new FakeAudio(), timing: Fast);
+        var process = new FakeConnection(); var factory = new FakeFactory(process); var audio = new FakeAudio();
+        await using var controller = TestSessionController.Create(factory, audio, timing: Fast with { Read = SessionTiming.Default.Read });
+        var streaming = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var standby = new TaskCompletionSource<SessionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var metrics = new TaskCompletionSource<SessionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        controller.Changed += snapshot =>
+        {
+            if (snapshot.State == PlaybackState.Streaming) streaming.TrySetResult();
+            if (snapshot.State == PlaybackState.Standby && snapshot.Metrics is null) standby.TrySetResult(snapshot);
+            if (snapshot.Metrics?.Underruns == 2) metrics.TrySetResult(snapshot);
+        };
         var settings = Settings(); settings.StandbyEnabled = true; settings.StandbySilenceSeconds = 5;
-        await controller.StartAsync(Pod(), settings); await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+        await controller.StartAsync(Pod(), settings);
+        await streaming.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(audio.Muted);
         process.EmitData(new { @event = "standby", reason = "silence" });
+        var beforeMetrics = await standby.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(audio.Muted);
         process.Emit("capture_metrics", metrics: new { last_audio_qpc_ns = 1, capture_to_send_p95_ms = (double?)null, underrun_packets = 2 });
-        await Until(() => controller.Snapshot.Metrics?.Underruns == 2);
-        Assert.Equal(PlaybackState.Standby, controller.Snapshot.State); Assert.Equal(1, factory.OpenCount); Assert.Null(controller.Snapshot.Metrics!.CaptureToSendP95);
+        var afterMetrics = await metrics.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(PlaybackState.Standby, afterMetrics.State);
+        Assert.Equal(2, afterMetrics.Metrics!.Underruns);
+        Assert.Null(afterMetrics.Metrics.CaptureToSendP95);
+        Assert.Null(beforeMetrics.Metrics);
+        Assert.Equal(1, factory.OpenCount);
+        Assert.False(audio.Muted);
     }
     [Fact]
     public async Task ApplicationCaptureNeverMutesEndpointAndLiveStandbyEditsDoNotRestart()

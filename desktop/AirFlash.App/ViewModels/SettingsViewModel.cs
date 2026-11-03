@@ -95,7 +95,9 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     public event Action<Receiver>? PairRequested;
     public RelayCommand AddReceiverCommand { get; }
     public RelayCommand LicensesCommand { get; }
-    public SettingsViewModel(AppViewModel app)
+    public SettingsViewModel(AppViewModel app) : this(app, null) { }
+
+    internal SettingsViewModel(AppViewModel app, Action<string>? diagnosticsWriter)
     {
         CheckUpdatesCommand = new(Updates.CheckAsync, _ => { });
         OpenDownloadCommand = new(() =>
@@ -124,7 +126,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         });
         RefreshAdaptersCommand = new(RefreshAdapters);
         OpenLogsCommand = new(() => { try { AppPaths.OpenLogs(); } catch (Exception error) { ShowError(error); } });
-        CopyDiagnosticsCommand = new(() => { try { Clipboard.SetText(App.Diagnostics()); } catch (Exception error) { ShowError(error); } });
+        CopyDiagnosticsCommand = new(() => { try { (diagnosticsWriter ?? Clipboard.SetText)(App.Diagnostics()); } catch (Exception error) { ShowError(error); } });
         ExportDiagnosticsCommand = new(async () =>
         {
             try

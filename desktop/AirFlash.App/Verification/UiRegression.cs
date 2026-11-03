@@ -19,7 +19,7 @@ internal static class UiRegression
         var autostart = new UiSmoke.MockAutostart(); var discovery = new UiSmoke.MockDiscovery();
         var engine = new UiSmoke.MockFactory();
         var applications = new MockApplications();
-        await using var app = new AppViewModel(store, discovery, autostart, audio, engine, Application.Current.Dispatcher, applications: applications);
+        await using var app = new AppViewModel(store, discovery, autostart, audio, engine, Application.Current.Dispatcher, applications: applications, isolatedVerification: true);
         app.SetPanelVisible(true); app.Start(); await app.Startup; await Pump();
         var window = new SettingsWindow(app); window.Show(); await Pump();
         var vm = window.ViewModel;
@@ -216,7 +216,7 @@ internal static class UiRegression
         var native = new Receiver("stereo:native", "Native pair", "") { StereoId = "native", Members = [new("n1", "Native left", "127.0.0.4"), new("n2", "Native right", "127.0.0.5")] };
         var discovery = new UiSmoke.MockDiscovery { Items = [a, b, c, native] };
         var store = new UiSmoke.MemoryStore(); var engine = new UiSmoke.MockFactory();
-        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher);
+        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher, isolatedVerification: true);
         app.SetPanelVisible(true); app.Start(); await app.Startup; await Pump();
         var window = new SettingsWindow(app); window.Show(); var vm = window.ViewModel;
         var panel = new ControlPanel(app); panel.ShowPanel();
@@ -296,7 +296,7 @@ internal static class UiRegression
         store.Save(original);
         var discovery = new UiSmoke.MockDiscovery { Items = [new("127.0.0.1:7000", "Office", "127.0.0.1")] };
         var engine = new UiSmoke.MockFactory();
-        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher);
+        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher, isolatedVerification: true);
         app.SetPanelVisible(true); app.Start(); await app.Startup; await Until(() => app.AllReceivers.Count == 1);
         var window = new SettingsWindow(app); window.Show(); await Pump(); var vm = window.ViewModel;
         try
@@ -334,7 +334,7 @@ internal static class UiRegression
         var settings = store.Load(); settings.AutoConnectOnDiscover = true; store.Save(settings);
         var discovery = new UiSmoke.MockDiscovery { Items = [new("127.0.0.1:7000", "Office", "127.0.0.1")] };
         var engine = new UiSmoke.MockFactory { FailOpen = true };
-        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher);
+        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher, isolatedVerification: true);
         app.Start(); await app.Startup; await Until(() => app.Snapshot.State == PlaybackState.Error);
         Check(engine.CreatedCount == 1, "automatic connection failure makes one attempt", checks);
         discovery.Items = ReceiverAggregator.Build([new ServiceRecord("Office._airplay._tcp.local", "_airplay._tcp.local", "127.0.0.1", 7000,
@@ -355,7 +355,7 @@ internal static class UiRegression
         var services = new[] { StereoService("_airplay", "AA:BB:CC:DD:EE:01", "127.0.0.1"), StereoService("_raop", "other-id", "127.0.0.1"), StereoService("_airplay", "AA-BB-CC-DD-EE-02", "127.0.0.2") };
         var discovery = new UiSmoke.MockDiscovery { Items = ReceiverAggregator.Build(services) };
         var engine = new UiSmoke.MockFactory();
-        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher);
+        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher, isolatedVerification: true);
         app.SetPanelVisible(true); app.Start(); await app.Startup; await Until(() => app.AllReceivers.Count == 1);
         var window = new SettingsWindow(app); window.Show(); await Pump(); var vm = window.ViewModel;
         try
@@ -380,7 +380,7 @@ internal static class UiRegression
     private static async Task RunDiscoveryDemandRegressionAsync(List<string> checks)
     {
         var discovery = new UiSmoke.MockDiscovery(); var engine = new UiSmoke.MockFactory();
-        await using var app = new AppViewModel(new UiSmoke.MemoryStore(), discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher);
+        await using var app = new AppViewModel(new UiSmoke.MemoryStore(), discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher, isolatedVerification: true);
         app.Start(); await app.Startup; await Pump();
         Check(!discovery.Running && discovery.Starts == 0, "tray startup without automatic connection never starts discovery", checks);
         var panel = new ControlPanel(app); var settings = new SettingsWindow(app);
@@ -408,14 +408,14 @@ internal static class UiRegression
         var startupStore = new UiSmoke.MemoryStore(); var startupSettings = startupStore.Load();
         startupSettings.Options("a").AutoConnect = true; startupStore.Save(startupSettings);
         var startupDiscovery = new UiSmoke.MockDiscovery();
-        await using var startupApp = new AppViewModel(startupStore, startupDiscovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), new UiSmoke.MockFactory(), Application.Current.Dispatcher);
+        await using var startupApp = new AppViewModel(startupStore, startupDiscovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), new UiSmoke.MockFactory(), Application.Current.Dispatcher, isolatedVerification: true);
         startupApp.Start(); await startupApp.Startup; await Pump();
         Check(startupDiscovery.Running && startupDiscovery.Starts == 1, "per-device automatic connection starts bounded startup discovery", checks);
 
         var visibleStore = new UiSmoke.MemoryStore(); var visibleSettings = visibleStore.Load();
         visibleSettings.AutoConnectOnDiscover = true; visibleStore.Save(visibleSettings);
         var visibleDiscovery = new UiSmoke.MockDiscovery { Items = [] };
-        await using var visibleApp = new AppViewModel(visibleStore, visibleDiscovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), new UiSmoke.MockFactory(), Application.Current.Dispatcher);
+        await using var visibleApp = new AppViewModel(visibleStore, visibleDiscovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), new UiSmoke.MockFactory(), Application.Current.Dispatcher, isolatedVerification: true);
         visibleApp.SetPanelVisible(true); visibleApp.Start(); await visibleApp.Startup; await Pump();
         await Task.Delay(TimeSpan.FromMilliseconds(10500)); await Pump();
         Check(!startupDiscovery.Running && startupDiscovery.Stops == 1, "startup discovery stops after ten seconds without visible receiver lists", checks);
@@ -426,7 +426,7 @@ internal static class UiRegression
         var hiddenStore = new UiSmoke.MemoryStore(); var hiddenSettings = hiddenStore.Load();
         hiddenSettings.Options("a").AutoConnect = true; hiddenSettings.Options("a").Hidden = true; hiddenStore.Save(hiddenSettings);
         var hiddenDiscovery = new UiSmoke.MockDiscovery();
-        await using var hiddenApp = new AppViewModel(hiddenStore, hiddenDiscovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), new UiSmoke.MockFactory(), Application.Current.Dispatcher);
+        await using var hiddenApp = new AppViewModel(hiddenStore, hiddenDiscovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), new UiSmoke.MockFactory(), Application.Current.Dispatcher, isolatedVerification: true);
         hiddenApp.Start(); await hiddenApp.Startup; await Pump();
         Check(hiddenDiscovery.Starts == 0, "hidden per-device automatic connection does not request startup discovery", checks);
     }

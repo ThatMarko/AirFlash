@@ -1654,7 +1654,7 @@ fn run_live(
                 }
                 if Instant::now() >= next_metrics {
                     emit(
-                        json!({"event":"capture_metrics","metrics":crate::live::Metrics::default()}),
+                        json!({"event":"capture_metrics","metrics":crate::live::Metrics::unavailable_snapshot()}),
                     );
                     next_metrics = Instant::now() + Duration::from_secs(1);
                 }

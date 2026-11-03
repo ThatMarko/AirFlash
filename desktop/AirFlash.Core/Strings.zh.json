@@ -393,5 +393,9 @@
   "Stopping playback and disconnecting…": "正在停止播放并断开连接…",
   "The audio engine could not stop. Try disconnecting again.": "音频引擎未能停止，请再次尝试断开连接。",
   "In the Home app, set speaker access to “Everyone,” then try again.": "请在家庭App中，将扬声器访问权限设置为所有人，然后重试。",
-  "Receiver session ownership could not be confirmed. Automatic recovery is paused. Reconnect manually to continue.": "无法确认接收器当前会话，已暂停自动恢复。请手动重新连接以继续播放。"
+  "Receiver session ownership could not be confirmed. Automatic recovery is paused. Reconnect manually to continue.": "无法确认接收器当前会话，已暂停自动恢复。请手动重新连接以继续播放。",
+  "Local padded output frames": "本地填补输出帧数",
+  "Wholly padded capture pulls": "全量填补捕获次数",
+  "Local padded output frames: {0}; wholly padded capture pulls: {1}": "本地填补输出帧数：{0}；全量填补捕获次数：{1}",
+  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "填补计数记录均衡处理前缺失的输出采样率帧。全量填补表示一次捕获中的 352 帧均缺失。实际捕获的静音以及计划内的淡出或恢复静音不属于捕获缺失。这些是本地捕获计数；不可用的计数显示为 —。"
 }

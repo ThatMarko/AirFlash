@@ -65,6 +65,12 @@ pub struct Metrics {
     pub mmcss_priority_set: bool,
     pub dropped_frames: u64,
     pub underrun_packets: u64,
+    /// Missing capture frame slots at the output rate, before equalization.
+    #[serde(default)]
+    pub padded_frames: u64,
+    /// Shared pulls missing every capture slot, excluding scheduled silence.
+    #[serde(default)]
+    pub fully_padded_packets: u64,
     pub capture_frames: u64,
     pub max_queue_age_ms: f64,
     pub capture_to_send_p95_ms: Option<f64>,
@@ -86,6 +92,17 @@ pub struct Metrics {
     /// `silent_probe`, `stream_error`).
     #[serde(default)]
     pub last_rebind_reason: Option<String>,
+}
+impl Metrics {
+    /// Keep the legacy waiting-event shape when no capture worker exists.
+    pub fn unavailable_snapshot() -> serde_json::Value {
+        let mut metrics = serde_json::json!(Self::default());
+        if let Some(fields) = metrics.as_object_mut() {
+            fields.remove("padded_frames");
+            fields.remove("fully_padded_packets");
+        }
+        metrics
+    }
 }
 /// A `{"event":"warning"}`-shaped state change raised by the capture thread.
 /// The session owns the JSON framing because the capture thread has no emitter.
@@ -303,7 +320,7 @@ impl Loopback {
         let mut out = Vec::with_capacity(FRAMES * 4);
         let mut marker = None;
         let now = qpc_ns();
-        let mut underrun = false;
+        let mut padded = 0u64;
         if s.boundary_pending {
             s.splice.boundary();
             s.boundary_pending = false;
@@ -317,9 +334,10 @@ impl Loopback {
             } {
                 f
             } else {
-                underrun |= !force_silence;
                 if force_silence {
                     s.metrics.scheduled_silence_frames += 1;
+                } else {
+                    padded += 1;
                 }
                 s.metrics.silence_pad_frames += 1;
                 Frame {
@@ -342,8 +360,12 @@ impl Loopback {
                 out.extend(s.quantizer.quantize(value).to_be_bytes());
             }
         }
-        if underrun {
+        if padded != 0 {
             s.metrics.underrun_packets += 1;
+            s.metrics.padded_frames = s.metrics.padded_frames.saturating_add(padded);
+            if padded == FRAMES as u64 {
+                s.metrics.fully_padded_packets = s.metrics.fully_padded_packets.saturating_add(1);
+            }
         }
         s.metrics.transition_count = s.splice.transitions;
         Ok((out, marker))
@@ -667,12 +689,8 @@ fn bind_target(target: &Target, stream_rate: u32, stop: &AtomicBool) -> Result<V
                 }
             }
             let candidates = crate::applications::matching(path)?;
-            let plan = crate::applications::bind_plan(
-                path,
-                &candidates,
-                *pinned,
-                MAX_CAPTURE_INSTANCES,
-            );
+            let plan =
+                crate::applications::bind_plan(path, &candidates, *pinned, MAX_CAPTURE_INSTANCES);
             ensure!(!plan.is_empty(), "no running instance of {path}");
             let mut bindings = Vec::with_capacity(plan.len());
             let mut last_error = None;
@@ -683,8 +701,9 @@ fn bind_target(target: &Target, stream_rate: u32, stop: &AtomicBool) -> Result<V
                 }
             }
             if bindings.is_empty() {
-                return Err(last_error
-                    .unwrap_or_else(|| anyhow::anyhow!("no running instance of {path}")));
+                return Err(
+                    last_error.unwrap_or_else(|| anyhow::anyhow!("no running instance of {path}"))
+                );
             }
             Ok(bindings)
         }
@@ -1131,9 +1150,8 @@ fn drain_multi(
             *last_packet = Instant::now();
             *packets += 1;
             state.lock().unwrap().metrics.capture_frames += frames as u64;
-            binding_end = Some(
-                timestamp.saturating_add(frames as u64 * 1_000_000_000 / binding.rate as u64),
-            );
+            binding_end =
+                Some(timestamp.saturating_add(frames as u64 * 1_000_000_000 / binding.rate as u64));
         }
         if let Some(end) = binding_end {
             round_end = Some(round_end.map_or(end, |current| current.min(end)));
@@ -1567,23 +1585,20 @@ pub(crate) mod tests {
         );
     }
     const CAPACITY: usize = crate::rtp::RATE as usize * 60 / 1000;
-    const TARGET: usize = crate::rtp::RATE as usize * 20 / 1000;
     pub(crate) fn source() -> Loopback {
-        let equalizer_control =
-            crate::equalizer::Control::new(crate::equalizer::Settings::default(), crate::rtp::RATE)
-                .unwrap();
+        source_with(crate::rtp::RATE, crate::equalizer::Settings::default())
+    }
+    fn source_with(rate: u32, settings: crate::equalizer::Settings) -> Loopback {
+        let equalizer_control = crate::equalizer::Control::new(settings, rate).unwrap();
         Loopback {
             state: Arc::new(Mutex::new(State {
-                splice: crate::continuity::Splice::new(crate::rtp::RATE),
+                splice: crate::continuity::Splice::new(rate),
                 quantizer: crate::continuity::Quantizer::new(),
                 boundary_pending: false,
-                equalizer: crate::equalizer::Processor::new(
-                    equalizer_control.initial(),
-                    crate::rtp::RATE,
-                ),
+                equalizer: crate::equalizer::Processor::new(equalizer_control.initial(), rate),
                 frames: VecDeque::new(),
-                capacity: CAPACITY,
-                target: TARGET,
+                capacity: rate as usize * 60 / 1000,
+                target: rate as usize * 20 / 1000,
                 error: None,
                 ended: false,
                 metrics: Metrics::default(),
@@ -1594,7 +1609,7 @@ pub(crate) mod tests {
             servo: Arc::new(Mutex::new(crate::servo::LatenessServo::default())),
             drift: Arc::new(Mutex::new(crate::servo::DriftEstimator::new(
                 Duration::from_secs(30),
-                crate::rtp::RATE as f64,
+                f64::from(rate),
             ))),
             worker: None,
             equalizer_control,
@@ -1633,6 +1648,213 @@ pub(crate) mod tests {
         assert_eq!(source.last_audio(), activity);
         source.discard_stale();
         assert_eq!(source.last_audio(), activity);
+    }
+    fn enqueue(source: &Loopback, count: usize, sample: f32) {
+        let mut state = source.state.lock().unwrap();
+        let qpc = qpc_ns();
+        for _ in 0..count {
+            state.push_frame(Frame {
+                left: sample,
+                right: sample,
+                qpc,
+            });
+        }
+    }
+    #[test]
+    fn padding_counts_missing_output_frames_at_both_rates() {
+        for rate in [44100, 48000] {
+            for count in [0, FRAMES - 1, FRAMES] {
+                let source = source_with(rate, crate::equalizer::Settings::default());
+                enqueue(&source, count, 0.01);
+                let (packet, marker) = source.packet(0.1).unwrap();
+                assert_eq!(packet.len(), FRAMES * 4);
+                assert_eq!(marker.is_some(), count > 0);
+                let metrics = source.metrics();
+                assert_eq!(metrics.padded_frames, (FRAMES - count) as u64);
+                assert_eq!(metrics.fully_padded_packets, if count == 0 { 1 } else { 0 });
+                assert_eq!(metrics.underrun_packets, if count < FRAMES { 1 } else { 0 });
+                assert!(source.state.lock().unwrap().frames.is_empty());
+            }
+        }
+    }
+    #[test]
+    fn padding_accumulates_across_missing_and_resumed_capture_without_input_rate_math() {
+        for rate in [44100, 48000] {
+            let source = source_with(rate, crate::equalizer::Settings::default());
+            {
+                let mut state = source.state.lock().unwrap();
+                state.metrics.input_rate = 96000;
+                state.metrics.capture_frames = 100_000;
+            }
+            enqueue(&source, FRAMES - 1, 0.01);
+            assert!(source.packet(0.1).unwrap().0.iter().any(|byte| *byte != 0));
+            assert_eq!(source.metrics().padded_frames, 1);
+            source.packet(0.1).unwrap();
+            let before_resume = source.metrics();
+            enqueue(&source, FRAMES, 0.01);
+            assert!(source.packet(0.1).unwrap().0.iter().any(|byte| *byte != 0));
+            let after_resume = source.metrics();
+            assert_eq!(after_resume.padded_frames, FRAMES as u64 + 1);
+            assert_eq!(after_resume.fully_padded_packets, 1);
+            assert_eq!(after_resume.underrun_packets, 2);
+            assert_eq!(after_resume.padded_frames, before_resume.padded_frames);
+            assert_eq!(
+                after_resume.fully_padded_packets,
+                before_resume.fully_padded_packets
+            );
+            assert_eq!(after_resume.input_rate, 96000);
+            assert_eq!(after_resume.capture_frames, 100_000);
+        }
+    }
+    #[test]
+    fn captured_silence_and_zero_gain_are_not_padding() {
+        for rate in [44100, 48000] {
+            for (sample, gain) in [(0.0, 0.1), (0.5, 0.0)] {
+                let source = source_with(rate, crate::equalizer::Settings::default());
+                enqueue(&source, FRAMES, sample);
+                let (packet, marker) = source.packet(gain).unwrap();
+                assert!(packet.iter().all(|byte| *byte == 0));
+                assert_eq!(marker.is_some(), sample > 0.004);
+                let metrics = source.metrics();
+                assert_eq!(metrics.padded_frames, 0);
+                assert_eq!(metrics.fully_padded_packets, 0);
+                assert_eq!(metrics.underrun_packets, 0);
+            }
+        }
+    }
+    #[test]
+    fn fully_padded_input_can_have_an_equalizer_tail_without_an_audio_marker() {
+        for rate in [44100, 48000] {
+            let mut settings = crate::equalizer::Settings {
+                enabled: true,
+                ..Default::default()
+            };
+            settings.band_gains_db[0] = 12.0;
+            let source = source_with(rate, settings);
+            enqueue(&source, 1, 0.5);
+            assert!(source.packet(1.0).unwrap().1.is_some());
+            let last_audio = source.metrics().last_audio_qpc_ns;
+            let (tail, marker) = source.packet(1.0).unwrap();
+            assert!(tail.iter().any(|byte| *byte != 0));
+            assert!(marker.is_none());
+            let metrics = source.metrics();
+            assert_eq!(metrics.padded_frames, FRAMES as u64 * 2 - 1);
+            assert_eq!(metrics.fully_padded_packets, 1);
+            assert_eq!(metrics.underrun_packets, 2);
+            assert_eq!(metrics.last_audio_qpc_ns, last_audio);
+        }
+    }
+    #[test]
+    fn padding_counters_saturate_and_serialize_without_wrapping_or_counting_reads() {
+        for rate in [44100, 48000] {
+            let source = source_with(rate, crate::equalizer::Settings::default());
+            {
+                let mut state = source.state.lock().unwrap();
+                state.metrics.padded_frames = u64::MAX - 100;
+                state.metrics.fully_padded_packets = u64::MAX - 1;
+            }
+            source.packet(0.1).unwrap();
+            source.packet(0.1).unwrap();
+            for _ in 0..2 {
+                let metrics = source.metrics();
+                assert_eq!(metrics.padded_frames, u64::MAX);
+                assert_eq!(metrics.fully_padded_packets, u64::MAX);
+                assert_eq!(metrics.underrun_packets, 2);
+                let event = serde_json::json!({ "event": "capture_metrics", "metrics": metrics });
+                let wire = serde_json::to_vec(&event).unwrap();
+                let received: serde_json::Value = serde_json::from_slice(&wire).unwrap();
+                assert_eq!(
+                    received["metrics"]["padded_frames"].as_u64(),
+                    Some(u64::MAX)
+                );
+                assert_eq!(
+                    received["metrics"]["fully_padded_packets"].as_u64(),
+                    Some(u64::MAX)
+                );
+                assert_eq!(received["metrics"]["underrun_packets"].as_u64(), Some(2));
+            }
+        }
+    }
+    #[test]
+    fn capture_error_preserves_padding_snapshot_and_a_fresh_attempt_starts_at_zero() {
+        for rate in [44100, 48000] {
+            let source = source_with(rate, crate::equalizer::Settings::default());
+            source.packet(0.1).unwrap();
+            let before_fault = source.metrics();
+            enqueue(&source, 1, 0.01);
+            source.state.lock().unwrap().error = Some("synthetic capture failure".into());
+            assert!(source.packet(0.1).is_err());
+            let after_fault = source.metrics();
+            assert_eq!(after_fault.padded_frames, before_fault.padded_frames);
+            assert_eq!(
+                after_fault.fully_padded_packets,
+                before_fault.fully_padded_packets
+            );
+            assert_eq!(after_fault.underrun_packets, before_fault.underrun_packets);
+            assert_eq!(source.state.lock().unwrap().frames.len(), 1);
+            let fresh = source_with(rate, crate::equalizer::Settings::default());
+            assert_eq!(fresh.metrics().padded_frames, 0);
+            assert_eq!(fresh.metrics().fully_padded_packets, 0);
+            assert_eq!(fresh.metrics().underrun_packets, 0);
+            assert_eq!(before_fault.padded_frames, FRAMES as u64);
+            assert_eq!(before_fault.fully_padded_packets, 1);
+        }
+    }
+    #[test]
+    fn scheduled_warmup_and_final_fade_are_not_missing_capture() {
+        for rate in [44100, 48000] {
+            for count in [0, FRAMES - 1, FRAMES] {
+                let source = source_with(rate, crate::equalizer::Settings::default());
+                enqueue(&source, count, 0.01);
+                for gain in [0.1, 0.0] {
+                    source.silence_packet(gain).unwrap();
+                    let metrics = source.metrics();
+                    assert_eq!(metrics.padded_frames, 0);
+                    assert_eq!(metrics.fully_padded_packets, 0);
+                    assert_eq!(metrics.underrun_packets, 0);
+                    assert_eq!(source.state.lock().unwrap().frames.len(), count);
+                }
+                assert_eq!(
+                    source.metrics().scheduled_silence_frames,
+                    (FRAMES * 2) as u64
+                );
+                assert_eq!(source.metrics().silence_pad_frames, (FRAMES * 2) as u64);
+                source.packet(0.1).unwrap();
+                assert_eq!(source.metrics().padded_frames, (FRAMES - count) as u64);
+                assert_eq!(
+                    source.metrics().fully_padded_packets,
+                    if count == 0 { 1 } else { 0 }
+                );
+                assert_eq!(
+                    source.metrics().scheduled_silence_frames,
+                    (FRAMES * 2) as u64
+                );
+            }
+        }
+    }
+    #[test]
+    fn stereo_channel_fanout_does_not_count_another_capture_pull() {
+        for rate in [44100, 48000] {
+            let source = source_with(rate, crate::equalizer::Settings::default());
+            let (pcm, _) = source.packet(0.1).unwrap();
+            for channel in [
+                crate::profile::Channel::Left,
+                crate::profile::Channel::Right,
+            ] {
+                assert_eq!(channel.map(&pcm).len(), FRAMES * 4);
+            }
+            let metrics = source.metrics();
+            assert_eq!(metrics.padded_frames, FRAMES as u64);
+            assert_eq!(metrics.fully_padded_packets, 1);
+            assert_eq!(metrics.underrun_packets, 1);
+            // Paused standby/discard operations retain this capture worker. A new
+            // application capture creates another Loopback with fresh counters.
+            source.discard_stale();
+            assert_eq!(source.metrics().padded_frames, FRAMES as u64);
+            let fresh = source_with(rate, crate::equalizer::Settings::default());
+            assert_eq!(fresh.metrics().padded_frames, 0);
+            assert_eq!(fresh.metrics().fully_padded_packets, 0);
+        }
     }
     #[test]
     fn underrun_pads_silence_and_can_resume_audio() {
@@ -1676,8 +1898,14 @@ pub(crate) mod tests {
         // Output is TPDF-dithered, so a single sample may sit one LSB either side.
         let left = i16::from_be_bytes([last[0], last[1]]);
         let right = i16::from_be_bytes([last[2], last[3]]);
-        assert!((i32::from(left) - i32::from(expected)).abs() <= 1, "{left} vs {expected}");
-        assert!((i32::from(right) + i32::from(expected)).abs() <= 1, "{right} vs -{expected}");
+        assert!(
+            (i32::from(left) - i32::from(expected)).abs() <= 1,
+            "{left} vs {expected}"
+        );
+        assert!(
+            (i32::from(right) + i32::from(expected)).abs() <= 1,
+            "{right} vs -{expected}"
+        );
         assert!(marker.is_some());
     }
     #[test]
@@ -1703,6 +1931,7 @@ pub(crate) mod tests {
     #[test]
     fn rebind_keeps_already_encoded_frames_and_only_marks_a_boundary() {
         let source = source();
+        source.packet(0.1).unwrap();
         {
             let mut s = source.state.lock().unwrap();
             for _ in 0..FRAMES {
@@ -1727,6 +1956,20 @@ pub(crate) mod tests {
             );
         }
         assert!(source.packet(0.1).unwrap().0.iter().any(|b| *b != 0));
+        let metrics = source.metrics();
+        assert_eq!(metrics.padded_frames, FRAMES as u64);
+        assert_eq!(metrics.fully_padded_packets, 1);
+        assert_eq!(metrics.underrun_packets, 1);
+    }
+    #[test]
+    fn waiting_without_a_worker_does_not_report_measured_zero_padding() {
+        let waiting = Metrics::unavailable_snapshot();
+        assert!(waiting.get("padded_frames").is_none());
+        assert!(waiting.get("fully_padded_packets").is_none());
+        assert_eq!(waiting["underrun_packets"].as_u64(), Some(0));
+        let active = serde_json::json!(source().metrics());
+        assert_eq!(active["padded_frames"].as_u64(), Some(0));
+        assert_eq!(active["fully_padded_packets"].as_u64(), Some(0));
     }
     #[test]
     fn capture_warnings_are_queued_and_drained_once() {
