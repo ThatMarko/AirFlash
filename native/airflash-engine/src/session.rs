@@ -5301,13 +5301,22 @@ mod tests {
 
     #[test]
     fn silence_releases_both_members_and_activity_resumes_current_audio() {
-        silence_release(false);
+        silence_release(false, false);
     }
     #[test]
     fn software_stereo_releases_both_members_and_activity_resumes_current_audio() {
-        silence_release(true);
+        silence_release(true, false);
     }
-    fn silence_release(software: bool) {
+    #[test]
+    fn activity_during_native_stereo_drain_resumes_without_another_capture_packet() {
+        silence_release(false, true);
+    }
+    #[test]
+    fn activity_during_software_stereo_drain_resumes_without_another_capture_packet() {
+        silence_release(true, true);
+    }
+    fn silence_release(software: bool, activity_during_drain: bool) {
+        use std::sync::atomic::{AtomicU64, Ordering};
         let options: ProbeOptions = serde_json::from_value(json!({"peers":[{"host":"127.0.0.1"}],"source":"loopback","duration_ms":0,"latency_ms":120,"gain":0.0})).unwrap();
         let options = ProbeOptions {
             group_mode: if software {
@@ -5342,40 +5351,55 @@ mod tests {
                 .media
                 .connect_audio(rx_b.local_addr().unwrap())
                 .unwrap();
-            let began = Instant::now();
+            // The quiet case has no producer running through the pause decision.
+            // In the other case, inject activity at the actual drain boundary.
+            crate::live::tests::feed(&source, 0.02);
+            let activity = source.last_audio();
+            assert!(activity > 0);
+            let drained = AtomicU64::new(0);
+            let drain_activity = AtomicU64::new(0);
             let mut takeovers = preemption::TakeoverCounters::default();
-            let outcome = thread::scope(|scope| {
-                scope.spawn(|| {
-                    for _ in 0..12 {
-                        crate::live::tests::feed(&source, 0.02);
-                        thread::sleep(Duration::from_millis(10));
+            let outcome = send_packets(
+                &options,
+                &Cancellation::default(),
+                &gain,
+                crate::volume::Control::default(),
+                Some(&source),
+                &standby,
+                &Clock::new(),
+                None,
+                &mut members,
+                None,
+                &mut takeovers,
+                &[],
+                None,
+                &|event| {
+                    if event["event"] == "timeline_drained" {
+                        assert_eq!(drained.fetch_add(1, Ordering::SeqCst), 0);
+                        assert_eq!(source.last_audio(), activity);
+                        if activity_during_drain {
+                            crate::live::tests::feed(&source, 0.02);
+                            drain_activity.store(source.last_audio(), Ordering::SeqCst);
+                        }
                     }
-                });
-                send_packets(
-                    &options,
-                    &Cancellation::default(),
-                    &gain,
-                    crate::volume::Control::default(),
-                    Some(&source),
-                    &standby,
-                    &Clock::new(),
-                    None,
-                    &mut members,
-                    None,
-                    &mut takeovers,
-                    &[],
-                    None,
-                    &|_| {},
-                )
-            })
+                },
+            )
             .unwrap();
             let StreamEnd::Silence(at) = outcome else {
                 panic!("transport did not enter standby")
             };
-            assert!(
-                began.elapsed() >= Duration::from_millis(150),
-                "gain zero must not conceal source activity"
-            );
+            assert_eq!(drained.load(Ordering::SeqCst), 1);
+            assert!(at.saturating_sub(activity) >= 80_000_000);
+            if activity_during_drain {
+                assert!(drain_activity.load(Ordering::SeqCst) > at);
+                assert_eq!(source.last_audio(), drain_activity.load(Ordering::SeqCst));
+            } else {
+                assert_eq!(
+                    source.last_audio(),
+                    activity,
+                    "gain zero preserves capture activity"
+                );
+            }
             assert!(members.iter().all(|m| m.closed && m.feedback.is_none()));
             server_a.join().unwrap();
             server_b.join().unwrap();
@@ -5388,7 +5412,10 @@ mod tests {
                 assert!(packets > 0, "both receivers must get media before standby");
                 assert!(receiver.recv(&mut data).is_err(), "standby must stop media");
             }
-            assert!(!standby.should_resume(source.last_audio(), at));
+            assert_eq!(
+                standby.should_resume(source.last_audio(), at),
+                activity_during_drain
+            );
             crate::live::tests::feed(&source, 0.02);
             assert!(standby.should_resume(source.last_audio(), at));
             source.discard_stale();
