@@ -458,7 +458,7 @@ internal static class UiRegression
             saved.LatencyMode = "realtime"; store.Save(saved);
             var engine = new UiSmoke.MockFactory();
             await using var app = new AppViewModel(store, new UiSmoke.MockDiscovery { Items = [receiver] },
-                new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher);
+                new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher, isolatedVerification: true);
             app.SetPanelVisible(true); app.Start(); await app.Startup; await Pump();
             var panel = new ControlPanel(app);
             try

@@ -654,7 +654,7 @@ internal static class UiSessionLifecycle
         var owner = fixture.App.Session.Capture().Owner;
         var process = fixture.Engine.Connections.Single();
         var baseline = fixture.App.Settings.Clone(); var draft = baseline.Clone();
-        draft.DiscoveryInterfaceId = "synthetic-unavailable-adapter";
+        draft.DiscoveryInterfaceId = "6e174d01-a625-4ee2-bb6e-262ed5371694";
         await fixture.App.ApplyAsync(baseline, draft);
         await CatalogAsync(fixture, () => fixture.App.AllReceivers.Count == 0);
         await DrainAsync();
