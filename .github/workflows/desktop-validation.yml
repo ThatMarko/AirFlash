@@ -120,7 +120,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $binary = (Get-Content -LiteralPath (Join-Path $env:DESKTOP_OUTPUT 'binary.json') -Raw | ConvertFrom-Json).path
-          git merge-base --is-ancestor e997029d7c9177b3958f4e9bbd3529c4a7cbbfbe HEAD
+          git merge-base --is-ancestor 7e3bc1dd0d95f413343193c72633f749431cdd82 HEAD
           if ($LASTEXITCODE -ne 0) { throw 'The selected source lacks the isolated startup guards for these negative probes.' }
           $directory = Join-Path $env:DESKTOP_OUTPUT 'startup-guards'
           New-Item -ItemType Directory -Path $directory -Force | Out-Null
@@ -147,6 +147,35 @@ jobs:
           $results | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $directory 'results.json') -Encoding utf8
           if ($results.Count -ne 5 -or @($results | Where-Object { -not $_.ok }).Count) { throw 'A malformed invocation did not exit with code 2.' }
           if (Get-ChildItem -LiteralPath $directory -Force | Where-Object { $_.Name -ne 'results.json' }) { throw 'A malformed invocation wrote an output file.' }
+      - name: Verify synthetic DNS resolve helper process ownership
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git merge-base --is-ancestor 7e3bc1dd0d95f413343193c72633f749431cdd82 HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'The selected source lacks the isolated DNS helper entry.' }
+          $record = Get-Content -LiteralPath (Join-Path $env:DESKTOP_OUTPUT 'binary.json') -Raw | ConvertFrom-Json
+          $report = Join-Path $env:DESKTOP_OUTPUT 'dns-helper-report.json'
+          $info = [Diagnostics.ProcessStartInfo]::new($record.path)
+          $info.UseShellExecute = $false
+          $info.CreateNoWindow = $true
+          foreach ($arg in @('--dns-resolve-helper-check', '--output', $report)) { $info.ArgumentList.Add($arg) }
+          $child = [Diagnostics.Process]::Start($info)
+          try {
+            if (-not $child.WaitForExit(45000)) {
+              $child.Kill()
+              [void]$child.WaitForExit(5000)
+              throw 'Synthetic DNS helper check timed out.'
+            }
+            if ($child.ExitCode -ne 0) { throw "Synthetic DNS helper check failed ($($child.ExitCode))." }
+          } finally { $child.Dispose() }
+          $result = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          if (-not $result.ok -or -not $result.synthetic -or $result.completedHelpers -ne 6 -or
+              -not $result.parentAdapterSettled -or $result.parentNativeOwners -ne 0) {
+            throw 'Synthetic helpers did not all settle with zero native owners.'
+          }
+          if ((Get-FileHash -LiteralPath $record.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $record.sha256) {
+            throw 'The source-built apphost changed during synthetic helper checks.'
+          }
       - name: Run every isolated focused and regional desktop cell
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: |

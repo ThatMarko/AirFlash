@@ -20,7 +20,7 @@ jobs:
     env:
       REQUESTED_SOURCE: ${{ inputs.source_sha }}
       # Explicit verified stable ancestor for inherited formatting comparisons.
-      FORMATTING_BASE: '80025226d389a879f5a29e6b705b291af4c4b902'
+      FORMATTING_BASE: '11b7d18ad89fe2bbab43dfbea1191609e9457177'
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
       DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
