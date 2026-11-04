@@ -2,13 +2,13 @@
 
 ## Current prepared package — 2026-11-04
 
-The unsent [umbrella issue](reliability-current-issue.md) and [draft PR](reliability-current-pr.md) target `codex/reliability-refresh-v062` at `a55903df5e566014266ce6c7335f6f4c664e21e2` on original Main `11b7d18ad89fe2bbab43dfbea1191609e9457177` after v0.6.2. The current PR keeps eight review sections and links to the carried source and fixtures. The complete diff and all 23 outgoing commits preserve the upstream documentation tree.
+The unsent [umbrella issue](reliability-current-issue.md) and [draft PR](reliability-current-pr.md) target `codex/reliability-refresh-v062` at `f37bf833a2f5a0653beda959e07c21ce2b75545c` on original Main `11b7d18ad89fe2bbab43dfbea1191609e9457177` after v0.6.2. The current PR keeps eight review sections and links to the carried source and fixtures. The complete diff and all 28 outgoing commits preserve the upstream documentation tree.
 
-PR #25 has since merged and #6, #7, #14 and #24 have closed. Earlier prepared closing references and the older review branch below are historical. Open #38 and #42 have distinct field evidence. The drafts preserve a field-verification hold and require separate publication authorization.
+PR #25 has merged and #6, #7, #14 and #24 have closed. The earlier closing references and review branch are historical. Open #38 covers PTP startup. The follow-up on #42 reports that discovery survived resume on 0.5.4, then describes a separate playback retry failure. [PR #45](https://github.com/Ding-Kyoma/AirFlash/pull/45) proposes a fix for that retry failure and edits the same session controller as this branch. [PR #44](https://github.com/Ding-Kyoma/AirFlash/pull/44) proposes Spanish localization and touches shared settings and localization files. Reconcile both against original Main if merged. The drafts preserve a field-verification hold and require separate publication authorization.
 
-The exact head passed the local Release app build. All 1,241 Core tests passed at `498041d`, with only a desktop fixture changed since. [Headless qualification](https://github.com/ThatMarko/AirFlash/actions/runs/41874752497) passed at `498041d`. All 18 [exact-head mock desktop cells](https://github.com/ThatMarko/AirFlash/actions/runs/41875778344) passed, with 14,225 assertions, five startup guards and six synthetic DNS helper checks.
+The exact head passed the local Release app build, 233 hosted lifecycle assertions, and the [hosted mock desktop matrix](https://github.com/ThatMarko/AirFlash/actions/runs/41935212808) with 22 cells and 14,797 assertions. The matrix includes four languages at synthetic 125% DPI, five startup guards and six DNS-helper settlement checks. [Headless qualification](https://github.com/ThatMarko/AirFlash/actions/runs/41934146311) passed at `100d5c0` with the same native, Core and tooling inputs.
 
-## Current prepared package — 2026-10-21
+## Historical prepared package — 2026-10-21
 
 The selected [issue](reliability-current-issue.md) and [PR](reliability-current-pr.md) use **Improve AirFlash reliability, pairing and diagnostics**, now targeting `ThatMarko:codex/reliability-review` at **`bbe283c8e641b059370d07033622df65522c9d61`**, based on upstream **`439de626`**. The review branch has **nine linear commits**, with eight behavior sections and a ninth shared-verification section, and a **75-file (+15,047/-755)** code-only diff.
 
@@ -18,7 +18,7 @@ All non-documentation blobs match qualified `6c1e2ef`. **All documentation chang
 
 Fresh exact-head [desktop](https://github.com/ThatMarko/AirFlash/actions/runs/39630589971) and [headless/native](https://github.com/ThatMarko/AirFlash/actions/runs/39630594304) qualification **passed** for input `bbe283c`, carried by fork Main `abb0883`: 18 desktop cells / 11,386 assertions and 1,016 Core / 174 Python / 105 native, with two intentional native ignores. Artifact digests, reports and source identities are verified. Desktop has full before/after byte maps; headless has an initial full map and final HEAD/tracked-status control. The [readiness record](../PR-READINESS-2026-10-21.md) retains original failures, source-bound evidence and limits.
 
-## Selected publication flow
+## Historical publication plan — 2026-10-21
 
 Prepare one umbrella tracking issue and one consolidated **draft** PR. Both bodies remain unsent; upstream publication still requires explicit approval. Keep #25 open and preserve its published history until a separately authorized replacement/linking decision; preparation does not authorize closure.
 

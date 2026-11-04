@@ -9,12 +9,12 @@ Delayed receiver work can outlive explicit user actions. A missing DNS completio
 - Open a fake receiver's pairing prompt, then send a terminal process event. The prompt should close before the error is presented. If the prompt succeeds, the submitted password should match the accepted input byte for byte, including whitespace. [Pairing dialog](https://github.com/Ding-Kyoma/AirFlash/blob/11b7d18ad89fe2bbab43dfbea1191609e9457177/desktop/AirFlash.App/Ui/PinDialog.cs)
 - Load a software group with a null ID. Validation should use the existing recovery path and preserve the original config bytes. [Settings validator](https://github.com/Ding-Kyoma/AirFlash/blob/11b7d18ad89fe2bbab43dfbea1191609e9457177/desktop/AirFlash.Core/Settings.cs)
 
-The failure paths are grounded in source and isolated fixtures. The PTP Grant checks use synthetic packets. The field reports for clock readiness and discovery after sleep remain separate observations. [PTP report #38](https://github.com/Ding-Kyoma/AirFlash/issues/38) · [Discovery report #42](https://github.com/Ding-Kyoma/AirFlash/issues/42)
+The failure paths are grounded in source and isolated fixtures. The PTP Grant checks use synthetic packets. The field report for clock readiness remains open. The after-sleep report describes an initial discovery symptom and a later playback retry failure with the receiver still listed. That retry failure has a separate proposed fix. [PTP report #38](https://github.com/Ding-Kyoma/AirFlash/issues/38) · [After-sleep report #42](https://github.com/Ding-Kyoma/AirFlash/issues/42) · [Retry PR #45](https://github.com/Ding-Kyoma/AirFlash/pull/45)
 
 ## Acceptance checklist
 
 - [ ] Reject unsafe package cleanup paths and unbuildable release versions before side effects. Use the selected .NET host from the same working directory as the build and bound diagnostic child processes.
-- [ ] Keep explicit Play, Pair, Stop and shutdown authoritative. Revalidate automatic admission, consider eligible alternatives, honor manual endpoint/port, and retain usable controls through passive discovery gaps.
+- [ ] Keep explicit Play, Pair, Stop and shutdown authoritative. Revalidate automatic admission, consider eligible alternatives, honor manual endpoint/port, and retain usable controls through passive discovery gaps and Quit. Ignore obsolete endpoint work while retaining fresh changes for the current owner.
 - [ ] Reject a null group ID through validated recovery while preserving original bytes, supported schema migration and unknown settings.
 - [ ] Separate DNS advertisements, cached data, logical deadlines and native owners. Bound retries and keep an uncertain helper owned until its exact exit is observed.
 - [ ] Preserve password lookup errors, complete accepted input and one reader across the prompt. Cancel and join input on terminal failure.
