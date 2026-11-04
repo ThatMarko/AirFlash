@@ -15,6 +15,7 @@ namespace AirFlash.App.Ui;
 public partial class ControlPanel : Window
 {
     private readonly AppViewModel _viewModel;
+    private readonly Func<MonitorArea>? _workArea;
     private bool _allowClose;
     private bool _placing;
     private DispatcherOperation? _placement;
@@ -24,9 +25,10 @@ public partial class ControlPanel : Window
     public event Action? SettingsRequested;
     public event Action<int>? LatencySettingsRequested;
     public event Action? QuitRequested;
-    public ControlPanel(AppViewModel viewModel)
+    public ControlPanel(AppViewModel viewModel) : this(viewModel, null) { }
+    internal ControlPanel(AppViewModel viewModel, Func<MonitorArea>? workArea)
     {
-        InitializeComponent(); _viewModel = viewModel; DataContext = viewModel; WindowThemeService.Track(this); AppIconService.Track(this);
+        InitializeComponent(); _viewModel = viewModel; _workArea = workArea; DataContext = viewModel; WindowThemeService.Track(this); AppIconService.Track(this);
         viewModel.SettingsChanged += UpdateLayoutSettings;
         viewModel.Receivers.CollectionChanged += OnReceiversChanged;
         IsVisibleChanged += (_, _) => viewModel.SetPanelVisible(IsVisible);
@@ -62,7 +64,7 @@ public partial class ControlPanel : Window
         try
         {
             UiPerformance.Count("panel.place");
-            var area = Tray?.WorkArea() ?? NativeWindowPlacement.CursorWorkArea();
+            var area = _workArea?.Invoke() ?? Tray?.WorkArea() ?? NativeWindowPlacement.CursorWorkArea();
             var maxDip = area.Rect.Height * .7 / area.Scale;
             var constraintsChanged = MaxHeight != maxDip;
             DeviceScroll.MaxHeight = Math.Max(80, maxDip - 280);
