@@ -1,5 +1,13 @@
 # Upstream issue drafts and prepared review branches
 
+## Current prepared package — 2026-11-04
+
+The unsent [umbrella issue](reliability-current-issue.md) and [draft PR](reliability-current-pr.md) target `codex/reliability-refresh-v062` at `a55903df5e566014266ce6c7335f6f4c664e21e2` on original Main `11b7d18ad89fe2bbab43dfbea1191609e9457177` after v0.6.2. The current PR keeps eight review sections and links to the carried source and fixtures. The complete diff and all 23 outgoing commits preserve the upstream documentation tree.
+
+PR #25 has since merged and #6, #7, #14 and #24 have closed. Earlier prepared closing references and the older review branch below are historical. Open #38 and #42 have distinct field evidence. The drafts preserve a field-verification hold and require separate publication authorization.
+
+The exact head passed the local Release app build. All 1,241 Core tests passed at `498041d`, with only a desktop fixture changed since. [Headless qualification](https://github.com/ThatMarko/AirFlash/actions/runs/41874752497) passed at `498041d`. All 18 [exact-head mock desktop cells](https://github.com/ThatMarko/AirFlash/actions/runs/41875778344) passed, with 14,225 assertions, five startup guards and six synthetic DNS helper checks.
+
 ## Current prepared package — 2026-10-21
 
 The selected [issue](reliability-current-issue.md) and [PR](reliability-current-pr.md) use **Improve AirFlash reliability, pairing and diagnostics**, now targeting `ThatMarko:codex/reliability-review` at **`bbe283c8e641b059370d07033622df65522c9d61`**, based on upstream **`439de626`**. The review branch has **nine linear commits**, with eight behavior sections and a ninth shared-verification section, and a **75-file (+15,047/-755)** code-only diff.
