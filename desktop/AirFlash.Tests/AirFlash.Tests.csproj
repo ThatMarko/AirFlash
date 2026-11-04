@@ -23,6 +23,7 @@
     <Compile Include="../AirFlash.App/Services/WindowsCapabilities.cs" Link="WindowsCapabilities.cs"/>
     <Compile Include="../AirFlash.App/Services/NetworkAdapterCatalog.cs" Link="NetworkAdapterCatalog.cs"/>
     <Compile Include="../AirFlash.App/Services/ApplicationCatalog.cs" Link="ApplicationCatalog.cs"/>
+    <Compile Include="../AirFlash.App/ViewModels/ErrorDetailsText.cs" Link="ErrorDetailsText.cs"/>
     <Compile Include="../AirFlash.App/Services/ShellShutdown.cs" Link="ShellShutdown.cs"/>
   </ItemGroup>
 </Project>

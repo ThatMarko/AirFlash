@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Threading.Channels;
+using AirFlash.App.ViewModels;
 using AirFlash.Core;
 using Xunit;
 namespace AirFlash.Tests;
@@ -1242,6 +1243,57 @@ public sealed class SessionTests
         await Until(() => controller.Snapshot.Diagnostics?.Transport is not null); Assert.Equal(2, controller.Snapshot.Diagnostics!.TransportBeforeFault!.SenderLateRecoveries);
         await controller.StartAsync(Pod("new"), settings); await Until(() => factory.OpenCount == 3 && controller.Snapshot.State == PlaybackState.Streaming);
         Assert.Equal(0, controller.Snapshot.Diagnostics!.ReconnectCount); Assert.Null(controller.Snapshot.Diagnostics.LastFault);
+    }
+    [Fact]
+    public async Task PanelShowsFaultThroughRetryRefreshButHidesItOnStandbyResume()
+    {
+        var first = new FakeConnection(autoReady: false);
+        var second = new FakeConnection(autoReady: false);
+        var opened = new TaskCompletionSource<SessionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var refreshed = new TaskCompletionSource<SessionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var backoff = new TaskCompletionSource<SessionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var factory = new FakeFactory(first, second);
+        await using var controller = TestSessionController.Create(factory, new FakeAudio(), timing: Fast with { Connect = TimeSpan.FromSeconds(5), Read = TimeSpan.FromSeconds(5) });
+        controller.Changed += snapshot =>
+        {
+            if (snapshot.State != PlaybackState.Connecting || snapshot.Diagnostics?.LastFault is null) return;
+            if (factory.OpenCount == 1) backoff.TrySetResult(snapshot);
+            if (factory.OpenCount == 2 && second.Started.Task.IsCompleted) opened.TrySetResult(snapshot);
+            if (snapshot.Metrics?.Underruns == 7) refreshed.TrySetResult(snapshot);
+        };
+        var settings = Settings();
+        settings.ForceReconnect = true;
+        await controller.StartAsync(Pod(), settings);
+        await first.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        first.Emit("standby");
+        await Until(() => controller.Snapshot.State == PlaybackState.Standby);
+        first.Emit("resuming");
+        await Until(() => controller.Snapshot.Message == L.Get("Audio detected; connecting…"));
+        Assert.Empty(ErrorDetailsText.For(controller.Snapshot, ""));
+        first.Emit("streaming");
+        await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+        first.EmitData(new { @event = "error", code = "peer_closed", channel = "events", message = "Synthetic connection ended", retryable = true });
+        var waiting = await backoff.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var restarted = await opened.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var fault = waiting.Diagnostics!.LastFault!;
+        Assert.Equal("peer_closed", fault.Code);
+        Assert.Equal(fault.Detail, ErrorDetailsText.For(waiting, ""));
+        Assert.Equal(fault.Detail, ErrorDetailsText.For(restarted, ""));
+        second.Emit("resuming");
+        second.Emit("capture_metrics", metrics: new { underrun_packets = 7 });
+        var withMetrics = await refreshed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(restarted.Message, withMetrics.Message);
+        Assert.Equal(fault.Detail, ErrorDetailsText.For(withMetrics, ""));
+
+        second.Emit("streaming");
+        await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+        Assert.Equal("", ErrorDetailsText.For(controller.Snapshot, ""));
+        second.Emit("standby");
+        await Until(() => controller.Snapshot.State == PlaybackState.Standby);
+        second.Emit("resuming");
+        await Until(() => controller.Snapshot.Message == L.Get("Audio detected; reconnecting…"));
+        Assert.Equal(fault, controller.Snapshot.Diagnostics?.LastFault);
+        Assert.Equal("", ErrorDetailsText.For(controller.Snapshot, ""));
     }
     [Fact]
     public async Task StructuredNonretryableFaultDoesNotDependOnMessageText()

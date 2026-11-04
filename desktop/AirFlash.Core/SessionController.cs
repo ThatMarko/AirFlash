@@ -15,6 +15,7 @@ public sealed record SessionSnapshot(PlaybackState State, Receiver? Receiver = n
     public LatencyRuntime? Latency { get; init; }
     public int? PendingLatency { get; init; }
     public string ActionHint { get; init; } = "";
+    public bool IsRetrying { get; init; }
 }
 public sealed record SessionTiming(TimeSpan Connect, TimeSpan Read, TimeSpan Pin, TimeSpan Retry)
 {
@@ -198,7 +199,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private void PublishCurrent(long epoch)
     {
         // Hold the state lock through publication so an old state cannot replace stop/reconnect.
-        lock (_sync) { if (epoch == _generation) Publish(epoch, _snapshot.State, _snapshot.Message); }
+        lock (_sync) { if (epoch == _generation) Publish(epoch, _snapshot.State, _snapshot.Message, isRetrying: _snapshot.IsRetrying); }
     }
     private PlaybackDiagnostics _diagnostics = new();
     private async Task SetMemberVolumeAsync(string memberId, int value)
@@ -823,6 +824,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                 receiver = _receiver;
             }
             var startedAt = 0L;
+            var hasStreamed = false;
             try
             {
                 var settings = _settings;
@@ -847,7 +849,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                 try
                 {
                     lock (_sync) { if (epoch == _generation) { _diagnostics = _diagnostics with { Transport = null, Warnings = [], Negotiated = [], ClockStatus = null }; _warnings.Clear(); _deviceVolume = new(); _memberVolumes.Clear(); _memberHosts.Clear(); foreach (var pair in hosts) _memberHosts[pair.Key] = pair.Value; _volumeEdit?.Cancel(); _snapshot = _snapshot with { Metrics = null }; } }
-                    Publish(epoch, PlaybackState.Connecting, attempts > 0 ? L.Format("Reconnecting ({0}/{1})", attempts, settings.MaxReconnectAttempts) : L.Get("Connecting…"));
+                    Publish(epoch, PlaybackState.Connecting, attempts > 0 ? L.Format("Reconnecting ({0}/{1})", attempts, settings.MaxReconnectAttempts) : L.Get("Connecting…"), isRetrying: attempts > 0);
                     var deadline = DateTime.UtcNow + _timing.Connect;
                     await connection.SendAsync(session, "hello", null, cancellation).ConfigureAwait(false);
                     var hello = await ReadEventAsync(connection, session, _timing.Connect, cancellation).ConfigureAwait(false);
@@ -958,6 +960,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         {
                             AcceptLatency(item);
                             startedAt = Stopwatch.GetTimestamp();
+                            hasStreamed = true;
                             lock (_sync) { if (epoch != _generation) continue; _transportStreaming = true; }
                             await ApplyLocalMuteAsync().ConfigureAwait(false);
                             log?.Invoke($"Streaming started: {receiver.Id}; target latency {_adaptiveBase} ms; reconnect attempts {attempts}");
@@ -983,7 +986,12 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                             recoveryHealth.BeginAttempt(hosts.Values);
                             lock (_sync) _adaptive.Resume(_adaptiveInitial);
                             startedAt = 0; deadline = DateTime.UtcNow + _timing.Connect;
-                            Publish(epoch, PlaybackState.Connecting, L.Get("Audio detected; reconnecting…"));
+                            // Native also emits resuming before its first stream.
+                            // If this worker is already retrying, keep that status and fault.
+                            var current = Snapshot;
+                            var status = current.IsRetrying ? current.Message
+                                : L.Get(hasStreamed ? "Audio detected; reconnecting…" : "Audio detected; connecting…");
+                            Publish(epoch, PlaybackState.Connecting, status, isRetrying: current.IsRetrying);
                         }
                         else if (kind == "device_volume" && startedAt != 0 && receiver.IsSoftwareGroup)
                         {
@@ -1027,7 +1035,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                             if (AdaptivePlan() is not null) lock (_sync) _adaptive.Recovery(item.Text("code"));
                             var current = Snapshot;
                             var takeover = notice.Code == "preempted" && notice.Reason == "takeover";
-                            Publish(epoch, current.State, takeover ? L.Get("Another device took over this AirPlay session. AirFlash reclaimed it.") : current.Message);
+                            Publish(epoch, current.State, takeover ? L.Get("Another device took over this AirPlay session. AirFlash reclaimed it.") : current.Message, isRetrying: current.IsRetrying);
                         }
                         else if (kind == "transport_metrics" && startedAt != 0)
                         {
@@ -1045,14 +1053,14 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                                 if (fresh && metrics.SessionUptimeMs is { } uptime && (int)(uptime / 1000) % 10 == 0)
                                     log?.Invoke($"Adaptive latency health: stream_epoch={metrics.SessionEpoch}; effective_ms={_adaptive.Current}; p99_ms={metrics.IntervalLatenessP99Ms}; active_underruns={metrics.UnderrunsActive}; idle_underruns={metrics.UnderrunsIdle}; rebuilds={_adaptive.Rebuilds}");
                             }
-                            var current = Snapshot; Publish(epoch, current.State, current.Message);
+                            var current = Snapshot; Publish(epoch, current.State, current.Message, isRetrying: current.IsRetrying);
                         }
                         else if (kind == "capture_metrics" && item.TryGetProperty("metrics", out var metrics))
                         {
                             var parsed = new StreamMetrics(metrics.Number("capture_to_send_p95_ms"), metrics.Number("max_queue_age_ms"), metrics.Integer("underrun_packets"), metrics.Integer("dropped_frames"), metrics.Integer("input_rate") is { } rate ? (int)rate : null,
                                 metrics.Unsigned("padded_frames"), metrics.Unsigned("fully_padded_packets"));
                             var current = Snapshot;
-                            Publish(epoch, current.State, current.Message, metrics: parsed);
+                            Publish(epoch, current.State, current.Message, metrics: parsed, isRetrying: current.IsRetrying);
                         }
                         await CheckAdaptiveAsync(connection, session, epoch, cancellation).ConfigureAwait(false);
                     }
@@ -1103,7 +1111,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             }
             var delay = TimeSpan.FromMilliseconds(Math.Min(_timing.Retry.TotalMilliseconds * Math.Pow(2, attempts - 1), 8000));
             log?.Invoke($"Session reconnect reason=transport_fault; code={_diagnostics.LastFault?.Code}; attempt={attempts}; delay_ms={delay.TotalMilliseconds}");
-            Publish(epoch, PlaybackState.Connecting, L.Format("Disconnected; reconnecting ({0}/{1})", attempts, _settings.MaxReconnectAttempts));
+            Publish(epoch, PlaybackState.Connecting, L.Format("Disconnected; reconnecting ({0}/{1})", attempts, _settings.MaxReconnectAttempts), isRetrying: true);
             await Task.Delay(delay, cancellation).ConfigureAwait(false);
             lock (_sync) { if (epoch == _generation) _diagnostics = _diagnostics with { ReconnectCount = _diagnostics.ReconnectCount + 1 }; }
         }
@@ -1315,7 +1323,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     {
         try { await audio.RestoreAsync().ConfigureAwait(false); } catch (Exception error) { log?.Invoke(L.Format("Failed to restore local mute state: {0}", error.Message)); }
     }
-    private void Publish(long epoch, PlaybackState state, string message = "", StreamMetrics? metrics = null, EngineNotice? failure = null)
+    private void Publish(long epoch, PlaybackState state, string message = "", StreamMetrics? metrics = null, EngineNotice? failure = null, bool isRetrying = false)
     {
         SessionSnapshot snapshot;
         lock (_sync)
@@ -1326,7 +1334,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             var hint = state != PlaybackState.Error ? "" : failure is not null
                 ? GateFailure.ActionHint(failure) ?? ""
                 : _snapshot.Generation == epoch && _snapshot.State == state && _snapshot.Message == message ? _snapshot.ActionHint : "";
-            snapshot = new(state, _receiver, message, metrics ?? _snapshot.Metrics, _receiver is null ? 0 : _adaptive.Current > 0 ? _adaptive.Current : _settings.Latency(_receiver), _diagnostics, _receiver is null ? 0 : _snapshot.StreamRate, _deviceVolume, new Dictionary<string, DeviceVolumeState>(_memberVolumes)) { Generation = epoch, Latency = _adaptive.Runtime, PendingLatency = _adaptive.Pending?.Action.Target, ActionHint = hint };
+            snapshot = new(state, _receiver, message, metrics ?? _snapshot.Metrics, _receiver is null ? 0 : _adaptive.Current > 0 ? _adaptive.Current : _settings.Latency(_receiver), _diagnostics, _receiver is null ? 0 : _snapshot.StreamRate, _deviceVolume, new Dictionary<string, DeviceVolumeState>(_memberVolumes)) { Generation = epoch, Latency = _adaptive.Runtime, PendingLatency = _adaptive.Pending?.Action.Target, ActionHint = hint, IsRetrying = isRetrying };
             _snapshot = snapshot;
         }
         Changed?.Invoke(snapshot);
