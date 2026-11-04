@@ -381,7 +381,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         }
         catch (Exception error) { ShowError(error); }
     }
-    private async Task OnEndpointsChangedAsync()
+    internal async Task OnEndpointsChangedAsync()
     {
         if (_closing || _resetting) return;
         var authority = Session.Capture();
@@ -391,11 +391,17 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             if (_closing || _resetting) return;
             var next = await _audio.GetDefaultEndpointIdAsync();
             if (_closing || _resetting) return;
-            if (!IsStopping && _settings.CaptureMode == "loopback" && next != _defaultEndpoint && authority.Snapshot.IsActive)
+            var changed = next != _defaultEndpoint;
+            var current = Session.Capture();
+            // A pending Pair has not opened loopback capture yet. Record the default
+            // it will see, but keep changes observable if a newer stream has begun.
+            if (current.AutomaticIntent == authority.AutomaticIntent
+                || !current.Snapshot.IsActive || current.Snapshot.State == PlaybackState.Pairing)
+                _defaultEndpoint = next;
+            if (!IsStopping && _settings.CaptureMode == "loopback" && changed && authority.Snapshot.IsActive)
                 await Session.TryRestartForEndpointAsync(_settings.Clone(), authority.Owner, authority.AutomaticIntent, CaptureSessionSettingsContext());
             else if (!IsStopping && !authority.Snapshot.IsActive)
                 await Session.TryRestoreAudioIfInactiveAsync(authority.Owner, authority.AutomaticIntent);
-            if (Session.IsIntentCurrent(authority.AutomaticIntent)) _defaultEndpoint = next;
         }
         catch (Exception error) { ShowError(error); }
         finally { _settingsGate.Release(); }
@@ -550,7 +556,8 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private void SessionChanged(SessionSnapshot snapshot) => _dispatcher.BeginInvoke(() => ApplySessionSnapshot(snapshot));
     private void ApplySessionSnapshot(SessionSnapshot snapshot)
     {
-        if (_closing || !ReferenceEquals(snapshot, Session.Snapshot)) return;
+        // The panel stays open while Quit waits for an Apply or engine cleanup.
+        if (!ReferenceEquals(snapshot, Session.Snapshot)) return;
         var title = StatusTitle; var detail = StatusDetail; var errors = ErrorDetails; var hint = ActionHint;
         var previous = _snapshot;
         _snapshot = snapshot;
@@ -983,7 +990,8 @@ public sealed class ReceiverViewModel : ObservableObject
     public bool IsStopping => _app.IsStopping && _app.Snapshot.Receiver?.Id == Receiver.Id;
     public bool NeedsDisconnect => Active || _app.Session.NeedsCleanup && _app.Snapshot.Receiver?.Id == Receiver.Id;
     public System.Windows.Input.ICommand PlaybackCommand => NeedsDisconnect ? _app.StopCommand : ToggleCommand;
-    public bool CanPlay => !_app.IsStopping && !_app.Session.NeedsCleanup && (Active || _app.EngineReady && _app.MuteReady && Receiver.Online && Receiver.Complete);
+    public bool CanPlay => !_app.IsStopping && !_app.Session.NeedsCleanup
+        && (Active || !_app.IsClosing && _app.EngineReady && _app.MuteReady && Receiver.Online && Receiver.Complete);
     public string PlayHint => IsStopping ? L.Get("Disconnecting…") : NeedsDisconnect ? L.Get("Stop playback / disconnect") : L.Get("Play on this device");
     public string StateText => (NeedsDisconnect ? _app.StatusTitle : !Receiver.Online ? L.Get("Offline") : !Receiver.Complete ? L.Get("Waiting for the other member") : L.Get("Disconnected")) + (Receiver.IsGroup ? $" · {Receiver.Members.Length}/2" : "");
     public AsyncCommand ToggleCommand { get; }

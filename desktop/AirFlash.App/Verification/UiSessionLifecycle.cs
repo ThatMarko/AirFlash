@@ -27,6 +27,8 @@ internal static class UiSessionLifecycle
     {
         _ = directory;
         await IdentityOwnershipAsync(checks);
+        await EndpointObservationAcrossPairAsync(checks, observationFinishesAfterPair: false);
+        await EndpointObservationAcrossPairAsync(checks, observationFinishesAfterPair: true);
         await IdentitySettingsContinuationAsync(checks, false);
         await IdentitySettingsContinuationAsync(checks, true);
         await LatencyHintUsesPanelDraftAsync(checks);
@@ -41,6 +43,8 @@ internal static class UiSessionLifecycle
         await RetainOnInterfaceChangeAsync(checks);
         await ResetDuringAutomaticSaveAsync(checks);
         await ShutdownDuringAutomaticSaveAsync(checks);
+        await ShellShutdownRetainsVisibleStopAsync(checks, holdApply: false);
+        await ShellShutdownRetainsVisibleStopAsync(checks, holdApply: true);
     }
     private static Receiver Pod(string id, string address = "192.0.2.10", int port = 7000) => new(id, id, address, port);
     private static Receiver Pair(string id = "stereo:fixture") => Pod(id) with
@@ -141,6 +145,90 @@ internal static class UiSessionLifecycle
             }
         }
     }
+    private static async Task EndpointObservationAcrossPairAsync(List<string> checks, bool observationFinishesAfterPair)
+    {
+        const string pairedEndpoint = "synthetic-endpoint-b", changedEndpoint = "synthetic-endpoint-c";
+        var old = Pod("endpoint-old");
+        var selected = Pod("endpoint-pair", "192.0.2.20", 7001);
+        var settings = Settings();
+        SeedAliases(settings, old, selected);
+        await using var fixture = await Fixture.CreateAsync(settings, [old, selected]);
+        if (observationFinishesAfterPair) fixture.Audio.DefaultEndpoint = pairedEndpoint;
+        await fixture.App.ToggleAsync(old);
+        await StateAsync(fixture, PlaybackState.Streaming);
+        var first = fixture.Engine.Connections.Single();
+
+        fixture.Audio.DefaultEndpoint = pairedEndpoint;
+        var lookup = fixture.Audio.HoldNextDefaultEndpointLookup();
+        var observation = fixture.App.OnEndpointsChangedAsync();
+        var pin = new PendingPin();
+        var pairing = new ScriptedConnection(false) { CompletePair = true };
+        var pairedPlayback = new ScriptedConnection();
+        fixture.Engine.Enqueue(pairing);
+        fixture.Engine.Enqueue(pairedPlayback);
+        try
+        {
+            await lookup.Entered.Task.WaitAsync(Limit);
+            await fixture.App.PairAsync(selected, pin.RequestAsync).WaitAsync(Limit);
+            await pairing.PairSent.Task.WaitAsync(Limit);
+            await pin.Entered.Task.WaitAsync(Limit);
+            await StateAsync(fixture, PlaybackState.Pairing);
+            var pairedOwner = fixture.App.Session.Capture().Owner;
+
+            if (!observationFinishesAfterPair)
+            {
+                lookup.Release.TrySetResult();
+                await observation.WaitAsync(Limit);
+                Check(first.Disposed && !pairing.Disposed && !pin.Cancelled
+                    && fixture.App.Session.Capture().Owner == pairedOwner && fixture.Engine.OpenCount == 2,
+                    "a held default-endpoint observation cannot restart or cancel a newer Pair", checks);
+            }
+
+            pin.Release.TrySetResult("1234");
+            await pairedPlayback.StartSent.Task.WaitAsync(Limit);
+            await StateAsync(fixture, PlaybackState.Streaming);
+            Check(fixture.Audio.DefaultEndpoint == pairedEndpoint && first.Disposed && pairing.Disposed
+                && fixture.App.Session.Capture().Owner == pairedOwner && fixture.Engine.OpenCount == 3,
+                "the newer Pair reaches playback while the observed default endpoint remains selected", checks);
+
+            if (observationFinishesAfterPair)
+            {
+                fixture.Audio.DefaultEndpoint = changedEndpoint;
+                lookup.Release.TrySetResult();
+                await observation.WaitAsync(Limit);
+                Check(fixture.App.Session.Capture().Owner == pairedOwner && !pairedPlayback.Disposed && fixture.Engine.OpenCount == 3,
+                    "an obsolete endpoint notification cannot restart newer playback even when its lookup returns a changed default", checks);
+            }
+            else
+            {
+                await fixture.App.OnEndpointsChangedAsync().WaitAsync(Limit);
+                Check(fixture.App.Session.Capture().Owner == pairedOwner && !pairedPlayback.Disposed
+                    && !pairedPlayback.Commands.Any(command => command.Name == "stop") && fixture.Engine.OpenCount == 3,
+                    "a repeated notification for the same default endpoint does not restart newer playback", checks);
+            }
+
+            var replacement = new ScriptedConnection();
+            fixture.Engine.Enqueue(replacement);
+            fixture.Audio.DefaultEndpoint = changedEndpoint;
+            await fixture.App.OnEndpointsChangedAsync().WaitAsync(Limit);
+            await replacement.StartSent.Task.WaitAsync(Limit);
+            await StateAsync(fixture, PlaybackState.Streaming);
+            var start = replacement.Commands.Single(command => command.Name == "start");
+            var peer = start.Parameters.GetProperty("peers")[0];
+            Check(fixture.App.Session.Capture().Owner != pairedOwner && pairedPlayback.Disposed
+                && fixture.Engine.OpenCount == 4 && fixture.App.Session.Snapshot.Receiver?.Id == selected.Id
+                && peer.Text("host") == selected.Address && peer.Integer("port") == selected.Port,
+                "a fresh notification restarts the same selected receiver exactly once for the changed default"
+                + (observationFinishesAfterPair ? " after an obsolete lookup observed it" : ""), checks);
+        }
+        finally
+        {
+            lookup.Release.TrySetResult();
+            pin.Release.TrySetResult(null);
+            await observation.WaitAsync(Limit);
+        }
+    }
+
     private static async Task IdentitySettingsContinuationAsync(List<string> checks, bool flushWhilePairing)
     {
         const string address = "192.0.2.10";
@@ -693,6 +781,90 @@ internal static class UiSessionLifecycle
         }
         finally { save.Release.TrySetResult(); await Task.WhenAll(automatic, reset).WaitAsync(Limit); }
     }
+    private static async Task ShellShutdownRetainsVisibleStopAsync(List<string> checks, bool holdApply)
+    {
+        var receiver = Pod("shell-owned-stop");
+        var other = Pod("shell-new-play", "192.0.2.20");
+        var settings = Settings();
+        settings.MuteWhileStreaming = true;
+        SeedAliases(settings, receiver, other);
+        // Cover both original mute bits across the two shutdown paths.
+        await using var fixture = await Fixture.CreateAsync(settings, [receiver, other], original: holdApply);
+        await fixture.App.ToggleAsync(receiver);
+        await StateAsync(fixture, PlaybackState.Streaming);
+        var process = fixture.Engine.Connections.Single();
+        var owner = fixture.App.Session.Capture().Owner;
+        var panel = new ControlPanel(fixture.App) { MenuOpen = true };
+        using var editor = holdApply ? new SettingsViewModel(fixture.App) : null;
+        var engineCleanup = new Gate();
+        Gate? save = null;
+        Task<bool> apply = Task.FromResult(true);
+        Task shutdown = Task.CompletedTask;
+        try
+        {
+            panel.ShowPanel();
+            await DrainAsync();
+            Check(fixture.Audio.HasSavedBit && fixture.Audio.MuteBit, "playback owns the saved mute bit before shell Quit", checks);
+            if (editor is not null)
+            {
+                editor.Draft.LatencyMode = "buffered";
+                save = fixture.Store.Hold();
+                apply = editor.ApplyAsync();
+                await save.Entered.Task.WaitAsync(Limit);
+                Check(editor.IsApplying && !apply.IsCompleted,
+                    "shell Quit races an accepted signature-changing Settings Apply", checks);
+            }
+            shutdown = ShellShutdown.RunAsync(fixture.App.BeginShutdown,
+                () => editor?.ApplicationCompleted ?? Task.CompletedTask,
+                () => { }, () => new ValueTask(engineCleanup.WaitAsync()), fixture.App.DisposeAsync);
+            Check(fixture.App.IsClosing && !shutdown.IsCompleted
+                && (save is null || !engineCleanup.Entered.Task.IsCompleted),
+                "Quit closes new admission before waiting for settings and engine cleanup", checks);
+            save?.Release.TrySetResult();
+            Check(await apply.WaitAsync(Limit), "the accepted Apply can finish during Quit", checks);
+            await engineCleanup.Entered.Task.WaitAsync(Limit);
+            await fixture.App.ToggleAsync(other).WaitAsync(Limit);
+            await fixture.App.PairAsync(other, (_, _) => throw new InvalidOperationException("Shutdown must not request a PIN.")).WaitAsync(Limit);
+            await fixture.App.TryAutoConnectAsync().WaitAsync(Limit);
+            await DrainAsync();
+
+            var active = fixture.App.Receivers.Single(row => row.Receiver.Id == receiver.Id);
+            var inactive = fixture.App.Receivers.Single(row => row.Receiver.Id == other.Id);
+            var stop = BoundPlaybackButton(panel, active);
+            var play = BoundPlaybackButton(panel, inactive);
+            Check(fixture.Engine.OpenCount == 1 && !process.Disposed && fixture.App.Session.Capture().Owner == owner
+                && fixture.App.Snapshot.State == PlaybackState.Streaming
+                && stop.IsVisible && stop.IsEnabled && ReferenceEquals(stop.Command, fixture.App.StopCommand)
+                && play.IsVisible && !play.IsEnabled && !inactive.ToggleCommand.CanExecute(null),
+                "Quit keeps the visible owned Stop enabled while disabling new Play", checks);
+            if (holdApply)
+                Check(fixture.Store.Saved.LatencyMode == "buffered" && fixture.App.Settings.LatencyMode == "buffered"
+                    && fixture.Store.Saved.LastReceiverId == receiver.Id,
+                    "Quit saves the accepted latency edit without starting a replacement worker", checks);
+
+            ((IInvokeProvider)new ButtonAutomationPeer(stop).GetPattern(PatternInterface.Invoke)).Invoke();
+            await StateAsync(fixture, PlaybackState.Idle);
+            await process.DisposalCompleted.Task.WaitAsync(Limit);
+            await DrainAsync();
+            Check(fixture.App.Snapshot.State == PlaybackState.Idle && !active.Active
+                && !fixture.App.StopCommand.CanExecute(null) && !BoundPlaybackButton(panel, active).IsEnabled
+                && process.Commands.Count(command => command.Name == "stop") == 1 && fixture.Engine.OpenCount == 1
+                && !fixture.Audio.HasSavedBit && fixture.Audio.MuteBit == holdApply && !shutdown.IsCompleted,
+                "visible Stop publishes Idle and restores the original mute bit while Quit still waits for engine cleanup", checks);
+        }
+        finally
+        {
+            save?.Release.TrySetResult();
+            engineCleanup.Release.TrySetResult();
+            try { await Task.WhenAll(apply, shutdown).WaitAsync(Limit); }
+            finally { panel.ShutdownPanel(); }
+        }
+
+        static Button BoundPlaybackButton(ControlPanel panel, ReceiverViewModel row) =>
+            UiSmoke.Descendants(panel).OfType<Button>().Single(button =>
+                ReferenceEquals(button.DataContext, row) && ReferenceEquals(button.Command, row.PlaybackCommand));
+    }
+
     private sealed class Gate
     {
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -730,7 +902,14 @@ internal static class UiSessionLifecycle
         public void Release() => _restoreGate?.Release.TrySetResult();
         public event Action? EndpointsChanged { add { } remove { } }
         public Task<IReadOnlyList<AudioEndpoint>> GetEndpointsAsync() => Task.FromResult<IReadOnlyList<AudioEndpoint>>([]);
-        public Task<string?> GetDefaultEndpointIdAsync() => Task.FromResult<string?>("synthetic-endpoint");
+        private Gate? _defaultEndpointLookup;
+        public string DefaultEndpoint { get; set; } = "synthetic-endpoint-a";
+        public Gate HoldNextDefaultEndpointLookup() => _defaultEndpointLookup = new();
+        public async Task<string?> GetDefaultEndpointIdAsync()
+        {
+            if (Interlocked.Exchange(ref _defaultEndpointLookup, null) is { } gate) await gate.WaitAsync();
+            return DefaultEndpoint;
+        }
         public Task MuteAsync(string? endpointId)
         {
             _saved ??= MuteBit; MuteBit = true; return Task.CompletedTask;
