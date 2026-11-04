@@ -296,6 +296,12 @@ fn follower_grants_require_valid_fields_source_target_and_live_pending_request()
     assert_eq!(state.received_grants, 0);
     followed_packet(&mut state, &grant, 0, now + Duration::from_millis(1999), 7);
     assert_eq!(state.received_grants, 1);
+    let counters = serde_json::to_value(&state.packets).unwrap();
+    assert_eq!(counters["grant_tlv_checked"], 11);
+    assert_eq!(counters["grant_accepted"], 1);
+    assert_eq!(counters["grant_rejected_fields"], 11);
+    assert_eq!(counters["grant_rejected_no_pending_or_stale"], 2);
+    assert_eq!(counters["grant_rejected_replay"], 0);
 }
 
 #[test]
@@ -329,6 +335,9 @@ fn grant_receive_history_wraps_and_applies_all_tlvs_once() {
         Some(later + Duration::from_secs(30))
     );
     assert_eq!(state.received_grant_sequence, Some(0));
+    assert_eq!(state.packets.grant_tlv_checked, 4);
+    assert_eq!(state.packets.grant_accepted, 4);
+    assert_eq!(state.packets.grant_rejected_replay, 2);
 }
 
 #[test]
@@ -348,6 +357,8 @@ fn malformed_and_non_grant_signaling_do_not_poison_lease_or_history() {
         for other in [request, unknown, malformed] {
             followed_packet(&mut state, &other, 0, now, 7);
             assert_eq!(state.packets.rejected, rejection_count);
+            assert_eq!(state.packets.grant_tlv_checked, 1);
+            assert_eq!(state.packets.grant_accepted, 1);
             assert_eq!(state.received_grant_sequence, Some(11));
         }
     }
@@ -465,12 +476,56 @@ fn source_port_or_grandmaster_change_restarts_only_the_receive_history() {
         assert_eq!(state.granted_until[0], None);
         assert_eq!(state.signaling_sequence, 18);
         assert_eq!(state.packets.subscription_requests_sent, 42);
+        assert_eq!(state.received_grants, 0);
+        assert_eq!(state.packets.grant_accepted, 1);
         pend(&mut state, 0, -3, now);
         let mut new_grant = literal_grant(1, 0, 1);
         new_grant[20..30].copy_from_slice(&new_announce[20..30]);
         followed_packet(&mut state, &new_grant, 0, now, 7);
         assert_eq!(state.received_grant_sequence, Some(1));
+        assert_eq!(state.received_grants, 1);
+        assert_eq!(state.packets.grant_accepted, 2);
     }
+}
+
+#[test]
+fn subscription_send_failures_are_distinct_and_saturating() {
+    let socket = UdpSocket::bind(("127.0.0.1", 0)).unwrap();
+    // A v4 socket cannot send to a v6 destination. Neither address can leave the host.
+    let destination = "[::1]:9".parse().unwrap();
+    let mut state = PeerState::default();
+    assert!(!send_ptp(
+        &socket,
+        &[0],
+        destination,
+        &mut state,
+        "subscribe"
+    ));
+    assert!(!send_ptp(
+        &socket,
+        &[0],
+        destination,
+        &mut state,
+        "delay_request"
+    ));
+    assert_eq!(state.packets.send_errors, 2);
+    assert_eq!(state.packets.subscription_send_errors, 1);
+    assert_eq!(state.packets.subscription_requests_sent, 0);
+    let counters = serde_json::to_value(&state.packets).unwrap();
+    assert_eq!(counters["last_send_error"]["operation"], "delay_request");
+    assert_eq!(counters["subscription_send_errors"], 1);
+
+    state.packets.send_errors = u64::MAX;
+    state.packets.subscription_send_errors = u64::MAX;
+    assert!(!send_ptp(
+        &socket,
+        &[0],
+        destination,
+        &mut state,
+        "subscribe"
+    ));
+    assert_eq!(state.packets.send_errors, u64::MAX);
+    assert_eq!(state.packets.subscription_send_errors, u64::MAX);
 }
 
 #[test]

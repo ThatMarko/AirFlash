@@ -289,6 +289,14 @@ pub struct PacketSnapshot {
     last_send_error: Option<SocketFailure>,
     pdelay_responses: u64,
     subscription_requests_sent: u64,
+    subscription_send_errors: u64,
+    // Packet-level framing/target/replay failures precede individual TLV checks.
+    grant_tlv_checked: u64,
+    // Unlike received_grants, this count survives changes of the remote source.
+    grant_accepted: u64,
+    grant_rejected_replay: u64,
+    grant_rejected_fields: u64,
+    grant_rejected_no_pending_or_stale: u64,
 }
 #[derive(Clone, serde::Serialize)]
 pub struct PeerSnapshot {
@@ -332,6 +340,15 @@ impl PeerState {
     fn reject(&mut self, reason: &'static str) {
         self.packets.rejected = self.packets.rejected.saturating_add(1);
         self.packets.last_rejection = Some(reason);
+        let grant_counter = match reason {
+            "grant_framing" | "grant_target" | "grant_fields" => {
+                &mut self.packets.grant_rejected_fields
+            }
+            "grant_replay" => &mut self.packets.grant_rejected_replay,
+            "grant_no_pending" => &mut self.packets.grant_rejected_no_pending_or_stale,
+            _ => return,
+        };
+        *grant_counter = grant_counter.saturating_add(1);
     }
     fn exchange_timeout(&self) -> Duration {
         self.exchange_interval
@@ -831,6 +848,7 @@ fn receive_grants(s: &mut PeerState, data: &[u8], own_id: u64, now: Instant) {
             s.reject("grant_fields");
             continue;
         }
+        s.packets.grant_tlv_checked = s.packets.grant_tlv_checked.saturating_add(1);
         let Some(index) = subscription_index(body[0] >> 4) else {
             s.reject("grant_fields");
             continue;
@@ -861,6 +879,7 @@ fn receive_grants(s: &mut PeerState, data: &[u8], own_id: u64, now: Instant) {
         }
         s.granted_until[index] = Some(now + Duration::from_secs(u64::from(seconds)));
         s.received_grants = s.received_grants.saturating_add(1);
+        s.packets.grant_accepted = s.packets.grant_accepted.saturating_add(1);
         s.subscriptions[index].clear();
         accepted = true;
     }
@@ -1151,7 +1170,11 @@ fn send_ptp(
             let error = result.err().unwrap_or_else(|| {
                 io::Error::new(io::ErrorKind::WriteZero, "partial PTP datagram")
             });
-            peer.packets.send_errors += 1;
+            peer.packets.send_errors = peer.packets.send_errors.saturating_add(1);
+            if operation == "subscribe" {
+                peer.packets.subscription_send_errors =
+                    peer.packets.subscription_send_errors.saturating_add(1);
+            }
             peer.packets.last_send_error = Some(SocketFailure::new(operation, &error));
             false
         }
