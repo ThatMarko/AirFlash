@@ -36,7 +36,9 @@ internal static class UiSessionLifecycle
         await StopWaitingForAdmissionAsync(checks);
         await EligibilityArrivalAsync(checks);
         await ManualSelectionAsync(checks);
+        await QueuedManualSelectionAsync(checks);
         await RetainedStatesAsync(checks);
+        await RetainOnInterfaceChangeAsync(checks);
         await ResetDuringAutomaticSaveAsync(checks);
         await ShutdownDuringAutomaticSaveAsync(checks);
     }
@@ -534,6 +536,55 @@ internal static class UiSessionLifecycle
                 "manual persistence survives empty discovery: " + condition + "/" + port, checks);
         }
     }
+    private static async Task QueuedManualSelectionAsync(List<string> checks)
+    {
+        foreach (var edit in new[] { "remove", "address", "port" })
+        {
+            var settings = Settings();
+            var saved = new ManualReceiver("manual-m", "Synthetic manual receiver", "192.0.2.10", 7000);
+            settings.ManualReceivers.Add(saved);
+            await using var fixture = await Fixture.CreateAsync(settings, []);
+            var selected = fixture.App.AllReceivers.Single();
+            var baseline = fixture.App.Settings.Clone(); var draft = baseline.Clone();
+            if (edit == "remove") draft.ManualReceivers.Clear();
+            else draft.ManualReceivers[0] = edit == "address" ? saved with { Host = "192.0.2.20" } : saved with { Port = 7001 };
+            var gate = fixture.Store.Hold();
+            var apply = fixture.App.ApplyAsync(baseline, draft);
+            Task play = Task.CompletedTask;
+            try
+            {
+                await gate.Entered.Task.WaitAsync(Limit);
+                play = fixture.App.ToggleAsync(selected);
+                Check(!play.IsCompleted, "manual Play waits for the current settings write: " + edit, checks);
+                gate.Release.TrySetResult();
+                await apply.WaitAsync(Limit);
+                var rejected = false;
+                try { await play.WaitAsync(Limit); }
+                catch (InvalidOperationException error) when (error.Message == L.Get("The receiver is unavailable.")) { rejected = true; }
+                Check(rejected && fixture.Engine.OpenCount == 0 && fixture.App.Session.Snapshot.State == PlaybackState.Idle
+                    && fixture.App.Settings.LastReceiverId == settings.LastReceiverId && fixture.Store.Saved.LastReceiverId == settings.LastReceiverId
+                    && fixture.Store.Saved.ManualReceivers.SequenceEqual(draft.ManualReceivers),
+                    "the stale manual click cannot start or undo a committed endpoint change: " + edit, checks);
+                if (edit != "remove")
+                {
+                    var current = fixture.App.AllReceivers.Single();
+                    await fixture.App.ToggleAsync(current);
+                    await StateAsync(fixture, PlaybackState.Streaming);
+                    var start = fixture.Engine.Connections.Single().Commands.Single(command => command.Name == "start");
+                    var peer = start.Parameters.GetProperty("peers")[0];
+                    Check(peer.Text("host") == current.Address && peer.Integer("port") == current.Port,
+                        "a new click uses the newly saved manual endpoint: " + edit, checks);
+                }
+            }
+            finally
+            {
+                gate.Release.TrySetResult();
+                await apply.WaitAsync(Limit);
+                try { await play.WaitAsync(Limit); }
+                catch (InvalidOperationException error) when (error.Message == L.Get("The receiver is unavailable.")) { }
+            }
+        }
+    }
     private static async Task RetainedStatesAsync(List<string> checks)
     {
         foreach (var original in new[] { false, true })
@@ -590,6 +641,37 @@ internal static class UiSessionLifecycle
                 fixture.Audio.MuteBit == original && !fixture.Audio.HasSavedBit,
                 "explicit Stop removes the inactive overlay and restores the exact prior mute bit from " + state + "/" + original, checks);
         }
+    }
+    private static async Task RetainOnInterfaceChangeAsync(List<string> checks)
+    {
+        var group = Pair();
+        var settings = Settings();
+        SeedAliases(settings, group);
+        await using var fixture = await Fixture.CreateAsync(settings, [group]);
+        fixture.Discovery.Items = [group];
+        await fixture.App.ToggleAsync(group);
+        await StateAsync(fixture, PlaybackState.Streaming);
+        var owner = fixture.App.Session.Capture().Owner;
+        var process = fixture.Engine.Connections.Single();
+        var baseline = fixture.App.Settings.Clone(); var draft = baseline.Clone();
+        draft.DiscoveryInterfaceId = "synthetic-unavailable-adapter";
+        await fixture.App.ApplyAsync(baseline, draft);
+        await CatalogAsync(fixture, () => fixture.App.AllReceivers.Count == 0);
+        await DrainAsync();
+
+        var active = fixture.App.Session.Capture();
+        var row = fixture.App.Receivers.Single();
+        Check(fixture.Discovery.SelectedInterface == draft.DiscoveryInterfaceId
+            && fixture.Store.Saved.DiscoveryInterfaceId == draft.DiscoveryInterfaceId
+            && active.Owner == owner && active.Snapshot is { State: PlaybackState.Streaming, Receiver.Members.Length: 2 }
+            && fixture.Engine.OpenCount == 1 && !process.Disposed && !process.Commands.Any(command => command.Name == "stop")
+            && row.Active && !row.Receiver.Online && ReferenceEquals(row.PlaybackCommand, fixture.App.StopCommand),
+            "switching to an unavailable adapter retains the owned stream and exposes only its active Stop row", checks);
+        row.PlaybackCommand.Execute(null);
+        await StateAsync(fixture, PlaybackState.Idle);
+        await process.DisposalCompleted.Task.WaitAsync(Limit);
+        Check(fixture.App.Receivers.Count == 0 && fixture.Engine.OpenCount == 1,
+            "Stop clears the retained row after an adapter change", checks);
     }
     private static async Task ResetDuringAutomaticSaveAsync(List<string> checks)
     {

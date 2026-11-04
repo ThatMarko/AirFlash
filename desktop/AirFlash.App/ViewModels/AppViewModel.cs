@@ -617,7 +617,15 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             if (!CanStartExplicit(intent)) return;
             if (_settings.CaptureMode == "loopback") _defaultEndpoint = await _audio.GetDefaultEndpointIdAsync();
             if (!CanStartExplicit(intent)) return;
-            if (!receiver.IsManual)
+            if (receiver.IsManual)
+            {
+                // A queued Apply can remove or edit the selected manual endpoint.
+                if (!_known.TryGetValue(receiver.Id, out var manual) || !manual.IsManual
+                    || !StringComparer.OrdinalIgnoreCase.Equals(manual.Address, receiver.Address) || manual.Port != receiver.Port)
+                    throw new InvalidOperationException(L.Get("The receiver is unavailable."));
+                receiver = manual;
+            }
+            else
             {
                 var id = ReceiverIdentity.Resolve(ReceiverMigrations.GetValueOrDefault(receiver.Id, receiver.Id), _settings.ReceiverAliases);
                 receiver = AllReceivers.FirstOrDefault(item => item.Id == id)
