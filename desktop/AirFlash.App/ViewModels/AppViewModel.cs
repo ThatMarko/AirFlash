@@ -391,17 +391,17 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             if (_closing || _resetting) return;
             var next = await _audio.GetDefaultEndpointIdAsync();
             if (_closing || _resetting) return;
-            var changed = next != _defaultEndpoint;
-            var current = Session.Capture();
-            // A pending Pair has not opened loopback capture yet. Record the default
-            // it will see, but keep changes observable if a newer stream has begun.
-            if (current.AutomaticIntent == authority.AutomaticIntent
-                || !current.Snapshot.IsActive || current.Snapshot.State == PlaybackState.Pairing)
-                _defaultEndpoint = next;
-            if (!IsStopping && _settings.CaptureMode == "loopback" && changed && authority.Snapshot.IsActive)
-                await Session.TryRestartForEndpointAsync(_settings.Clone(), authority.Owner, authority.AutomaticIntent, CaptureSessionSettingsContext());
+            var restarted = false;
+            if (!IsStopping && _settings.CaptureMode == "loopback" && next != _defaultEndpoint && authority.Snapshot.IsActive)
+                restarted = await Session.TryRestartForEndpointAsync(_settings.Clone(), authority.Owner, authority.AutomaticIntent, CaptureSessionSettingsContext());
             else if (!IsStopping && !authority.Snapshot.IsActive)
                 await Session.TryRestoreAudioIfInactiveAsync(authority.Owner, authority.AutomaticIntent);
+            var current = Session.Capture();
+            // Pairing has not opened loopback capture yet. Once another owner is
+            // playing, its next observation must still see an unhandled change.
+            if (restarted || !current.Snapshot.IsActive || current.Snapshot.State == PlaybackState.Pairing
+                || (current.Owner == authority.Owner && current.AutomaticIntent == authority.AutomaticIntent))
+                _defaultEndpoint = next;
         }
         catch (Exception error) { ShowError(error); }
         finally { _settingsGate.Release(); }
