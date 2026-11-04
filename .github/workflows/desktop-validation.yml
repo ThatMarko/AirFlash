@@ -1,5 +1,5 @@
 name: Fork exact-source desktop validation
-run-name: Desktop validation ${{ inputs.source_sha }}
+run-name: Desktop validation ${{ inputs.session_lifecycle_only && '(session lifecycle)' || '(full)' }} ${{ inputs.source_sha }}
 on:
   workflow_dispatch:
     inputs:
@@ -7,6 +7,11 @@ on:
         description: Full 40-character own-fork commit SHA to qualify with isolated mock services
         required: true
         type: string
+      session_lifecycle_only:
+        description: Run only the isolated session lifecycle cell after startup and DNS guards
+        required: false
+        default: false
+        type: boolean
 permissions:
   contents: read
 jobs:
@@ -19,6 +24,7 @@ jobs:
         shell: pwsh
     env:
       REQUESTED_SOURCE: ${{ inputs.source_sha }}
+      SESSION_LIFECYCLE_ONLY: ${{ inputs.session_lifecycle_only }}
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
       DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
@@ -283,13 +289,18 @@ jobs:
             @{ name = 'regression'; mode = '--ui-regression' },
             @{ name = 'receiver-settings'; mode = '--receiver-settings-regression' }
           )
-          foreach ($cell in $focused) { Invoke-DesktopCell $cell.name $cell.mode 'en-US' 'en' }
-          Invoke-DesktopCell 'pairing-clipboard' '--ui-pairing-smoke' 'en-US' 'en' $true
-          foreach ($culture in @('en-US', 'zh-TW')) {
-            foreach ($language in @('en', 'zh-CN', 'zh-TW')) { Invoke-DesktopCell "full-$culture-$language" 'full' $culture $language }
+          $scope = if ($env:SESSION_LIFECYCLE_ONLY -eq 'true') { 'session-lifecycle' } else { 'full' }
+          if ($scope -eq 'session-lifecycle') {
+            Invoke-DesktopCell 'session-lifecycle' '--ui-session-lifecycle-smoke' 'en-US' 'en'
+          } else {
+            foreach ($cell in $focused) { Invoke-DesktopCell $cell.name $cell.mode 'en-US' 'en' }
+            Invoke-DesktopCell 'pairing-clipboard' '--ui-pairing-smoke' 'en-US' 'en' $true
+            foreach ($culture in @('en-US', 'zh-TW')) {
+              foreach ($language in @('en', 'zh-CN', 'zh-TW')) { Invoke-DesktopCell "full-$culture-$language" 'full' $culture $language }
+            }
+            Invoke-DesktopCell 'full-de-DE-de' 'full' 'de-DE' 'de'
           }
-          Invoke-DesktopCell 'full-de-DE-de' 'full' 'de-DE' 'de'
-          [ordered]@{ source_sha = $env:REQUESTED_SOURCE; binary_sha256 = $binaryRecord.sha256; cells = @($results); failed_cells = @($results | Where-Object { -not $_.ok }).Count } |
+          [ordered]@{ source_sha = $env:REQUESTED_SOURCE; scope = $scope; binary_sha256 = $binaryRecord.sha256; cells = @($results); failed_cells = @($results | Where-Object { -not $_.ok }).Count } |
             ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $env:DESKTOP_OUTPUT 'desktop-results.json') -Encoding utf8
           if (@($results | Where-Object { -not $_.ok }).Count) { throw 'One or more desktop cells failed. Raster, assertion, route and process failures are not waived.' }
       - name: Fingerprint final source and require every source byte unchanged
