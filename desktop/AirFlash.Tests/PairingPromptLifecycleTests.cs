@@ -206,12 +206,16 @@ public sealed class PairingPromptLifecycleTests
     public async Task Input_timeout_settles_prompt_and_event_reader_without_submission()
     {
         var factory = new Factory(); var prompt = new Prompt();
-        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing with { Pin = TimeSpan.FromMilliseconds(100) });
+        var clock = new ManualDeadlineClock(); var pinDeadline = TimeSpan.FromSeconds(1);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing with { Pin = pinDeadline }, clock: clock);
         var failed = Signal(); controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) failed.TrySetResult(); };
         try
         {
             await controller.PairAsync(Pod(), Settings(), prompt.RequestAsync);
-            await prompt.Entered.Task.WaitAsync(Limit); await failed.Task.WaitAsync(Limit);
+            await prompt.Entered.Task.WaitAsync(Limit);
+            Assert.False(failed.Task.IsCompleted);
+            clock.WakeAfter(pinDeadline, expectedDue: pinDeadline);
+            await failed.Task.WaitAsync(Limit);
             var connection = factory.Connections.Single(); await connection.Disposed.Task.WaitAsync(Limit);
             Assert.True(prompt.Settled.Task.IsCompleted); Assert.True(prompt.Cancelled.Task.IsCompleted);
             Assert.Equal(0, connection.ActiveReaders);
