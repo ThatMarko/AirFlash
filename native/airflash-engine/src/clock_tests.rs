@@ -364,6 +364,44 @@ fn malformed_and_non_grant_signaling_do_not_poison_lease_or_history() {
     assert_eq!(state.received_grants, 2);
 }
 
+#[test]
+fn grant_framing_rejects_complete_odd_length_tlv_before_or_after_grant() {
+    let now = Instant::now();
+    let mut state = follower(now);
+    pend(&mut state, 0, -3, now);
+    followed_packet(&mut state, &literal_grant(11, 0, 0), 0, now, 7);
+    let lease = state.granted_until[0];
+    let later = now + SUBSCRIPTION_RETRY;
+    pend(&mut state, 0, -3, later);
+
+    // Unknown TLV with exactly its advertised one-byte body. It is neither a
+    // truncated header nor a truncated body; the length itself is invalid.
+    let odd = [0, 0x42, 0, 1, 0xaa];
+    for before_grant in [false, true] {
+        let mut packet = literal_grant(40, 0, 1);
+        append_tlv(&mut packet, &odd);
+        if before_grant {
+            packet[44..].rotate_right(odd.len());
+        }
+        followed_packet(&mut state, &packet, 0, later, 7);
+        assert_eq!(state.packets.last_rejection, Some("grant_framing"));
+        assert_eq!(state.received_grants, 1);
+        assert_eq!(state.granted_until[0], lease);
+        assert_eq!(state.received_grant_sequence, Some(11));
+        assert_eq!(state.subscriptions[0].len(), 1);
+    }
+
+    let mut even = literal_grant(12, 0, 1);
+    append_tlv(&mut even, &[0, 0x42, 0, 2, 0xaa, 0xbb]);
+    followed_packet(&mut state, &even, 0, later, 7);
+    assert_eq!(state.received_grants, 2);
+    assert_eq!(
+        state.granted_until[0],
+        Some(later + Duration::from_secs(30))
+    );
+    assert_eq!(state.received_grant_sequence, Some(12));
+}
+
 fn packet_sequence(packet: &[u8]) -> u16 {
     u16::from_be_bytes([packet[30], packet[31]])
 }
