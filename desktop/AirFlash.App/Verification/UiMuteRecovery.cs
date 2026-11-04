@@ -356,8 +356,9 @@ internal static class UiMuteRecovery
             Check(Descendants(recoveryWindow).OfType<Button>().Any(button => button.Name == "RetryRecoverySaveButton"),
                 "known-restored recovery exposes a persistence retry action", checks);
             var row = app.Receivers.Single();
-            var stop = Descendants(panel).OfType<Button>().Single(button => ReferenceEquals(button.Command, row.ToggleCommand));
-            Check(stop.IsVisible && stop.IsEnabled && row.Active && panel.IsEnabled,
+            var stop = Descendants(panel).OfType<Button>().Single(button =>
+                ReferenceEquals(button.DataContext, row) && ReferenceEquals(button.Command, app.StopCommand));
+            Check(ReferenceEquals(row.PlaybackCommand, app.StopCommand) && stop.IsVisible && stop.IsEnabled && row.Active && panel.IsEnabled,
                 "actual visible bound Stop stays accessible through modeless recovery while new playback is blocked", checks);
             var idle = State(app.Session, PlaybackState.Idle); Invoke(stop); await idle; await Pump();
             Check(backend.Bit && backend.Setters == setters && !app.Session.Snapshot.IsActive,

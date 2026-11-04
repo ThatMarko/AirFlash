@@ -211,7 +211,18 @@ internal static class UiPairing
                 }
                 Check(pair.IsEnabled == (expected is not null), label + " enablement follows the resulting input", checks, passwordObservation);
                 Volatile.Write(ref actionStarted, true);
-                if (forceSubmit) { pair.IsEnabled = true; Invoke(pair); }
+                if (forceSubmit)
+                {
+                    // Dispatch the real Click handler synchronously, bypassing the
+                    // button's enablement gate. A rejected submission leaves the
+                    // modal open, so the fixture must dismiss it explicitly.
+                    pair.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, pair));
+                    Check(dialog.IsVisible && dialog.DialogResult is null && !closed.Task.IsCompleted
+                        && controller.Snapshot.State == PlaybackState.Pairing
+                        && !factory.Commands.Any(command => command.Text("command") is "pair_pin" or "start"),
+                        label + " rejects forced submission and leaves the modal open", checks);
+                    Invoke(cancel);
+                }
                 else if (completion == Completion.Stop) stop = controller.StopAsync();
                 else if (completion is Completion.IpcError or Completion.EndOfStream or Completion.Stopped)
                     factory.Connections.First().Fail(completion);

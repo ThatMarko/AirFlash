@@ -181,7 +181,9 @@ internal static class UiSmoke
             panel.LatencySettingsRequested -= OnLatencySettings;
             Check(latencyPage == SettingsViewModel.StreamingPage && (string?)latencySettingsButton.ToolTip == L.Get("Latency settings"), "latency settings button opens the global latency page", checks);
             Check(app.Receivers.All(r => r.VolumeText == "—" && !r.CanSetVolume), "disconnected device volume is unknown and disabled", checks);
-            var playbackButton = Descendants(panel).OfType<Button>().Single(b => ReferenceEquals(b.Command, app.Receivers[0].ToggleCommand));
+            var playbackRow = app.Receivers[0];
+            var playbackButton = Descendants(panel).OfType<Button>().Single(button =>
+                ReferenceEquals(button.DataContext, playbackRow) && ReferenceEquals(button.Command, playbackRow.PlaybackCommand));
             Check(playbackButton.Focus() && playbackButton.IsKeyboardFocused, "vector playback button remains keyboard focusable", checks);
             Invoke(playbackButton);
             await Until(() => app.Snapshot.State == PlaybackState.Streaming);
@@ -485,7 +487,7 @@ internal static class UiSmoke
             {
                 "SettingsIcon" => "SettingsIconGeometry",
                 "ReceiverIcon" => "ReceiverIconGeometry",
-                _ => row?.Active == true ? "StopIconGeometry" : "PlayIconGeometry"
+                _ => row?.NeedsDisconnect == true ? "StopIconGeometry" : "PlayIconGeometry"
             };
             Check(ReferenceEquals(icon.Data, panel.FindResource(key)) && !icon.Data.IsEmpty(),
                 $"{icon.Name} uses its expected built-in {key}", checks);
@@ -507,10 +509,15 @@ internal static class UiSmoke
             Check(brush?.Color == expected, $"{icon.Name} follows the current theme color", checks);
             if (icon.Name == "PlaybackIcon")
             {
-                var button = Descendants(panel).OfType<Button>().Single(b => ReferenceEquals(b.Command, row!.ToggleCommand));
-                Check(System.Windows.Automation.AutomationProperties.GetName(button) == row!.PlayHint
-                    && (string?)button.ToolTip == row.PlayHint,
-                    "playback vector retains the accessible name and tooltip for its current state", checks);
+                var playbackRow = row ?? throw new InvalidOperationException("The playback icon has no receiver row.");
+                DependencyObject? parent = VisualTreeHelper.GetParent(icon);
+                while (parent is not null && parent is not Button) parent = VisualTreeHelper.GetParent(parent);
+                var button = parent as Button ?? throw new InvalidOperationException("The playback icon is outside its button.");
+                var expectedCommand = playbackRow.NeedsDisconnect ? app.StopCommand : playbackRow.ToggleCommand;
+                Check(ReferenceEquals(button.Command, expectedCommand)
+                    && System.Windows.Automation.AutomationProperties.GetName(button) == playbackRow.PlayHint
+                    && (string?)button.ToolTip == playbackRow.PlayHint,
+                    "playback vector retains its command, accessible name and tooltip for the current state", checks);
             }
         }
     }

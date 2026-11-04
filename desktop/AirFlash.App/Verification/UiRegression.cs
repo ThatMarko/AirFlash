@@ -318,12 +318,22 @@ internal static class UiRegression
             store.Fail = false; discovery.Publish();
             await Until(() => app.Snapshot.Receiver?.Id == "aabbccddee01" && vm.Receivers.Count == 2);
             Check(engine.CreatedCount == starts && app.Snapshot.IsActive, "identity promotion updates an active stream without reconnecting", checks);
-            Check(app.Settings.ReadOptions("aabbccddee01").Hidden && !app.Settings.Receivers.ContainsKey("127.0.0.1:7000") && app.Receivers.Count == 0, "duplicate settings merge with hidden taking precedence", checks);
+            Check(app.Settings.ReadOptions("aabbccddee01").Hidden && store.Saved.ReadOptions("aabbccddee01").Hidden
+                && !app.Settings.Receivers.ContainsKey("127.0.0.1:7000") && !store.Saved.Receivers.ContainsKey("127.0.0.1:7000"),
+                "duplicate settings persist with hidden taking precedence", checks);
+            var activeHidden = app.Receivers.Single();
+            Check(activeHidden.Receiver.Id == "aabbccddee01" && activeHidden.Active
+                && ReferenceEquals(activeHidden.PlaybackCommand, app.StopCommand) && activeHidden.PlaybackCommand.CanExecute(null),
+                "the hidden receiver remains visible only as the active Stop control", checks);
             Check(vm.Draft.ForceReconnect && vm.Draft.ReadOptions("aabbccddee01").StandbySeconds == 17 && vm.HasChanges, "open settings keeps unapplied changes through identity migration", checks);
             Check(vm.Receivers.Any(r => r.Receiver.Id == "history" && !r.Receiver.Online) && !vm.Receivers.Any(r => r.Receiver.Id == "AA:BB:CC:DD:EE:01"), "confirmed aliases disappear while unrelated offline history remains", checks);
             Check(await vm.ApplyAsync() && app.Settings.ReadOptions("aabbccddee01").StandbySeconds == 17 && engine.CreatedCount == starts, "applying migrated drafts does not resurrect aliases or restart playback", checks);
+            await app.StopAsync();
+            Check(app.Snapshot.State == PlaybackState.Idle && app.Receivers.Count == 0,
+                "the merged hidden receiver disappears after Stop", checks);
             vm.Draft.Options("aabbccddee01").Hidden = false;
-            Check(await vm.ApplyAsync() && app.Receivers.Count == 1, "merged hidden state remains editable", checks);
+            Check(await vm.ApplyAsync() && app.Receivers.Single().Receiver.Id == "aabbccddee01"
+                && !app.Settings.ReadOptions("aabbccddee01").Hidden, "merged hidden state remains editable", checks);
             var catalogChanges = 0; app.CatalogChanged += () => catalogChanges++;
             discovery.Items = discovery.Items.Select(r => r with { Aliases = r.Aliases.ToArray() }).ToArray();
             discovery.Publish(); await Pump();
