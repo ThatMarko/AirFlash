@@ -29,6 +29,7 @@ internal static class UiSessionLifecycle
         await IdentityOwnershipAsync(checks);
         await EndpointObservationAcrossPairAsync(checks, observationFinishesAfterPair: false);
         await EndpointObservationAcrossPairAsync(checks, observationFinishesAfterPair: true);
+        await EndpointObservationAcrossApplyAsync(checks);
         await IdentitySettingsContinuationAsync(checks, false);
         await IdentitySettingsContinuationAsync(checks, true);
         await LatencyHintUsesPanelDraftAsync(checks);
@@ -226,6 +227,60 @@ internal static class UiSessionLifecycle
             lookup.Release.TrySetResult();
             pin.Release.TrySetResult(null);
             await observation.WaitAsync(Limit);
+        }
+    }
+
+    private static async Task EndpointObservationAcrossApplyAsync(List<string> checks)
+    {
+        var receiver = Pod("endpoint-apply");
+        var settings = Settings(); SeedAliases(settings, receiver);
+        await using var fixture = await Fixture.CreateAsync(settings, [receiver]);
+        await fixture.App.ToggleAsync(receiver);
+        await StateAsync(fixture, PlaybackState.Streaming);
+        var original = fixture.App.Session.Capture();
+
+        var baseline = fixture.App.Settings.Clone();
+        var draft = baseline.Clone(); draft.LatencyMode = "buffered";
+        var save = fixture.Store.Hold();
+        var lookup = fixture.Audio.HoldNextDefaultEndpointLookup();
+        var applying = fixture.App.ApplyAsync(baseline, draft);
+        Task observing = Task.CompletedTask;
+        try
+        {
+            await save.Entered.Task.WaitAsync(Limit);
+            observing = fixture.App.OnEndpointsChangedAsync();
+            Check(!observing.IsCompleted && !lookup.Entered.Task.IsCompleted,
+                "default endpoint observation queues behind the accepted Settings Apply", checks);
+            save.Release.TrySetResult();
+            var applied = await applying.WaitAsync(Limit);
+            await StateAsync(fixture, PlaybackState.Streaming);
+            await lookup.Entered.Task.WaitAsync(Limit);
+            var replacement = fixture.App.Session.Capture();
+            Check(applied.AudioError is null && replacement.Owner != original.Owner
+                && replacement.AutomaticIntent == original.AutomaticIntent && fixture.Engine.OpenCount == 2,
+                "a settings-triggered restart replaces playback ownership without changing explicit intent", checks);
+
+            fixture.Audio.DefaultEndpoint = "synthetic-endpoint-after-apply";
+            lookup.Release.TrySetResult();
+            await observing.WaitAsync(Limit);
+            Check(fixture.App.Session.Capture().Owner == replacement.Owner && fixture.Engine.OpenCount == 2,
+                "an old-owner observation cannot restart same-intent replacement playback", checks);
+
+            var latest = new ScriptedConnection();
+            fixture.Engine.Enqueue(latest);
+            await fixture.App.OnEndpointsChangedAsync().WaitAsync(Limit);
+            Check(fixture.App.Session.Capture().Owner != replacement.Owner,
+                "the current owner still handles the changed default after a same-intent replacement", checks);
+            await latest.StartSent.Task.WaitAsync(Limit);
+            await StateAsync(fixture, PlaybackState.Streaming);
+            Check(fixture.Engine.OpenCount == 3 && fixture.App.Session.Snapshot.Receiver?.Id == receiver.Id,
+                "same-intent endpoint recovery restarts exactly one worker for the selected receiver", checks);
+        }
+        finally
+        {
+            save.Release.TrySetResult();
+            lookup.Release.TrySetResult();
+            await Task.WhenAll(applying, observing).WaitAsync(Limit);
         }
     }
 
