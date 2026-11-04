@@ -211,6 +211,8 @@ struct PeerState {
     source_id: Option<u64>,
     source_port: Option<u16>,
     subscriptions: [VecDeque<Subscription>; 3],
+    signaling_sequence: u16,
+    received_grant_sequence: Option<u16>,
     granted_until: [Option<Instant>; 3],
     received_grants: u64,
     last_request: Option<(u8, u16, Instant)>,
@@ -286,6 +288,7 @@ pub struct PacketSnapshot {
     send_errors: u64,
     last_send_error: Option<SocketFailure>,
     pdelay_responses: u64,
+    subscription_requests_sent: u64,
 }
 #[derive(Clone, serde::Serialize)]
 pub struct PeerSnapshot {
@@ -319,7 +322,6 @@ pub struct PeerSnapshot {
 }
 #[derive(Clone, Copy)]
 struct Subscription {
-    sequence: u16,
     interval: i8,
     sent: Instant,
 }
@@ -328,7 +330,7 @@ fn subscription_index(kind: u8) -> Option<usize> {
 }
 impl PeerState {
     fn reject(&mut self, reason: &'static str) {
-        self.packets.rejected += 1;
+        self.packets.rejected = self.packets.rejected.saturating_add(1);
         self.packets.last_rejection = Some(reason);
     }
     fn exchange_timeout(&self) -> Duration {
@@ -418,6 +420,19 @@ impl PeerState {
         } else {
             "waiting_exchanges"
         }
+    }
+    fn signaling_subscription(
+        &mut self,
+        clock: u64,
+        remote: Option<(u64, u16)>,
+        kind: u8,
+    ) -> Vec<u8> {
+        subscription(
+            clock,
+            remote,
+            next_signaling_sequence(&mut self.signaling_sequence),
+            kind,
+        )
     }
     fn subscription_due(&self, now: Instant) -> bool {
         self.next_subscription.is_none_or(|at| now >= at)
@@ -565,7 +580,12 @@ fn read_timestamp(data: &[u8]) -> Option<u64> {
         .checked_mul(1_000_000_000)?
         .checked_add(u64::from(ns))
 }
-fn unicast_grants(request: &[u8], clock_id: u64, seq: u16) -> Vec<Vec<u8>> {
+fn next_signaling_sequence(sequence: &mut u16) -> u16 {
+    let next = *sequence;
+    *sequence = sequence.wrapping_add(1);
+    next
+}
+fn unicast_grants(request: &[u8], clock_id: u64, seq: &mut u16) -> Vec<Vec<u8>> {
     if request.len() < 44
         || !((request[34..42] == clock_id.to_be_bytes()
             && request[42..44] == 0x8005u16.to_be_bytes())
@@ -585,7 +605,7 @@ fn unicast_grants(request: &[u8], clock_id: u64, seq: u16) -> Vec<Vec<u8>> {
             let body = &request[at + 4..at + 10];
             let msg = body[0] >> 4;
             if [0, 9, 11].contains(&msg) && u32::from_be_bytes(body[2..6].try_into().unwrap()) > 0 {
-                let mut out = header(12, 56, clock_id, seq, 0x0408, 0);
+                let mut out = header(12, 56, clock_id, next_signaling_sequence(seq), 0x0408, 0);
                 out[34..44].copy_from_slice(&request[20..30]);
                 out[44..48].copy_from_slice(&[0, 5, 0, 8]);
                 out[48..54].copy_from_slice(body);
@@ -685,6 +705,7 @@ fn followed_packet(s: &mut PeerState, data: &[u8], local_ns: u64, now: Instant, 
                 source_id: Some(source),
                 source_port: Some(source_port),
                 subscriptions,
+                signaling_sequence: s.signaling_sequence,
                 announced_clock_id: s.announced_clock_id.or(Some(id)),
                 identity_changes,
                 last_identity_change,
@@ -762,47 +783,86 @@ fn followed_packet(s: &mut PeerState, data: &[u8], local_ns: u64, now: Instant, 
     }
 }
 fn receive_grants(s: &mut PeerState, data: &[u8], own_id: u64, now: Instant) {
-    if data.len() < 44
-        || data[34..42] != own_id.to_be_bytes()
-        || data[42..44] != 0x8005u16.to_be_bytes()
-    {
+    // Ignore other Signaling TLVs. Check the entire framing before applying
+    // any grant, so a truncated later TLV cannot partially change leases.
+    let mut has_grant = false;
+    let mut at = 44;
+    while at < data.len() {
+        has_grant |= data.get(at..at + 2) == Some(&[0, 5][..]);
+        let Some(length) = data.get(at + 2..at + 4) else {
+            break;
+        };
+        at += 4 + usize::from(u16::from_be_bytes([length[0], length[1]]));
+    }
+    if !has_grant {
+        return;
+    }
+    if at != data.len() {
+        s.reject("grant_framing");
+        return;
+    }
+    if data[34..42] != own_id.to_be_bytes() || data[42..44] != 0x8005u16.to_be_bytes() {
+        s.reject("grant_target");
         return;
     }
     let sequence = u16::from_be_bytes([data[30], data[31]]);
+    // The remote port owns this Signaling sequence. Compare once per packet
+    // using serial ordering; only an accepted grant advances the history.
+    if s.received_grant_sequence
+        .is_some_and(|previous| !(1..0x8000).contains(&sequence.wrapping_sub(previous)))
+    {
+        s.reject("grant_replay");
+        return;
+    }
+    let mut accepted = false;
     let mut at = 44;
-    while at + 4 <= data.len() {
+    while at < data.len() {
         let kind = u16::from_be_bytes([data[at], data[at + 1]]);
-        let length = u16::from_be_bytes([data[at + 2], data[at + 3]]) as usize;
-        if at + 4 + length > data.len() {
-            return;
-        }
-        if kind == 5 && length == 8 {
-            let body = &data[at + 4..at + 12];
-            if let Some(index) = subscription_index(body[0] >> 4) {
-                if let Some(pending) = s.subscriptions[index]
-                    .iter()
-                    .find(|p| p.sequence == sequence)
-                {
-                    let interval = body[1] as i8;
-                    let seconds = u32::from_be_bytes(body[2..6].try_into().unwrap());
-                    if sequence == pending.sequence
-                        && now.duration_since(pending.sent) < Duration::from_secs(2)
-                        && body[0] & 15 == 0
-                        && body[6] & !1 == 0
-                        && body[7] == 0
-                        && interval >= pending.interval
-                        && interval <= 4
-                        && (1..=30).contains(&seconds)
-                    {
-                        s.granted_until[index] =
-                            Some(now + Duration::from_secs(u64::from(seconds)));
-                        s.received_grants += 1;
-                        s.subscriptions[index].clear();
-                    }
-                }
-            }
-        }
+        let length = usize::from(u16::from_be_bytes([data[at + 2], data[at + 3]]));
+        let body = &data[at + 4..at + 4 + length];
         at += 4 + length;
+        if kind != 5 {
+            continue;
+        }
+        if body.len() != 8 {
+            s.reject("grant_fields");
+            continue;
+        }
+        let Some(index) = subscription_index(body[0] >> 4) else {
+            s.reject("grant_fields");
+            continue;
+        };
+        let interval = body[1] as i8;
+        let seconds = u32::from_be_bytes(body[2..6].try_into().unwrap());
+        if body[0] & 15 != 0
+            || body[6] != 0
+            || body[7] & !1 != 0
+            || interval > 4
+            || !(1..=30).contains(&seconds)
+        {
+            s.reject("grant_fields");
+            continue;
+        }
+        let pending = &s.subscriptions[index];
+        let current = |p: &Subscription| {
+            now.checked_duration_since(p.sent)
+                .is_some_and(|age| age < SAMPLE_LIFETIME)
+        };
+        if !pending.iter().any(current) {
+            s.reject("grant_no_pending");
+            continue;
+        }
+        if !pending.iter().any(|p| current(p) && interval >= p.interval) {
+            s.reject("grant_fields");
+            continue;
+        }
+        s.granted_until[index] = Some(now + Duration::from_secs(u64::from(seconds)));
+        s.received_grants = s.received_grants.saturating_add(1);
+        s.subscriptions[index].clear();
+        accepted = true;
+    }
+    if accepted {
+        s.received_grant_sequence = Some(sequence);
     }
 }
 fn subscription(clock: u64, remote: Option<(u64, u16)>, seq: u16, kind: u8) -> Vec<u8> {
@@ -1206,15 +1266,16 @@ fn ptp_loop(
                             if !s.subscription_needed(index, now) {
                                 continue;
                             }
-                            let request = subscription(clock_id, remote, seq, kind);
+                            let request = s.signaling_subscription(clock_id, remote, kind);
                             if send_ptp(general, &request, (*peer, 320).into(), s, "subscribe") {
+                                s.packets.subscription_requests_sent =
+                                    s.packets.subscription_requests_sent.saturating_add(1);
                                 let pending = &mut s.subscriptions[index];
                                 pending.retain(|p| now.duration_since(p.sent) < SAMPLE_LIFETIME);
                                 if pending.len() == 4 {
                                     pending.pop_front();
                                 }
                                 pending.push_back(Subscription {
-                                    sequence: seq,
                                     interval: request[49] as i8,
                                     sent: now,
                                 });
@@ -1252,8 +1313,10 @@ fn ptp_loop(
                     && s.bmca_probes < BMCA_PROBE_ATTEMPTS
                     && s.next_probe.is_none_or(|at| now >= at)
                 {
-                    let probe = subscription(clock_id, None, seq, 11);
+                    let probe = s.signaling_subscription(clock_id, None, 11);
                     if send_ptp(general, &probe, (*peer, 320).into(), s, "subscribe") {
+                        s.packets.subscription_requests_sent =
+                            s.packets.subscription_requests_sent.saturating_add(1);
                         s.bmca_probes += 1;
                         s.next_probe = Some(now + BMCA_PROBE_INTERVAL);
                     }
@@ -1318,7 +1381,6 @@ fn ptp_loop(
                 rx.fetch_add(1, Ordering::Relaxed);
                 let kind = buf[0] & 0xf;
                 s.packets.received_by_type[usize::from(kind)] += 1;
-                let request_seq = u16::from_be_bytes([buf[30], buf[31]]);
                 if !s.active {
                     continue;
                 }
@@ -1329,7 +1391,7 @@ fn ptp_loop(
                     followed_packet(s, &buf[..n], local_received, received_at, clock_id);
                 }
                 if kind == 12 {
-                    for grant in unicast_grants(&buf[..n], clock_id, request_seq) {
+                    for grant in unicast_grants(&buf[..n], clock_id, &mut s.signaling_sequence) {
                         if send_ptp(general, &grant, (addr.ip(), 320).into(), s, "grant") {
                             s.grants += 1;
                         }
@@ -1419,18 +1481,25 @@ mod tests {
     #[test]
     fn unicast_grants_validate_target_length_type_and_duration() {
         let request = subscription(7, Some((8, 0x8005)), 3, 0);
-        let grants = unicast_grants(&request, 8, 3);
+        let mut sequence = 12;
+        let grants = unicast_grants(&request, 8, &mut sequence);
         assert_eq!(grants.len(), 1);
+        assert_eq!(sequence, 13);
+        assert_eq!(&grants[0][30..32], &12u16.to_be_bytes());
         assert_eq!(&grants[0][34..42], &7u64.to_be_bytes());
         assert_eq!(&grants[0][44..48], &[0, 5, 0, 8]);
-        assert!(unicast_grants(&request, 9, 3).is_empty());
-        assert!(unicast_grants(&request[..50], 8, 3).is_empty());
+        assert!(unicast_grants(&request, 9, &mut sequence).is_empty());
+        assert!(unicast_grants(&request[..50], 8, &mut sequence).is_empty());
+        let mut wrong_port = request.clone();
+        wrong_port[43] = 1;
+        assert!(unicast_grants(&wrong_port, 8, &mut sequence).is_empty());
         let mut invalid = request.clone();
         invalid[48] = 7 << 4;
-        assert!(unicast_grants(&invalid, 8, 3).is_empty());
+        assert!(unicast_grants(&invalid, 8, &mut sequence).is_empty());
         let mut invalid = request;
         invalid[50..54].fill(0);
-        assert!(unicast_grants(&invalid, 8, 3).is_empty());
+        assert!(unicast_grants(&invalid, 8, &mut sequence).is_empty());
+        assert_eq!(sequence, 13); // Invalid requests allocate no wire sequence.
     }
     #[test]
     fn follower_pairs_sequences_and_rejects_wrong_or_stale_responses() {
@@ -1467,52 +1536,6 @@ mod tests {
         bad[4] = 1;
         assert!(!valid_packet(&bad));
         assert!(read_timestamp(&[255; 10]).is_none());
-    }
-    #[test]
-    fn follower_grants_require_pending_sequence_source_target_and_bounded_lease() {
-        let now = Instant::now();
-        let mut s = PeerState {
-            follow: true,
-            ..Default::default()
-        };
-        followed_packet(&mut s, &announce(8, 0, 0), 0, now, 7);
-        s.subscriptions[0].push_back(Subscription {
-            sequence: 3,
-            interval: -3,
-            sent: now,
-        });
-        let request = subscription(7, Some((8, 0x8005)), 3, 0);
-        let grant = unicast_grants(&request, 8, 3).remove(0);
-        for (index, value) in [
-            (20, 1),
-            (29, 1),
-            (41, 1),
-            (43, 1),
-            (31, 4),
-            (47, 7),
-            (48, 0x90),
-            (49, (-4i8) as u8),
-            (54, 2),
-            (55, 1),
-        ] {
-            let mut bad = grant.clone();
-            bad[index] = value;
-            followed_packet(&mut s, &bad, 0, now, 7);
-            assert_eq!(s.received_grants, 0);
-        }
-        let mut bad = grant.clone();
-        bad[50..54].copy_from_slice(&31u32.to_be_bytes());
-        followed_packet(&mut s, &bad, 0, now, 7);
-        followed_packet(&mut s, &grant, 0, now + Duration::from_secs(3), 7);
-        assert_eq!(s.received_grants, 0);
-        followed_packet(&mut s, &grant, 0, now, 7);
-        followed_packet(&mut s, &grant, 0, now, 7);
-        assert_eq!(s.received_grants, 1);
-        assert_eq!(s.granted_until[0], Some(now + Duration::from_secs(30)));
-        assert!(!s.ready(now)); // A lease is not a clock offset exchange.
-        let mut bad = request;
-        bad[43] = 1;
-        assert!(unicast_grants(&bad, 8, 3).is_empty());
     }
     #[test]
     fn announce_dataset_is_parsed_from_the_wire_and_matches_what_we_send() {

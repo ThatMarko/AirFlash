@@ -219,20 +219,230 @@ fn new_unmatched_sync_cannot_refresh_an_expired_complete_sample() {
     );
 }
 
+// Independent wire fixture: target 7/0x8005, source 8/0x8005, 30s lease.
+// Do not build this from the production response or echo any request sequence.
+fn literal_grant(sequence: u16, kind: u8, flags: u8) -> Vec<u8> {
+    let mut bytes = b"\x1c\x02\x00\x38\x00\x00\x04\x08\x00\x00\x00\x00\x00\x00\x00\x00\
+                      \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x08\x80\x05\x00\x00\
+                      \x05\x00\x00\x00\x00\x00\x00\x00\x00\x07\x80\x05\x00\x05\x00\x08\
+                      \x00\xfd\x00\x00\x00\x1e\x00\x00"
+        .to_vec();
+    bytes[30..32].copy_from_slice(&sequence.to_be_bytes());
+    bytes[48] = kind << 4;
+    bytes[49] = if kind == 0 { 0xfd } else { 0 };
+    bytes[55] = flags;
+    bytes
+}
+
+fn pend(state: &mut PeerState, index: usize, interval: i8, sent: Instant) {
+    state.subscriptions[index].push_back(Subscription { interval, sent });
+}
+
+fn append_tlv(packet: &mut Vec<u8>, tlv: &[u8]) {
+    packet.extend_from_slice(tlv);
+    let length = u16::try_from(packet.len()).unwrap();
+    packet[2..4].copy_from_slice(&length.to_be_bytes());
+}
+
+#[test]
+fn follower_accepts_literal_grants_with_either_renewal_flag() {
+    for flags in [0, 1] {
+        let now = Instant::now();
+        let mut state = follower(now);
+        // Request went out with this sender's own sequence.
+        let request = state.signaling_subscription(7, Some((8, 0x8005)), 0);
+        assert_eq!(packet_sequence(&request), 0);
+        pend(&mut state, 0, -3, now);
+        followed_packet(&mut state, &literal_grant(0x4321, 0, flags), 0, now, 7);
+        assert_eq!(state.received_grants, 1);
+        assert_eq!(state.granted_until[0], Some(now + Duration::from_secs(30)));
+        assert!(state.subscriptions[0].is_empty());
+        assert!(!state.ready(now)); // A lease is not a clock exchange.
+    }
+}
+
+#[test]
+fn follower_grants_require_valid_fields_source_target_and_live_pending_request() {
+    let now = Instant::now();
+    let grant = literal_grant(0x4321, 0, 1);
+    let mut state = follower(now);
+    pend(&mut state, 0, -3, now);
+    for (index, value, reason) in [
+        (20, 1, "source_identity"),
+        (29, 1, "source_identity"),
+        (41, 1, "grant_target"),
+        (43, 1, "grant_target"),
+        (47, 7, "grant_framing"),
+        (48, 0x10, "grant_fields"),
+        (48, 1, "grant_fields"),
+        (48, 0x90, "grant_no_pending"),
+        (49, 0xfc, "grant_fields"),
+        (49, 5, "grant_fields"),
+        (53, 0, "grant_fields"),
+        (53, 31, "grant_fields"),
+        (54, 1, "grant_fields"),
+        (55, 2, "grant_fields"),
+    ] {
+        let mut bad = grant.clone();
+        bad[index] = value;
+        followed_packet(&mut state, &bad, 0, now, 7);
+        assert_eq!(state.packets.last_rejection, Some(reason), "byte {index}");
+        assert_eq!(state.received_grants, 0);
+        assert_eq!(state.received_grant_sequence, None);
+        assert_eq!(state.subscriptions[0].len(), 1);
+    }
+    followed_packet(&mut state, &grant, 0, now + SAMPLE_LIFETIME, 7);
+    assert_eq!(state.packets.last_rejection, Some("grant_no_pending"));
+    assert_eq!(state.received_grants, 0);
+    followed_packet(&mut state, &grant, 0, now + Duration::from_millis(1999), 7);
+    assert_eq!(state.received_grants, 1);
+}
+
+#[test]
+fn grant_receive_history_wraps_and_applies_all_tlvs_once() {
+    let now = Instant::now();
+    let mut state = follower(now);
+    for (index, interval) in [-3, 0, 0].into_iter().enumerate() {
+        pend(&mut state, index, interval, now);
+    }
+    let mut packet = literal_grant(u16::MAX, 0, 1);
+    append_tlv(&mut packet, &literal_grant(0, 9, 0)[44..]);
+    append_tlv(&mut packet, &literal_grant(0, 11, 1)[44..]);
+    followed_packet(&mut state, &packet, 0, now, 7);
+    assert_eq!(state.received_grants, 3);
+    assert_eq!(
+        state.granted_until,
+        [Some(now + Duration::from_secs(30)); 3]
+    );
+    assert_eq!(state.received_grant_sequence, Some(u16::MAX));
+    pend(&mut state, 0, -3, now);
+    let later = now + SUBSCRIPTION_RETRY;
+    for sequence in [u16::MAX, u16::MAX - 1] {
+        followed_packet(&mut state, &literal_grant(sequence, 0, 1), 0, later, 7);
+        assert_eq!(state.packets.last_rejection, Some("grant_replay"));
+        assert_eq!(state.granted_until[0], Some(now + Duration::from_secs(30)));
+    }
+    followed_packet(&mut state, &literal_grant(0, 0, 1), 0, later, 7);
+    assert_eq!(state.received_grants, 4);
+    assert_eq!(
+        state.granted_until[0],
+        Some(later + Duration::from_secs(30))
+    );
+    assert_eq!(state.received_grant_sequence, Some(0));
+}
+
+#[test]
+fn malformed_and_non_grant_signaling_do_not_poison_lease_or_history() {
+    let now = Instant::now();
+    let mut state = follower(now);
+    pend(&mut state, 0, -3, now);
+    followed_packet(&mut state, &literal_grant(11, 0, 0), 0, now, 7);
+    pend(&mut state, 0, -3, now);
+    let rejection_count = state.packets.rejected;
+    for sequence in [10, 40] {
+        let request = subscription(8, None, sequence, 0);
+        let mut unknown = request.clone();
+        unknown[45] = 0x42;
+        let mut malformed = request.clone();
+        malformed[47] += 2;
+        for other in [request, unknown, malformed] {
+            followed_packet(&mut state, &other, 0, now, 7);
+            assert_eq!(state.packets.rejected, rejection_count);
+            assert_eq!(state.received_grant_sequence, Some(11));
+        }
+    }
+    let mut bad = literal_grant(40, 0, 0);
+    append_tlv(&mut bad, &[0, 5, 0, 8, 0]);
+    followed_packet(&mut state, &bad, 0, now, 7);
+    assert_eq!(state.packets.last_rejection, Some("grant_framing"));
+    assert_eq!(state.received_grants, 1);
+    assert_eq!(state.subscriptions[0].len(), 1);
+    followed_packet(&mut state, &literal_grant(41, 11, 1), 0, now, 7);
+    assert_eq!(state.packets.last_rejection, Some("grant_no_pending"));
+    assert_eq!(state.received_grant_sequence, Some(11));
+    followed_packet(&mut state, &literal_grant(12, 0, 1), 0, now, 7);
+    assert_eq!(state.received_grants, 2);
+}
+
+fn packet_sequence(packet: &[u8]) -> u16 {
+    u16::from_be_bytes([packet[30], packet[31]])
+}
+
+#[test]
+fn requests_retries_and_generated_grants_use_per_peer_signaling_sequences() {
+    let mut state = PeerState {
+        signaling_sequence: u16::MAX - 1,
+        ..Default::default()
+    };
+    let mut other_peer = PeerState::default();
+    for (kind, expected) in [(11, u16::MAX - 1), (0, u16::MAX), (9, 0), (0, 1)] {
+        assert_eq!(
+            packet_sequence(&state.signaling_subscription(7, None, kind)),
+            expected
+        );
+    }
+    assert_eq!(
+        packet_sequence(&other_peer.signaling_subscription(7, None, 0)),
+        0
+    );
+    let mut request = subscription(8, Some((7, 0x8005)), 0x4321, 0);
+    append_tlv(
+        &mut request,
+        &subscription(8, Some((7, 0x8005)), 0, 11)[44..],
+    );
+    let grants = unicast_grants(&request, 7, &mut state.signaling_sequence);
+    assert_eq!(
+        grants
+            .iter()
+            .map(|p| packet_sequence(p))
+            .collect::<Vec<_>>(),
+        [2, 3]
+    );
+    assert_eq!(
+        packet_sequence(&state.signaling_subscription(7, None, 11)),
+        4
+    );
+    assert_eq!(
+        packet_sequence(&other_peer.signaling_subscription(7, None, 11)),
+        1
+    );
+}
+
+#[test]
+fn source_port_or_grandmaster_change_restarts_only_the_receive_history() {
+    let now = Instant::now();
+    for index in [27, 29, 60] {
+        let mut state = follower(now);
+        state.signaling_sequence = 18;
+        state.packets.subscription_requests_sent = 42;
+        pend(&mut state, 0, -3, now);
+        followed_packet(&mut state, &literal_grant(123, 0, 0), 0, now, 7);
+        assert_eq!(state.received_grant_sequence, Some(123));
+        pend(&mut state, 0, -3, now);
+        let mut new_announce = announce(8, 1, 0);
+        new_announce[index] ^= 1;
+        followed_packet(&mut state, &new_announce, 0, now, 7);
+        assert_eq!(state.received_grant_sequence, None);
+        assert!(state.subscriptions[0].is_empty());
+        assert_eq!(state.granted_until[0], None);
+        assert_eq!(state.signaling_sequence, 18);
+        assert_eq!(state.packets.subscription_requests_sent, 42);
+        pend(&mut state, 0, -3, now);
+        let mut new_grant = literal_grant(1, 0, 1);
+        new_grant[20..30].copy_from_slice(&new_announce[20..30]);
+        followed_packet(&mut state, &new_grant, 0, now, 7);
+        assert_eq!(state.received_grant_sequence, Some(1));
+    }
+}
+
 #[test]
 fn short_retry_accepts_an_earlier_outstanding_grant_and_renews_short_leases() {
     let start = Instant::now();
     let mut state = follower(start);
-    for seq in [1, 2] {
-        state.subscriptions[0].push_back(Subscription {
-            sequence: seq,
-            interval: -3,
-            sent: start + Duration::from_millis(u64::from(seq - 1) * 500),
-        });
-    }
-    let mut request = subscription(7, Some((8, 0x8005)), 1, 0);
-    request[50..54].copy_from_slice(&6u32.to_be_bytes());
-    let grant = unicast_grants(&request, 8, 1).remove(0);
+    pend(&mut state, 0, -3, start);
+    pend(&mut state, 0, -2, start + SUBSCRIPTION_RETRY);
+    let mut grant = literal_grant(0x4321, 0, 0);
+    grant[50..54].copy_from_slice(&6u32.to_be_bytes());
     let now = start + Duration::from_millis(700);
     followed_packet(&mut state, &grant, 0, now, 7);
     assert_eq!(state.received_grants, 1);
@@ -335,6 +545,7 @@ fn loop_retries_dropped_subscription_and_answers_pdelay_while_following() {
     assert!(pdelay_event && pdelay_follow);
     let snapshot = timer.snapshots().remove(0);
     assert_eq!(snapshot.packets.pdelay_responses, 1);
+    assert!(snapshot.packets.subscription_requests_sent >= requests);
     assert_eq!(snapshot.packets.last_rejection, Some("short_header"));
     assert_eq!(snapshot.exchanges, 0);
     assert!(!snapshot.ready);
