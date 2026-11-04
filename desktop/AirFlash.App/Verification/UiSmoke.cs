@@ -51,6 +51,17 @@ internal static class UiSmoke
             }
             catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
         }
+        if (args.Contains("--ui-session-lifecycle-smoke"))
+        {
+            try
+            {
+                await UiSessionLifecycle.RunAsync(checks, directory);
+                App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
+                    ui_culture = CultureInfo.CurrentUICulture.Name, note = "Session lifecycle with synthetic discovery, engine, and audio." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
         if (args.Contains("--ui-diagnostics-smoke"))
         {
             try
@@ -287,7 +298,8 @@ internal static class UiSmoke
             Check(app.Settings.ManualReceivers.Count == 1, "manual receiver persists", checks);
             var firstId = app.Snapshot.Receiver?.Id ?? throw new InvalidOperationException("The mock receiver must still be streaming.");
             settings.ViewModel.Draft.Options(firstId).Hidden = true; await settings.ViewModel.ApplyAsync();
-            Check(app.Receivers.All(r => r.Receiver.Id != firstId) && settings.ViewModel.Receivers.Any(r => r.Receiver.Id == firstId), "hidden receiver stays recoverable", checks);
+            Check(app.Receivers.Any(r => r.Receiver.Id == firstId && r.Active && r.CanPlay)
+                && settings.ViewModel.Receivers.Any(r => r.Receiver.Id == firstId), "hidden active receiver retains its Stop control", checks);
             settings.ViewModel.Draft.Options(firstId).Hidden = false; await settings.ViewModel.ApplyAsync();
             Check(app.Receivers.Any(r => r.Receiver.Id == firstId), "unhide receiver", checks);
             settings.Close(); settings = new(app); settings.Show(); await Pump();
@@ -342,6 +354,7 @@ internal static class UiSmoke
             await VerifyStartupFailureAsync(checks, directory);
             await UiDiscoveryLifecycle.RunAsync(checks);
             await UiDiagnostics.RunAsync(checks, directory);
+            await UiSessionLifecycle.RunAsync(checks, directory);
             await UiScrolling.RunAsync(checks, directory);
             await VerifyTrayLifecycleAsync(tray, app, trayGuid, () => menuOpened, () => quitRequestedFromTray, checks);
             App.WriteOutput(args, new { ok = true, checks, culture = CultureInfo.CurrentCulture.Name,
