@@ -845,6 +845,7 @@ internal static class UiSessionLifecycle
         SeedAliases(settings, receiver, other);
         // Cover both original mute bits across the two shutdown paths.
         await using var fixture = await Fixture.CreateAsync(settings, [receiver, other], original: holdApply);
+        fixture.Discovery.Items = [receiver, other];
         await fixture.App.ToggleAsync(receiver);
         await StateAsync(fixture, PlaybackState.Streaming);
         var process = fixture.Engine.Connections.Single();
@@ -859,6 +860,8 @@ internal static class UiSessionLifecycle
         {
             panel.ShowPanel();
             await DrainAsync();
+            Check(fixture.App.Receivers.Any(row => row.Receiver.Id == other.Id),
+                "opening the panel keeps the synthetic inactive receiver in the catalog", checks);
             Check(fixture.Audio.HasSavedBit && fixture.Audio.MuteBit, "playback owns the saved mute bit before shell Quit", checks);
             if (editor is not null)
             {
