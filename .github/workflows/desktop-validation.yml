@@ -189,7 +189,7 @@ jobs:
           $binaryRecord = Get-Content -LiteralPath (Join-Path $env:DESKTOP_OUTPUT 'binary.json') -Raw | ConvertFrom-Json
           $binary = $binaryRecord.path
           $results = [Collections.Generic.List[object]]::new()
-          function Invoke-DesktopCell([string]$Name, [string]$Mode, [string]$Culture, [string]$Language, [bool]$Clipboard = $false) {
+          function Invoke-DesktopCell([string]$Name, [string]$Mode, [string]$Culture, [string]$Language, [bool]$Clipboard = $false, [bool]$DiagnosticsDpi = $false) {
             $directory = Join-Path $env:DESKTOP_OUTPUT $Name
             New-Item -ItemType Directory -Path $directory -Force | Out-Null
             $reportPath = Join-Path $directory 'report.json'
@@ -216,6 +216,7 @@ jobs:
               }
               if ($Mode -cne 'full') { $start.ArgumentList.Add($Mode) }
               if ($Clipboard) { $start.ArgumentList.Add('--ui-pairing-clipboard') }
+              if ($DiagnosticsDpi) { $start.ArgumentList.Add('--ui-diagnostics-dpi') }
               $start.Environment['DOTNET_CLI_HOME'] = Join-Path $directory 'dotnet-home'
               $process.StartInfo = $start
               if (-not $process.Start()) { throw 'The apphost did not start.' }
@@ -239,6 +240,20 @@ jobs:
               if ($observed.ui_culture -cne $expectedUi) { $problems.Add("Unexpected UI culture: '$($observed.ui_culture)', expected '$expectedUi'.") }
               if ($observed.checks -isnot [Array] -or @($observed.checks).Count -eq 0) { $problems.Add('The report contains no executed assertions.') }
               if ($Clipboard -and $observed.checks -cnotcontains 'real PIN paste applies the single-line and sixteen-character editing bounds') { $problems.Add('Clipboard route omitted actual PIN paste assertions.') }
+              if ($DiagnosticsDpi) {
+                $layout = Get-Content -LiteralPath (Join-Path $directory 'diagnostics-padding-layout.json') -Raw | ConvertFrom-Json
+                foreach ($width in @('normal', 'minimum')) {
+                  $cards = @($layout.$width)
+                  $names = ($cards.Name | Sort-Object) -join '|'
+                  if ($names -cne 'MonitorFullyPaddedPacketsValue|MonitorPaddedFramesValue') { throw "Expected both Monitor counters at $width width." }
+                  foreach ($card in $cards) {
+                    if ($card.DpiX -ne 1.25 -or $card.DpiY -ne 1.25 -or -not $card.Fits -or -not $card.Visible -or
+                        -not $card.AllGlyphsInsideValue -or $card.RenderedCharacters -ne 20) {
+                      throw "The $width Monitor counter does not fit at the observed synthetic 125% DPI."
+                    }
+                  }
+                }
+              }
             } catch { $problems.Add($_.Exception.ToString()) }
             finally {
               if ($started) {
@@ -271,7 +286,7 @@ jobs:
               started_utc = $startedAt.ToString('O'); finished_utc = [DateTimeOffset]::UtcNow.ToString('O')
               assertion_count = @($observed.checks).Count; ok = $problems.Count -eq 0; problems = @($problems)
               report_sha256 = if (Test-Path -LiteralPath $reportPath -PathType Leaf) { (Get-FileHash -LiteralPath $reportPath -Algorithm SHA256).Hash.ToLowerInvariant() } else { $null }
-              dpi_qualification = 'deferred; no monitor scale or physical multimonitor coverage claimed'
+              dpi_qualification = if ($DiagnosticsDpi) { 'Monitor window at observed synthetic 125% DPI' } else { 'no physical multimonitor coverage claimed' }
             }
             $result | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $directory 'receipt.json') -Encoding utf8
             $results.Add($result)
@@ -295,6 +310,9 @@ jobs:
           } else {
             foreach ($cell in $focused) { Invoke-DesktopCell $cell.name $cell.mode 'en-US' 'en' }
             Invoke-DesktopCell 'pairing-clipboard' '--ui-pairing-smoke' 'en-US' 'en' $true
+            foreach ($language in @('en', 'zh-CN', 'zh-TW', 'de')) {
+              Invoke-DesktopCell "diagnostics-dpi-$language" '--ui-diagnostics-smoke' 'en-US' $language $false $true
+            }
             foreach ($culture in @('en-US', 'zh-TW')) {
               foreach ($language in @('en', 'zh-CN', 'zh-TW')) { Invoke-DesktopCell "full-$culture-$language" 'full' $culture $language }
             }
