@@ -33,6 +33,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private AppSettings _settings;
     private SessionSnapshot _snapshot = new(PlaybackState.Idle);
     private string _notice = "";
+    private bool _noticeDismissed;
     private bool _volumeDirty, _autoSuppressed, _closing;
     private string? _defaultEndpoint;
     private long _editRevision;
@@ -56,7 +57,32 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private int _pendingEligibilityChanges;
     private bool _controlledScheduling;
     public bool IsStopping { get; private set; }
-    public string Notice { get => _notice; private set { Set(ref _notice, value); Notify(nameof(ErrorDetails)); } }
+    public string Notice
+    {
+        get => _notice;
+        private set
+        {
+            if (_notice == value) return;
+            _notice = value;
+            _noticeDismissed = false;
+            Notify();
+            RefreshNoticeBanner();
+            Notify(nameof(ErrorDetails));
+        }
+    }
+    public bool HasNotice => !_noticeDismissed && !string.IsNullOrWhiteSpace(Notice);
+    public RelayCommand DismissNoticeCommand { get; }
+    private void DismissNotice()
+    {
+        if (!HasNotice) return;
+        _noticeDismissed = true;
+        RefreshNoticeBanner();
+    }
+    private void RefreshNoticeBanner()
+    {
+        Notify(nameof(HasNotice));
+        DismissNoticeCommand.Refresh();
+    }
     public int MasterVolume { get => _settings.MasterVolume; set { if (_closing || _resetting) return; value = Math.Clamp(value, 0, 100); if (value == _settings.MasterVolume) return; _settings.MasterVolume = value; VolumeChanged(); Notify(); } }
     public bool Muted => Session.Muted;
     public string MuteLabel => Muted ? L.Get("Unmute") : L.Get("Mute");
@@ -125,9 +151,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         }
     }
     public string ActionHint => _snapshot.State == PlaybackState.Error ? _snapshot.ActionHint : "";
-    public string ErrorDetails => _snapshot.State is PlaybackState.Error or PlaybackState.Preempted
-        ? _snapshot.Diagnostics?.LastFault?.Detail is { Length: > 0 } detail ? detail : _snapshot.Message
-        : Notice;
+    public string ErrorDetails => ErrorDetailsText.For(_snapshot, Notice);
     /// <summary>The receiver now belongs to another controller. Reconnecting is a
     /// deliberate user action, never the automatic transport retry.</summary>
     public bool CanReconnect => !_closing && !IsStopping && !Session.NeedsCleanup && Session.RequiresManualReconnect && _snapshot.Receiver is not null;
@@ -169,6 +193,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
 
     public AppViewModel(ISettingsStore store, IDiscoveryService discovery, IAutostart autostart, IAudioService audio, IEngineFactory factory, Dispatcher dispatcher, EngineInitialization? engine = null, IApplicationCatalog? applications = null, IReceiverCapabilityCatalog? receiverCapabilities = null, IRestartService? restart = null, bool isolatedVerification = false)
     {
+        DismissNoticeCommand = new(DismissNotice, () => HasNotice);
         _engine = engine;
         _restart = restart ?? new RestartService();
         ReceiverCapabilities = receiverCapabilities ?? new ReceiverCapabilityCatalog(factory);
