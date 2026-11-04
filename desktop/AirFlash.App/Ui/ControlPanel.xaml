@@ -86,6 +86,11 @@
       </Border>
       </StackPanel>
       <ScrollViewer x:Name="DeviceScroll" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="480">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
         <StackPanel>
           <Border x:Name="EmptyState" Padding="18,28">
             <Border.Style>
@@ -216,6 +221,12 @@
             </ItemsControl.ItemTemplate>
           </ItemsControl>
         </StackPanel>
+          <!-- The Fluent scrollbar overlays the viewport. Reserve room only while it is shown. -->
+          <Border x:Name="DeviceScrollGutter" Grid.Column="1"
+                  Width="{DynamicResource {x:Static SystemParameters.VerticalScrollBarWidthKey}}"
+                  Margin="8,0,0,0" IsHitTestVisible="False"
+                  Visibility="{Binding ComputedVerticalScrollBarVisibility, ElementName=DeviceScroll}"/>
+        </Grid>
       </ScrollViewer>
       <StackPanel Grid.Row="3">
         <Grid Margin="2,4,2,14" Visibility="{Binding Settings.ShowStreamingModes, Converter={StaticResource BoolVisibility}}">
@@ -242,11 +253,16 @@
               <ColumnDefinition Width="*"/>
               <ColumnDefinition Width="40"/>
               <ColumnDefinition Width="Auto" SharedSizeGroup="VolumeMute"/>
+              <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <TextBlock Text="{loc:Text 'Master volume'}" VerticalAlignment="Center" Margin="0,0,8,0" FontWeight="SemiBold"/>
             <Slider Style="{StaticResource VolumeSlider}" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding MasterVolume, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" AutomationProperties.Name="{loc:Text 'Master volume'}" PreviewMouseLeftButtonDown="OnSliderPreviewMouseLeftButtonDown"/>
             <TextBlock Grid.Column="2" Text="{Binding MasterVolume, StringFormat={}{0}%}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
             <Button Grid.Column="3" Style="{StaticResource VolumeMuteButton}" Content="{Binding MuteLabel}" Command="{Binding MuteCommand}" AutomationProperties.Name="{Binding MuteLabel}"/>
+            <!-- Match the receiver viewport so the volume tracks stay aligned during overflow. -->
+            <Border Grid.Column="4" Width="{Binding Width, ElementName=DeviceScrollGutter}"
+                    Margin="{Binding Margin, ElementName=DeviceScrollGutter}" IsHitTestVisible="False"
+                    Visibility="{Binding Visibility, ElementName=DeviceScrollGutter}"/>
           </Grid>
         </Border>
       </StackPanel>
