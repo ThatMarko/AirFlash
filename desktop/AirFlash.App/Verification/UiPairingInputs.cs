@@ -38,6 +38,10 @@ internal static class UiPairingInputs
             await CaseAsync("1234", "1234", cancel: false, stop: true, checks);
             await CaseAsync("12-AB-34", "12-AB-34", cancel: false, stop: false, checks, password: true);
             await CaseAsync("12-AB-34", "12-AB-34", cancel: true, stop: false, checks, password: true);
+            foreach (var password in new[] { " ", " \t ", "  raw-pässword  ", new string('x', 256), new string('é', 128) })
+                await CaseAsync(password, password, cancel: false, stop: false, checks, password: true);
+            foreach (var password in new[] { "before\0after", "before\rafter", "before\nafter", new string('x', 257), new string('界', 86), new string('\ud800', 1) })
+                await CaseAsync(password, null, cancel: false, stop: false, checks, password: true);
             if (useClipboard)
                 foreach (var (text, inserted, pin) in new (string, string, string?)[]
                 {
@@ -95,7 +99,7 @@ internal static class UiPairingInputs
         InputMode input = InputMode.Assigned, string? inserted = null, bool password = false)
     {
         var factory = new PairingFactory();
-        await using var controller = new SessionController(factory, new UiSmoke.MockAudio());
+        await using var controller = new SessionController(factory, new UiSmoke.MockAudio(), sessionRecords: _ => { });
         var owner = Owner();
         owner.Show();
         var handled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -125,7 +129,15 @@ internal static class UiPairingInputs
                             var dismiss = UiSmoke.Descendants(dialog).OfType<Button>().Single(button => button.IsCancel);
                             if (password)
                             {
-                                Check(passwordBox is { MaxLength: 128 } && box is null, "Password pairing retains its separate password control", checks);
+                                Check(passwordBox is { MaxLength: 0 } && box is null, "Password pairing uses a separate control without truncating long input", checks);
+                                // Exercise the actual routed handler without opening the clipboard.
+                                foreach (var (sample, rejected) in new[] { ("valid password", false), ("before\nafter", true), (new string('界', 86), true) })
+                                {
+                                    var data = new DataObject(DataFormats.UnicodeText, sample);
+                                    var paste = new DataObjectPastingEventArgs(data, false, DataFormats.UnicodeText);
+                                    passwordBox!.RaiseEvent(paste);
+                                    Check(paste.CommandCancelled == rejected, "Password paste is checked before the single-line editor can truncate it", checks);
+                                }
                                 passwordBox!.Password = text;
                             }
                             else
@@ -148,7 +160,7 @@ internal static class UiPairingInputs
                             {
                                 InputMode.Clipboard => "PIN clipboard-paste enablement follows the resulting normalized ASCII length",
                                 InputMode.Typed => "PIN typed-input enablement follows normalized ASCII length",
-                                _ => "PIN text-replacement enablement follows normalized ASCII length"
+                                _ => password ? "Password enablement follows the full UTF-8 input" : "PIN text-replacement enablement follows normalized ASCII length"
                             }, checks);
                             Volatile.Write(ref actionStarted, true);
                             if (stop) stopTask = controller.StopAsync();
