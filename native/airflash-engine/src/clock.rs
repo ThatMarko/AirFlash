@@ -784,20 +784,23 @@ fn followed_packet(s: &mut PeerState, data: &[u8], local_ns: u64, now: Instant, 
 }
 fn receive_grants(s: &mut PeerState, data: &[u8], own_id: u64, now: Instant) {
     // Ignore other Signaling TLVs. Check the entire framing before applying
-    // any grant, so a truncated later TLV cannot partially change leases.
+    // any grant, so an invalid suffix cannot partially change leases.
     let mut has_grant = false;
+    let mut odd_length = false;
     let mut at = 44;
     while at < data.len() {
         has_grant |= data.get(at..at + 2) == Some(&[0, 5][..]);
         let Some(length) = data.get(at + 2..at + 4) else {
             break;
         };
-        at += 4 + usize::from(u16::from_be_bytes([length[0], length[1]]));
+        let length = usize::from(u16::from_be_bytes([length[0], length[1]]));
+        odd_length |= length & 1 != 0;
+        at += 4 + length;
     }
     if !has_grant {
         return;
     }
-    if at != data.len() {
+    if odd_length || at != data.len() {
         s.reject("grant_framing");
         return;
     }
