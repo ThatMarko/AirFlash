@@ -1754,6 +1754,29 @@ fn reset_adaptive_target(options: &mut ProbeOptions) {
     }
 }
 
+fn begin_clock_ownership_check(
+    timer: &PtpMaster,
+    members: &[Member],
+    host: IpAddr,
+    emit: &impl Fn(Json),
+) -> String {
+    let hosts: Vec<_> = members
+        .iter()
+        .filter(|member| member.compat.uses_ptp())
+        .map(|member| member.peer.host)
+        .collect();
+    emit(clock_status(timer, &hosts, "lost"));
+    emit(
+        json!({"event":"warning","channel":"clock","code":"recovery_original_fault","host":host,"fault_code":"clock_lost","recovered":false,"message":"PTP exchanges stopped; verifying receiver ownership before recovery"}),
+    );
+    for member in members {
+        member
+            .health
+            .preemption_signal(preemption::Signal::ClockLost);
+    }
+    host.to_string()
+}
+
 fn ownership_unconfirmed(host: impl ToString) -> Fault {
     Fault::new(
         host,
@@ -2313,42 +2336,20 @@ fn send_packets(
                 // the channel will refuse it forever.
                 member.poll_event_rebuild(emit);
             }
-            if let Some(timer) = &ptp {
-                // PTP silence is not an immediate fault: the last offset keeps
-                // driving the timeline for a grace window (the reference
-                // implementation freezes drift correction here rather than ending
-                // the session). Only a peer that never answered, or one that stayed
-                // silent past the grace, ends the session.
-                let now = Instant::now();
-                if let Some(host) = members.iter().find_map(|m| {
-                    if !m.compat.uses_ptp() {
-                        return None;
-                    }
-                    match timer.stale_for(m.peer.host, now) {
-                        Some(stale) if stale <= CLOCK_FREEZE_GRACE => None,
-                        Some(_) => Some(m.peer.host),
-                        None if timer.ready(m.peer.host) => None,
-                        None => Some(m.peer.host),
-                    }
-                }) {
-                    let hosts: Vec<_> = members
-                        .iter()
-                        .filter(|m| m.compat.uses_ptp())
-                        .map(|m| m.peer.host)
-                        .collect();
-                    if pending_clock_fault.is_none() {
-                        emit(clock_status(timer, &hosts, "lost"));
-                        emit(
-                            json!({"event":"warning","channel":"clock","code":"recovery_original_fault","host":host,"fault_code":"clock_lost","recovered":false,"message":"PTP exchanges stopped; verifying receiver ownership before recovery"}),
-                        );
-                        pending_clock_fault = Some(host.to_string());
-                        for member in members.iter() {
-                            member
-                                .health
-                                .preemption_signal(preemption::Signal::ClockLost);
-                        }
-                    }
-                }
+            let now = Instant::now();
+            if pending_clock_fault.is_none()
+                && let Some(timer) = ptp
+                && let Some(host) = members.iter().find_map(|member| {
+                    (member.compat.uses_ptp()
+                        && !timer.playback_timing_available(
+                            member.peer.host,
+                            now,
+                            CLOCK_FREEZE_GRACE,
+                        ))
+                    .then_some(member.peer.host)
+                })
+            {
+                pending_clock_fault = Some(begin_clock_ownership_check(timer, members, host, emit));
             }
             if pending_clock_fault.is_some() {
                 // Timing is unusable. Stop producing media while the bounded
@@ -2526,6 +2527,7 @@ fn send_packets(
             // events that nobody caused.
             schedule.relax(now, late);
             if now >= next_sync {
+                let mut failed_clock = None;
                 for m in members.iter_mut() {
                     let local = offset_time(
                         base_ns
@@ -2536,11 +2538,17 @@ fn send_packets(
                         m.peer.profile.sync_offset_ms,
                     )?;
                     let (id, network) = if m.compat.uses_ptp() {
-                        let (id, t, frozen) = ptp.as_ref().unwrap().timeline_frozen(
+                        let Some((id, t, frozen)) = ptp.as_ref().unwrap().try_timeline_frozen(
                             m.peer.host,
                             local,
                             CLOCK_FREEZE_GRACE,
-                        )?;
+                        )?
+                        else {
+                            // The mapping can expire or change association after
+                            // the earlier availability check. Use the same guard.
+                            failed_clock = Some(m.peer.host);
+                            break;
+                        };
                         if frozen != m.clock_frozen {
                             m.clock_frozen = frozen;
                             emit(json!({
@@ -2563,6 +2571,15 @@ fn send_packets(
                     let latency =
                         (m.media.latency().as_nanos() * u128::from(rate) / 1_000_000_000) as u32;
                     m.media.sync(network, id, latency, packets == 0);
+                }
+                if let Some(host) = failed_clock {
+                    pending_clock_fault = Some(begin_clock_ownership_check(
+                        ptp.unwrap(),
+                        members,
+                        host,
+                        emit,
+                    ));
+                    continue;
                 }
                 next_sync = now + Duration::from_millis(100);
             }
@@ -2692,7 +2709,9 @@ fn send_packets(
     // The drain is fallible (the final packet still goes through the packetizer),
     // but its error must not skip the end-of-session record below. Keep it and
     // return it after the summary has been emitted.
-    let drained = if outcome.is_ok() {
+    // A local stop, source end or silence can win while the ownership probe
+    // is pending. Close normally, but do not write media on that association.
+    let drained = if outcome.is_ok() && pending_clock_fault.is_none() {
         (|| -> Result<()> {
             if let Some(source) = &live {
                 let render = offset_deadline(schedule.playout_deadline(), common_latency, 0)?;
@@ -4136,6 +4155,93 @@ mod tests {
         server.join().unwrap();
         probe_server.join().unwrap();
     }
+    #[test]
+    fn cancelling_during_clock_ownership_check_does_not_send_a_final_packet() {
+        let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+        receiver
+            .set_read_timeout(Some(Duration::from_millis(30)))
+            .unwrap();
+        let (mut member, server, methods) = local_member_with(receiver.local_addr().unwrap(), None);
+        member.compat = crate::profile::CompatProfile::derive(
+            &dictionary(vec![]),
+            &crate::profile::Profile {
+                timing: crate::profile::Timing::Ptp,
+                ..Default::default()
+            },
+            &[],
+            44100,
+            true,
+        )
+        .unwrap();
+        member
+            .media
+            .connect_audio(receiver.local_addr().unwrap())
+            .unwrap();
+        let clock = Clock::new();
+        let timer = PtpMaster::from_sockets(
+            vec![],
+            vec![],
+            clock.clone(),
+            UdpSocket::bind("127.0.0.1:0").unwrap(),
+            UdpSocket::bind("127.0.0.1:0").unwrap(),
+        )
+        .unwrap();
+        let source = crate::live::tests::source();
+        let cancel = Cancellation::default();
+        let mut members = vec![member];
+        let events = std::sync::Mutex::new(Vec::new());
+        let ended = send_packets(
+            &summary_options("", "single", 0),
+            &cancel,
+            &std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0.0f32.to_bits())),
+            crate::volume::Control::default(),
+            Some(&source),
+            &crate::standby::Control::default(),
+            &clock,
+            None,
+            &mut members,
+            Some(&timer),
+            &mut preemption::TakeoverCounters::default(),
+            &[],
+            None,
+            &|event| {
+                if event["code"] == "recovery_original_fault" && event["fault_code"] == "clock_lost"
+                {
+                    cancel.cancel();
+                }
+                events.lock().unwrap().push(event);
+            },
+        )
+        .unwrap();
+        assert!(matches!(ended, StreamEnd::Finished));
+        assert!(cancel.is_cancelled());
+        assert!(members[0].closed);
+        assert!(members[0].health.ownership_uncertain());
+        let events = events.into_inner().unwrap();
+        assert!(
+            !events
+                .iter()
+                .any(|event| event["event"] == "timeline_drained")
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event["event"] == "session_summary")
+                .count(),
+            1
+        );
+        assert!(receiver.recv(&mut [0; 2048]).is_err());
+        drop(members);
+        server.join().unwrap();
+        assert!(
+            !methods
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|method| method == "TEARDOWN")
+        );
+    }
+
     #[test]
     fn ownership_probe_timeout_and_deadline_never_authorize_recovery() {
         let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();

@@ -46,6 +46,97 @@ fn a_sync_only_mapping_freezes_expires_and_never_survives_an_identity_change() {
 }
 
 #[test]
+fn playback_holds_the_same_mapping_through_a_delay_offset_jump_and_reacquires() {
+    let start = Instant::now();
+    let grace = Duration::from_secs(10);
+    let mut state = follower(start);
+    let send_sync = |state: &mut PeerState, sequence: u16, offset_ms: u64| {
+        let elapsed_ms = u64::from(sequence) * 125;
+        let at = start + Duration::from_millis(elapsed_ms);
+        let local = 1_000_000_000 + elapsed_ms * 1_000_000;
+        let (sync, follow) = sync_pair(8, sequence, local + offset_ms * 1_000_000);
+        followed_packet(state, &sync, local + 90_000, at, 7);
+        followed_packet(state, &follow, local + 95_000, at, 7);
+    };
+    let send_delay_response =
+        |state: &mut PeerState, sequence: u16, at: Instant, t3: u64, t4: u64| {
+            state.delay = Some((sequence, t3));
+            state.delay_age = Some(at);
+            let mut response = header(9, 54, 8, sequence, 0x0408, 0);
+            timestamp(&mut response[34..44], t4);
+            response[44..52].copy_from_slice(&7u64.to_be_bytes());
+            response[52..54].copy_from_slice(&0x8005u16.to_be_bytes());
+            followed_packet(state, &response, t3 + 250_000, at, 7);
+        };
+    for sequence in 0..3 {
+        send_sync(&mut state, sequence, 5000);
+    }
+    let last = start + Duration::from_millis(250);
+    let t3 = 1_250_200_000;
+    send_delay_response(&mut state, 19, last, t3, t3 + 5_000_090_000);
+    let mapping = state.map_offset(last, Duration::ZERO).unwrap();
+    assert_eq!(mapping, (5_000_000_000.0, false));
+
+    // A negative RTT is rejected without weakening the validated mapping.
+    let negative_at = start + Duration::from_millis(275);
+    let t3 = 1_275_200_000;
+    send_delay_response(&mut state, 20, negative_at, t3, t3 + 4_999_800_000);
+    assert_eq!(state.packets.last_rejection, Some("round_trip"));
+    assert_eq!(state.packets.last_round_trip_ns, Some(-110_000.0));
+    assert_eq!(state.map_offset(negative_at, grace), Some(mapping));
+
+    // A correlated response with a plausible positive RTT crosses the existing
+    // offset jump threshold. This starts a new readiness streak on the same source.
+    let jump_at = start + Duration::from_millis(300);
+    let t3 = 1_300_200_000;
+    send_delay_response(&mut state, 21, jump_at, t3, t3 + 5_014_090_000);
+    assert_eq!(state.packets.last_rejection, Some("offset_jump"));
+    assert_eq!(state.round_trip_ns, Some(14_180_000.0));
+    assert_eq!(state.last, None);
+    assert!(!state.ready(jump_at));
+    assert_eq!(state.map_offset(jump_at, Duration::ZERO), None);
+    assert!(state.playback_timing_available(jump_at, grace));
+    assert_eq!(state.map_offset(jump_at, grace), Some((mapping.0, true)));
+
+    assert!(state.playback_timing_available(last + grace, grace));
+    assert!(!state.playback_timing_available(last + grace + Duration::from_nanos(1), grace));
+    assert_eq!(
+        state.map_offset(last + grace + Duration::from_nanos(1), grace),
+        None
+    );
+
+    for sequence in 3..6 {
+        send_sync(&mut state, sequence, 5007);
+        let now = start + Duration::from_millis(u64::from(sequence) * 125);
+        assert!(state.playback_timing_available(now, grace));
+        assert_eq!(state.map_offset(now, grace).unwrap().1, sequence < 5);
+    }
+    let reacquired = start + Duration::from_millis(625);
+    assert_eq!(
+        state.map_offset(reacquired, grace),
+        Some((5_007_000_000.0, false))
+    );
+
+    // A new association never inherits the prior source's frozen mapping.
+    let mut new_source = announce(8, 0, 0);
+    new_source[29] ^= 1;
+    followed_packet(&mut state, &new_source, 0, reacquired, 7);
+    assert!(!state.playback_timing_available(reacquired, grace));
+    assert_eq!(state.map_offset(reacquired, grace), None);
+}
+
+#[test]
+fn sender_playback_still_requires_a_recent_receiver_exchange() {
+    let start = Instant::now();
+    let grace = Duration::from_secs(10);
+    let mut state = PeerState::default();
+    assert!(!state.playback_timing_available(start, grace));
+    state.exchanged(start);
+    assert!(state.playback_timing_available(start + grace, grace));
+    assert!(!state.playback_timing_available(start + grace + Duration::from_nanos(1), grace));
+}
+
+#[test]
 fn reordered_pairs_preserve_sample_correction_and_reach_readiness() {
     let start = Instant::now();
     let mut state = follower(start);

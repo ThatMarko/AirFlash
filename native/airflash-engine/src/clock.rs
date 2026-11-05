@@ -390,15 +390,30 @@ impl PeerState {
     fn stale_for(&self, now: Instant) -> Option<Duration> {
         self.last.map(|last| now.duration_since(last))
     }
-    fn map_offset(&mut self, now: Instant, grace: Duration) -> Option<(f64, bool)> {
+    fn usable_offset(&self, now: Instant, grace: Duration) -> Option<(f64, bool)> {
         if self.ready(now) {
-            let offset = self.effective_offset(now)?;
-            self.last_mapping = Some((offset, self.last?));
-            Some((offset, false))
+            self.effective_offset(now).map(|offset| (offset, false))
         } else if !grace.is_zero() {
             self.frozen_offset(now, grace).map(|offset| (offset, true))
         } else {
             None
+        }
+    }
+    fn map_offset(&mut self, now: Instant, grace: Duration) -> Option<(f64, bool)> {
+        let (offset, frozen) = self.usable_offset(now, grace)?;
+        if !frozen {
+            self.last_mapping = Some((offset, self.last?));
+        }
+        Some((offset, frozen))
+    }
+    fn playback_timing_available(&self, now: Instant, grace: Duration) -> bool {
+        if self.follow {
+            // An offset jump resets readiness, but the last mapping for this
+            // association can still drive the timeline until the grace expires.
+            self.clock_id.is_some() && self.usable_offset(now, grace).is_some()
+        } else {
+            // Our own clock always maps. The receiver still has to follow it.
+            self.stale_for(now).is_some_and(|age| age <= grace)
         }
     }
     /// Prefer a fresh delay measurement, then follow the ongoing Sync estimates
@@ -1102,30 +1117,50 @@ impl PtpMaster {
         self.timeline_frozen(host, local_ns, Duration::ZERO)
             .map(|(id, network, _)| (id, network))
     }
-    /// Same mapping as [`Self::timeline`], but a stale offset keeps working for
-    /// `grace`. The flag reports whether the offset was frozen, which is what the
-    /// session turns into a warning instead of a reconnect.
+    /// A stale offset keeps working for `grace`. The flag reports that the
+    /// mapping is frozen.
     pub fn timeline_frozen(
         &self,
         host: IpAddr,
         local_ns: u64,
         grace: Duration,
     ) -> Result<(u64, u64, bool)> {
+        self.try_timeline_frozen(host, local_ns, grace)?
+            .context("receiver clock is not ready")
+    }
+    /// No usable offset is distinct from an invalid mapping.
+    pub(crate) fn try_timeline_frozen(
+        &self,
+        host: IpAddr,
+        local_ns: u64,
+        grace: Duration,
+    ) -> Result<Option<(u64, u64, bool)>> {
         let mut states = self.states.lock().unwrap();
         let s = states.get_mut(&host).context("unknown timing peer")?;
         if !s.follow {
-            return Ok((self.clock_id, local_ns, false));
+            return Ok(Some((self.clock_id, local_ns, false)));
         }
-        let now = Instant::now();
-        let (offset, frozen) = s
-            .map_offset(now, grace)
-            .context("receiver clock is not ready")?;
+        let Some((offset, frozen)) = s.map_offset(Instant::now(), grace) else {
+            return Ok(None);
+        };
         let mapped = local_ns as i128 + offset.round() as i128;
-        Ok((
+        Ok(Some((
             s.clock_id.context("missing receiver clock identity")?,
             u64::try_from(mapped)?,
             frozen,
-        ))
+        )))
+    }
+    pub(crate) fn playback_timing_available(
+        &self,
+        host: IpAddr,
+        now: Instant,
+        grace: Duration,
+    ) -> bool {
+        self.states
+            .lock()
+            .unwrap()
+            .get(&host)
+            .is_some_and(|s| s.playback_timing_available(now, grace))
     }
     /// How long the peer has been silent, or `None` when it never answered.
     pub fn stale_for(&self, host: IpAddr, now: Instant) -> Option<Duration> {
