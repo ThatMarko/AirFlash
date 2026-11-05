@@ -714,6 +714,9 @@ internal static class UiSessionLifecycle
                     && fixture.Store.Saved.MasterVolume == 37 && fixture.App.Settings.MasterVolume == 37,
                     "the rejected click leaves the consumed panel edit durably saved: " + consumer, checks);
                 await fixture.App.FlushVolumeAsync();
+                // Controller changes queue the view-model snapshot on the dispatcher.
+                // Join that publication before checking the panel's current identity.
+                await DrainAsync();
                 Check(process.Commands.Last(command => command.Name is "start" or "set_gain").Parameters.Number("gain") == .37
                     && fixture.Store.SaveCalls == saves + 1 && fixture.App.Session.Capture().Owner == owner.Owner
                     && fixture.App.Snapshot.State == PlaybackState.Streaming && !process.Disposed
