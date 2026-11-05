@@ -2,11 +2,11 @@
 
 ## Current prepared package — 2026-11-04
 
-The unsent [umbrella issue](reliability-current-issue.md) and [draft PR](reliability-current-pr.md) target `codex/reliability-refresh-v062` at `f37bf833a2f5a0653beda959e07c21ce2b75545c` on original Main `11b7d18ad89fe2bbab43dfbea1191609e9457177` after v0.6.2. The current PR keeps eight review sections and links to the carried source and fixtures. The complete diff and all 28 outgoing commits preserve the upstream documentation tree.
+The unsent [umbrella issue](reliability-current-issue.md) and [draft PR](reliability-current-pr.md) target `codex/reliability-refresh-v062` at `dc78911eb78354332e5d8c118a0cc811bf0296e3` on original Main `11b7d18ad89fe2bbab43dfbea1191609e9457177` after v0.6.2. The current PR keeps eight review sections and links to the carried source and fixtures. The complete diff and all 29 outgoing commits preserve the upstream documentation tree.
 
 PR #25 has merged and #6, #7, #14 and #24 have closed. The earlier closing references and review branch are historical. Open #38 covers PTP startup. The follow-up on #42 reports that discovery survived resume on 0.5.4, then describes a separate playback retry failure. [PR #45](https://github.com/Ding-Kyoma/AirFlash/pull/45) proposes a fix for that retry failure and edits the same session controller as this branch. [PR #44](https://github.com/Ding-Kyoma/AirFlash/pull/44) proposes Spanish localization and touches shared settings and localization files. Reconcile both against original Main if merged. The drafts preserve a field-verification hold and require separate publication authorization.
 
-The exact head passed the local Release app build, 233 hosted lifecycle assertions, and the [hosted mock desktop matrix](https://github.com/ThatMarko/AirFlash/actions/runs/41935212808) with 22 cells and 14,797 assertions. The matrix includes four languages at synthetic 125% DPI, five startup guards and six DNS-helper settlement checks. [Headless qualification](https://github.com/ThatMarko/AirFlash/actions/runs/41934146311) passed at `100d5c0` with the same native, Core and tooling inputs.
+The current head passed a warning-free Release solution build and 1,243 Core tests. The [exact-head desktop matrix](https://github.com/ThatMarko/AirFlash/actions/runs/41940619999) passed 22 cells and 14,877 assertions, including the new cleanup case with both original mute states. The [unofficial package validation](https://github.com/ThatMarko/AirFlash/actions/runs/41940619983) also passed at the exact head, including 252 Python and 356 Rust tests, nine portable UI cells and the disposable MSI lifecycle. HomePod playback and sleep/resume remain field checks.
 
 ## Historical prepared package — 2026-10-21
 

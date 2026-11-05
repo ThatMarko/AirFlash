@@ -14,7 +14,7 @@ The failure paths are grounded in source and isolated fixtures. The PTP Grant ch
 ## Acceptance checklist
 
 - [ ] Reject unsafe package cleanup paths and unbuildable release versions before side effects. Use the selected .NET host from the same working directory as the build and bound diagnostic child processes.
-- [ ] Keep explicit Play, Pair, Stop and shutdown authoritative. Revalidate automatic admission, consider eligible alternatives, honor manual endpoint/port, and retain usable controls through passive discovery gaps and Quit. Ignore obsolete endpoint work while retaining fresh changes for the current owner.
+- [ ] Keep explicit Play, Pair, Stop and shutdown authoritative. Revalidate automatic admission, consider eligible alternatives, honor manual endpoint/port, and retain usable controls through passive discovery gaps and Quit. Ignore obsolete endpoint work while retaining fresh changes for the current owner. If engine disposal fails, keep Stop available through passive absence, block replacement playback, and join the worker’s exact-bit restoration attempt before disposal retries.
 - [ ] Reject a null group ID through validated recovery while preserving original bytes, supported schema migration and unknown settings.
 - [ ] Separate DNS advertisements, cached data, logical deadlines and native owners. Bound retries and keep an uncertain helper owned until its exact exit is observed.
 - [ ] Preserve password lookup errors, complete accepted input and one reader across the prompt. Cancel and join input on terminal failure.
