@@ -396,6 +396,36 @@ fn follower_grants_require_valid_fields_source_target_and_live_pending_request()
 }
 
 #[test]
+fn reordered_separate_grants_adopt_each_pending_type_without_renewing_old_same_type() {
+    let now = Instant::now();
+    let mut state = follower(now);
+    for (index, interval) in [-3, 0, 0].into_iter().enumerate() {
+        pend(&mut state, index, interval, now);
+    }
+    // Independent, valid sender sequences arrive out of order across types.
+    for (sequence, kind) in [(12, 11), (10, 0), (11, 9)] {
+        followed_packet(&mut state, &literal_grant(sequence, kind, 1), 0, now, 7);
+    }
+    assert_eq!(state.received_grants, 3);
+    let leases = [Some(now + Duration::from_secs(30)); 3];
+    assert_eq!(state.granted_until, leases);
+    assert!(state.subscriptions.iter().all(|pending| pending.is_empty()));
+
+    let later = now + SUBSCRIPTION_RETRY;
+    for (index, interval) in [-3, 0, 0].into_iter().enumerate() {
+        pend(&mut state, index, interval, later);
+    }
+    // The older and duplicate grants for each same type cannot renew a lease.
+    for (sequence, kind) in [(10, 0), (9, 0), (11, 9), (10, 9), (12, 11), (11, 11)] {
+        followed_packet(&mut state, &literal_grant(sequence, kind, 1), 0, later, 7);
+        assert_eq!(state.packets.last_rejection, Some("grant_replay"));
+        assert_eq!(state.received_grants, 3);
+        assert_eq!(state.granted_until, leases);
+    }
+    assert!(state.subscriptions.iter().all(|pending| pending.len() == 1));
+}
+
+#[test]
 fn grant_receive_history_wraps_and_applies_all_tlvs_once() {
     let now = Instant::now();
     let mut state = follower(now);
