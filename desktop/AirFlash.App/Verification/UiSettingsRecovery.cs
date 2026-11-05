@@ -85,7 +85,7 @@ internal static class UiSettingsRecovery
             {
                 var initial = store.Load();
                 Check(initial.Validate() is null && !initial.AutoConnectOnDiscover && !initial.StartAtLogin && !string.IsNullOrEmpty(store.LoadWarning), "locked settings: shell load recovers without an escaping reread", checks);
-                app = new(store, discovery, autostart, audio, engine, Application.Current.Dispatcher);
+                app = new(store, discovery, autostart, audio, engine, Application.Current.Dispatcher, isolatedVerification: true);
                 app.Start(); await app.Startup.WaitAsync(TimeSpan.FromSeconds(5));
                 Check(discovery.StartCount == 0, "locked settings: recovered defaults do not request a background startup browse", checks);
                 app.SetPanelVisible(true);
