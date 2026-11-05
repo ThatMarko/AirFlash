@@ -538,10 +538,11 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private void RefreshReceivers()
     {
         var active = Session.Snapshot;
+        var retainOwnedRow = active.IsActive || Session.NeedsCleanup;
         IEnumerable<Receiver> catalog = AllReceivers;
-        if (active.IsActive && active.Receiver is { } current && catalog.All(r => r.Id != current.Id))
+        if (retainOwnedRow && active.Receiver is { } current && catalog.All(r => r.Id != current.Id))
             catalog = catalog.Append(current with { Online = false });
-        var visible = catalog.Where(r => active.IsActive && r.Id == active.Receiver?.Id
+        var visible = catalog.Where(r => retainOwnedRow && r.Id == active.Receiver?.Id
             || r.Online && !_settings.ReadOptions(r.Id).Hidden).ToList();
         foreach (var row in Receivers.Where(row => visible.All(r => r.Id != row.Receiver.Id)).ToArray()) Receivers.Remove(row);
         for (var i = 0; i < visible.Count; i++)
@@ -564,11 +565,13 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         if (Session.RequiresManualReconnect) _autoSuppressed = true;
         RefreshGlobalLatency();
         Notify(nameof(Snapshot)); Notify(nameof(LatencyDetail)); Notify(nameof(PanelStatusDetail));
-        if (title != StatusTitle) Notify(nameof(StatusTitle));
-        if (detail != StatusDetail) Notify(nameof(StatusDetail));
+        // Cleanup ownership may already have changed when the worker queued this snapshot.
+        var needsCleanup = Session.NeedsCleanup;
+        if (title != StatusTitle || needsCleanup) Notify(nameof(StatusTitle));
+        if (detail != StatusDetail || needsCleanup) Notify(nameof(StatusDetail));
         if (errors != ErrorDetails) Notify(nameof(ErrorDetails));
         if (hint != ActionHint) Notify(nameof(ActionHint));
-        if (previous.State != snapshot.State || previous.Receiver?.Id != snapshot.Receiver?.Id)
+        if (previous.State != snapshot.State || previous.Receiver?.Id != snapshot.Receiver?.Id || needsCleanup)
         {
             RefreshReceivers();
             StopCommand.Refresh();

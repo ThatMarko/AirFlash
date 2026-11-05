@@ -41,6 +41,8 @@ internal static class UiSessionLifecycle
         await ManualSelectionAsync(checks);
         await QueuedManualSelectionAsync(checks);
         await RetainedStatesAsync(checks);
+        await WorkerCleanupFailureRetainsStopAsync(checks, originalMute: false);
+        await WorkerCleanupFailureRetainsStopAsync(checks, originalMute: true);
         await RetainOnInterfaceChangeAsync(checks);
         await ResetDuringAutomaticSaveAsync(checks);
         await ShutdownDuringAutomaticSaveAsync(checks);
@@ -785,6 +787,87 @@ internal static class UiSessionLifecycle
                 "explicit Stop removes the inactive overlay and restores the exact prior mute bit from " + state + "/" + original, checks);
         }
     }
+    private static async Task WorkerCleanupFailureRetainsStopAsync(List<string> checks, bool originalMute)
+    {
+        var receiver = Pod("offline-cleanup");
+        var settings = Settings();
+        settings.MuteWhileStreaming = true;
+        SeedAliases(settings, receiver);
+        await using var fixture = await Fixture.CreateAsync(settings, [receiver], originalMute);
+        fixture.Discovery.Items = [receiver];
+        var process = new ScriptedConnection();
+        var restoredBeforeRetry = false;
+        process.BeforeDispose = attempt =>
+        {
+            if (attempt == 1) throw new EngineShutdownException(process, new IOException("synthetic engine cleanup failure"));
+            restoredBeforeRetry = !fixture.Audio.HasSavedBit && fixture.Audio.MuteBit == originalMute;
+        };
+        fixture.Engine.Enqueue(process);
+        var panel = new ControlPanel(fixture.App) { MenuOpen = true };
+        Gate? restore = null;
+        var label = " (prior mute " + originalMute + ")";
+        try
+        {
+            panel.ShowPanel();
+            await DrainAsync();
+            await fixture.App.ToggleAsync(receiver);
+            await StateAsync(fixture, PlaybackState.Streaming);
+            Check(fixture.Audio.HasSavedBit && fixture.Audio.MuteBit,
+                "the synthetic stream owns the prior mute bit before the terminal fault" + label, checks);
+
+            fixture.Discovery.Items = [];
+            var absent = CatalogAsync(fixture, () => fixture.App.AllReceivers.All(row => !row.Online));
+            fixture.Discovery.Publish();
+            await absent;
+            await DrainAsync();
+            restore = fixture.Audio.HoldRestore();
+            process.Emit(new { @event = "error", code = "peer_closed", channel = "control", retryable = false, message = "synthetic terminal fault" });
+            await StateAsync(fixture, snapshot => snapshot.State == PlaybackState.Error
+                && snapshot.Diagnostics?.LastFault?.Code == "engine_cleanup_failed");
+            await restore.Entered.Task.WaitAsync(Limit);
+            await DrainAsync();
+
+            var row = fixture.App.Receivers.SingleOrDefault(item => item.Receiver.Id == receiver.Id);
+            Check(fixture.App.Session.NeedsCleanup && row is { Active: false, NeedsDisconnect: true, Receiver.Online: false }
+                && process.DisposalAttempts == 1 && !process.Disposed && fixture.Audio.HasSavedBit,
+                "worker cleanup failure keeps the unavailable receiver's disconnect row while mute restoration is pending" + label, checks);
+            var stop = UiSmoke.Descendants(panel).OfType<Button>().Single(button =>
+                ReferenceEquals(button.DataContext, row) && ReferenceEquals(button.Command, fixture.App.StopCommand));
+            var status = (TextBlock)panel.FindName("StatusDetailText");
+            Check(stop.IsVisible && stop.IsEnabled && status.IsVisible
+                && status.Text == L.Get("The audio engine could not stop. Try disconnecting again."),
+                "the actual panel exposes Stop and the cleanup retry hint after a worker failure" + label, checks);
+
+            ((IInvokeProvider)new ButtonAutomationPeer(stop).GetPattern(PatternInterface.Invoke)).Invoke();
+            await DrainAsync();
+            Check(fixture.App.IsStopping && process.DisposalAttempts == 1 && !process.Disposed
+                && fixture.Audio.HasSavedBit && fixture.Engine.OpenCount == 1,
+                "Stop waits for the old worker's mute cleanup before retrying engine disposal" + label, checks);
+
+            restore.Release.TrySetResult();
+            await process.DisposalCompleted.Task.WaitAsync(Limit);
+            await StateAsync(fixture, PlaybackState.Idle);
+            await DrainAsync();
+            Check(restoredBeforeRetry && !fixture.Audio.HasSavedBit && fixture.Audio.MuteBit == originalMute
+                && process.DisposalAttempts == 2 && fixture.Engine.OpenCount == 1 && !fixture.App.Session.NeedsCleanup
+                && !fixture.App.StopCommand.CanExecute(null) && fixture.App.Receivers.Count == 0,
+                "one visible Stop settles the original engine and mute bit, then removes the offline row" + label, checks);
+        }
+        finally
+        {
+            restore?.Release.TrySetResult();
+            try
+            {
+                if (!process.Disposed)
+                {
+                    try { await fixture.App.StopAsync().WaitAsync(Limit); }
+                    catch (EngineShutdownException) { await fixture.App.StopAsync().WaitAsync(Limit); }
+                }
+            }
+            finally { panel.ShutdownPanel(); }
+        }
+    }
+
     private static async Task RetainOnInterfaceChangeAsync(List<string> checks)
     {
         var group = Pair();
@@ -999,6 +1082,9 @@ internal static class UiSessionLifecycle
         public TaskCompletionSource PairSent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource DisposalCompleted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool CompletePair { get; init; }
+        public Action<int>? BeforeDispose { get; set; }
+        private int _disposalAttempts;
+        public int DisposalAttempts => Volatile.Read(ref _disposalAttempts);
         public bool Disposed { get; private set; }
         public string Session { get; private set; } = "";
         public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
@@ -1025,6 +1111,8 @@ internal static class UiSessionLifecycle
         }
         public ValueTask DisposeAsync()
         {
+            var attempt = Interlocked.Increment(ref _disposalAttempts);
+            BeforeDispose?.Invoke(attempt);
             Disposed = true; _events.Writer.TryComplete(); DisposalCompleted.TrySetResult(); return ValueTask.CompletedTask;
         }
     }

@@ -689,6 +689,70 @@ public sealed class SessionLifecycleTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WorkerCleanupFailureIsVisibleAndStopJoinsMuteRestorationBeforeRetry(bool originallyMuted)
+    {
+        var connection = new Connection { DisposeFailures = 2 };
+        var factory = new Factory(connection);
+        var audio = new Audio(originallyMuted);
+        await using var controller = TestSessionController.Create(factory, audio, timing: Timing);
+        var (receiver, settings) = originallyMuted ? SoftwareGroup() : (Pod(), Settings());
+        settings.MuteWhileStreaming = true;
+        await StartStreamingAsync(controller, connection, receiver, settings);
+        Assert.True(audio.Muted);
+        var restore = audio.PauseNextRestore();
+        var restorationObserved = audio.ObserveNextRestore();
+        var restoredBeforeRetry = false;
+        connection.BeforeDispose = attempt =>
+        {
+            if (attempt == 2) restoredBeforeRetry = restorationObserved.Task.IsCompletedSuccessfully && audio.Muted == originallyMuted;
+        };
+        Task? stop = null;
+        try
+        {
+            connection.Emit(new { @event = "error", code = "peer_closed", message = "synthetic terminal fault", retryable = false });
+            await SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Error);
+            await restore.Entered.Task.WaitAsync(Deadline);
+            Assert.True(controller.NeedsCleanup);
+            Assert.Equal(receiver.Id, controller.Snapshot.Receiver?.Id);
+            Assert.Equal("engine_cleanup_failed", controller.Snapshot.Diagnostics?.LastFault?.Code);
+            var failed = controller.Capture();
+            if (receiver.IsSoftwareGroup)
+                Assert.False(await controller.StopForDiscoveryConflictAsync(failed.Snapshot).WaitAsync(Deadline));
+            Assert.False(await controller.TryStartAutomaticAsync(Pod("b"), settings, failed.Owner, failed.AutomaticIntent).WaitAsync(Deadline));
+            Assert.False(await controller.TryStartExplicitAsync(Pod("b"), settings, controller.BeginExplicitIntent()).WaitAsync(Deadline));
+            Assert.Equal(failed.Owner, controller.Capture().Owner);
+            stop = controller.StopAsync();
+            Assert.False(stop.IsCompleted);
+            Assert.Equal(1, connection.DisposeCalls);
+
+            restore.Release.TrySetResult();
+            await Assert.ThrowsAsync<EngineShutdownException>(() => stop.WaitAsync(Deadline));
+            stop = null;
+            Assert.Equal(2, connection.DisposeCalls);
+            Assert.True(restoredBeforeRetry);
+            Assert.Equal(originallyMuted, audio.Muted);
+            Assert.True(controller.NeedsCleanup);
+
+            await controller.StopAsync().WaitAsync(Deadline);
+            Assert.Equal(3, connection.DisposeCalls);
+            Assert.True(connection.Disposed);
+            Assert.Equal(1, factory.OpenCount);
+            Assert.Equal(PlaybackState.Idle, controller.Snapshot.State);
+            Assert.False(controller.NeedsCleanup);
+            Assert.Equal(originallyMuted, audio.Muted);
+        }
+        finally
+        {
+            restore.Release.TrySetResult();
+            connection.DisposeFailures = 0;
+            try { await (stop ?? controller.StopAsync()).WaitAsync(Deadline); }
+            catch (EngineShutdownException) { await controller.StopAsync().WaitAsync(Deadline); }
+        }
+    }
+
     [Fact]
     public async Task InactiveEndpointRestoreSerializesBeforeNewOwnerCanMute()
     {
@@ -1237,6 +1301,9 @@ public sealed class SessionLifecycleTests
         private volatile bool _disposed;
         public bool AutoStreaming { get; init; } = true;
         public bool RequestPin { get; init; }
+        public int DisposeFailures { get; set; }
+        public int DisposeCalls { get; private set; }
+        public Action<int>? BeforeDispose { get; set; }
         public string Session => _session;
         public bool Disposed => _disposed;
         public ConcurrentQueue<Command> Commands { get; } = new();
@@ -1279,6 +1346,10 @@ public sealed class SessionLifecycleTests
         }
         public ValueTask DisposeAsync()
         {
+            var attempt = ++DisposeCalls;
+            BeforeDispose?.Invoke(attempt);
+            if (attempt <= DisposeFailures)
+                throw new EngineShutdownException(this, new IOException("synthetic engine shutdown failure"));
             _disposed = true; _events.Writer.TryComplete();
             return ValueTask.CompletedTask;
         }

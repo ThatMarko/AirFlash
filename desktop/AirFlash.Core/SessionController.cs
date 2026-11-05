@@ -41,7 +41,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private CancellationTokenSource? _lifetime;
     private Task? _work;
     private EngineShutdownException? _cleanupFailure;
-    public bool NeedsCleanup => _cleanupFailure is not null;
+    public bool NeedsCleanup => Volatile.Read(ref _cleanupFailure) is not null;
     private IEngineConnection? _connection;
     private string? _sessionId;
     private AppSettings _settings = new();
@@ -436,7 +436,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     {
         lock (_sync)
         {
-            if (_passiveDisposed || _manualRecoveryRequired && intent == SessionStartIntent.Automatic
+            if (_passiveDisposed || NeedsCleanup || _manualRecoveryRequired && intent == SessionStartIntent.Automatic
                 || expectedIntent is { } expected && expected != _automaticIntent || canAdmit?.Invoke() == false) return false;
         }
         EnsureMuteReady(settings);
@@ -477,6 +477,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
             catch (EngineShutdownException error)
             {
+                Volatile.Write(ref _cleanupFailure, error);
                 if (RecordFailure(epoch, error) is { } notice) Publish(epoch, PlaybackState.Error, FailureMessage(receiver, notice), failure: notice);
                 throw;
             }
@@ -496,22 +497,27 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             try { await lifetime.CancelAsync().ConfigureAwait(false); }
             catch (ObjectDisposedException) { }
         await _serial.WaitAsync().ConfigureAwait(false);
-        try { log?.Invoke("Session stop reason=user_stop"); await StopLockedAsync().ConfigureAwait(false); _receiver = null; Publish(_generation, PlaybackState.Idle); }
+        try { log?.Invoke("Session stop reason=user_stop"); await StopLockedAsync(retryCleanup: true).ConfigureAwait(false); _receiver = null; Publish(_generation, PlaybackState.Idle); }
         finally { _serial.Release(); }
     }
-    private async Task StopLockedAsync()
+    private async Task StopLockedAsync(bool retryCleanup = false)
     {
+        if (!retryCleanup && Volatile.Read(ref _cleanupFailure) is { } pending) throw pending;
         lock (_sync) { ++_generation; _discoveredReceiver = null; _volumeEdit?.Cancel(); _volumeEdit?.Dispose(); _volumeEdit = null; _deviceVolume = new(); _memberVolumes.Clear(); _memberHosts.Clear(); }
         if (_lifetime is not null) await _lifetime.CancelAsync().ConfigureAwait(false);
-        if (_cleanupFailure is { } cleanup)
-        {
-            await cleanup.Connection.DisposeAsync().ConfigureAwait(false);
-            _cleanupFailure = null; _work = null;
-        }
+        var cleanup = retryCleanup ? Volatile.Read(ref _cleanupFailure) : null;
         if (_work is not null)
         {
+            // The failure is published before the worker finishes restoring local audio.
+            // Join it before retrying process disposal, and surface a newly observed failure.
             try { await _work.ConfigureAwait(false); }
-            catch (EngineShutdownException error) { _cleanupFailure = error; throw; }
+            catch (EngineShutdownException error) when (ReferenceEquals(error, cleanup)) { }
+            _work = null;
+        }
+        if (cleanup is not null)
+        {
+            await cleanup.Connection.DisposeAsync().ConfigureAwait(false);
+            Volatile.Write(ref _cleanupFailure, null);
         }
         _lifetime?.Dispose(); _lifetime = null; _work = null;
         await RestoreAudioAsync().ConfigureAwait(false);
@@ -659,7 +665,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         await _serial.WaitAsync().ConfigureAwait(false);
         try
         {
-            lock (_sync) { if (!OwnsDiscoverySnapshot(expected) || _receiver?.IsSoftwareGroup != true) return false; }
+            lock (_sync) { if (NeedsCleanup || !OwnsDiscoverySnapshot(expected) || _receiver?.IsSoftwareGroup != true) return false; }
             log?.Invoke("Session stop reason=discovery_topology_conflict");
             await StopLockedAsync().ConfigureAwait(false); _receiver = null; Publish(_generation, PlaybackState.Idle);
             return true;
