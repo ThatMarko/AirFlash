@@ -34,7 +34,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private SessionSnapshot _snapshot = new(PlaybackState.Idle);
     private string _notice = "";
     private bool _noticeDismissed;
-    private bool _volumeDirty, _autoSuppressed, _closing;
+    private bool _volumeDirty, _volumeApplyPending, _autoSuppressed, _closing;
     private string? _defaultEndpoint;
     private long _editRevision;
     private Task _startup = Task.CompletedTask;
@@ -433,7 +433,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         {
             if (!_closing && !_resetting) await ReconcileDiscoveryAsync(list);
         }
-        finally { _settingsGate.Release(); if (_volumeDirty && !_closing && !_controlledScheduling) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
+        finally { _settingsGate.Release(); if ((_volumeDirty || _volumeApplyPending) && !_closing && !_controlledScheduling) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
     }
     private async Task ReconcileDiscoveryAsync(IReadOnlyList<Receiver> list)
     {
@@ -445,7 +445,9 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         if (!SettingsMerge.Equal(_settings, reconciliation.Settings))
         {
             var revision = _editRevision;
+            var volumeWasDirty = _volumeDirty;
             await SaveSettingsAsync(reconciliation.Settings, reconciliation.NeedsBackup);
+            _volumeApplyPending |= volumeWasDirty;
             var live = _settings.Clone(); var baseline = originalSettings.Clone();
             ReceiverCatalog.ApplyMigrations(live, reconciliation.Migrations, currentSnapshot.Receiver?.Id);
             ReceiverCatalog.ApplyMigrations(baseline, reconciliation.Migrations, currentSnapshot.Receiver?.Id);
@@ -761,22 +763,29 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     public async Task FlushVolumeAsync()
     {
         _volumeTimer.Stop();
-        if (_resetting || _resetCompleted || !_volumeDirty) return;
+        if (_resetting || _resetCompleted || (!_volumeDirty && !_volumeApplyPending)) return;
         await _settingsGate.WaitAsync();
-        var saved = false;
+        var completed = false;
         try
         {
-            if (_resetting || _resetCompleted || !_volumeDirty) return;
+            if (_resetting || _resetCompleted || (!_volumeDirty && !_volumeApplyPending)) return;
             var current = _settings.Clone();
             var owner = Session.Capture();
             var context = CaptureSessionSettingsContext();
             var revision = _editRevision;
-            using (UiPerformance.Measure("settings.persist")) await SaveSettingsAsync(current);
-            saved = true;
-            if (revision == _editRevision) _volumeDirty = false;
-            if (!_closing) await Session.TryUpdateSettingsAsync(current, owner, context);
+            if (_volumeDirty)
+            {
+                using (UiPerformance.Measure("settings.persist")) await SaveSettingsAsync(current);
+                if (revision == _editRevision) _volumeDirty = false;
+                _volumeApplyPending = true;
+            }
+            // Persistence and live application have different authorities. A newer
+            // intent may reject this saved snapshot without admitting a new worker.
+            // Retry from current settings and authority without repeating the save.
+            if (!_closing) _volumeApplyPending = !await Session.TryUpdateSettingsAsync(current, owner, context);
+            completed = true;
         }
-        finally { _settingsGate.Release(); if (saved && _volumeDirty && !_closing && !_controlledScheduling) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
+        finally { _settingsGate.Release(); if (completed && (_volumeDirty || _volumeApplyPending) && !_closing && !_controlledScheduling) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
     }
     public async Task<SettingsApplyResult> ApplyAsync(AppSettings baseline, AppSettings draft, Action<string>? progress = null)
     {
@@ -794,6 +803,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             var before = _settings.Clone();
             var owner = Session.Capture();
             var revision = _editRevision;
+            var volumeWasDirty = _volumeDirty;
             AppSettings merged;
             using (UiPerformance.Measure("apply.merge")) merged = SettingsMerge.Merge(baseline, draft, before);
             if (merged.Validate() is { } validation) throw new InvalidOperationException(validation);
@@ -828,6 +838,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
                 // Preserve edits made in the panel while this snapshot was being saved.
                 _settings = revision == _editRevision ? merged.Clone() : SettingsMerge.Merge(before, _settings, merged);
                 foreach (var removed in baseline.Receivers.Keys.Except(draft.Receivers.Keys)) _settings.Receivers.Remove(removed);
+                _volumeApplyPending |= volumeWasDirty;
                 _volumeDirty = revision != _editRevision;
                 if (before.DiscoveryInterfaceId != _settings.DiscoveryInterfaceId) _discovery.SetInterface(_settings.DiscoveryInterfaceId);
                 var oldCatalog = AllReceivers;
@@ -858,7 +869,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
                                 expected = Session.Capture();
                         }
                         if (expected.AutomaticIntent == owner.AutomaticIntent)
-                            await Session.TryUpdateSettingsAsync(merged, expected, context);
+                            if (await Session.TryUpdateSettingsAsync(merged, expected, context)) _volumeApplyPending = false;
                     }
                 }
             }
@@ -866,7 +877,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             ScheduleAutoConnect();
             return new(merged, audioError);
         }
-        finally { _settingsGate.Release(); EndEligibilityChange(); if (_volumeDirty && !_closing && !_controlledScheduling) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
+        finally { _settingsGate.Release(); EndEligibilityChange(); if ((_volumeDirty || _volumeApplyPending) && !_closing && !_controlledScheduling) { _volumeTimer.Stop(); _volumeTimer.Start(); } }
     }
     public void ShowError(Exception error) { AppPaths.Log(error.ToString()); Notice = error.Message; }
     public async Task ResetAsync()
@@ -886,7 +897,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             await _audio.RestoreAsync();
             await _autostart.SetAsync(false);
             await _store.ResetAsync(); cleared = true;
-            _settings = new(); _volumeDirty = false; _editRevision++;
+            _settings = new(); _volumeDirty = false; _volumeApplyPending = false; _editRevision++;
             ReceiverMigrations = new Dictionary<string, string>(); _autoAttempted.Clear();
             _discovery.SetInterface(_settings.DiscoveryInterfaceId);
             _known.Clear(); MergeManualReceivers(); RefreshReceivers();
