@@ -563,7 +563,8 @@ internal static class UiRegression
                 await Until(() => slider == master ? app.MasterVolume == value : row.Volume == value && row.VolumeStatus.Length == 0);
                 await Pump();
                 var grid = (Grid)slider.Parent;
-                var percent = grid.Children.OfType<TextBlock>().Single(text => Grid.GetRow(text) == 0 && Grid.GetColumn(text) == 2);
+                var percentColumn = Grid.GetColumn(slider) + 1;
+                var percent = grid.Children.OfType<TextBlock>().Single(text => Grid.GetRow(text) == 0 && Grid.GetColumn(text) == percentColumn);
                 var button = grid.Children.OfType<Button>().Single();
                 Check(slider.Value == value && percent.Text == $"{value}%"
                     && slider.TranslatePoint(new(slider.ActualWidth, 0), grid).X <= percent.TranslatePoint(new(), grid).X + 1
@@ -595,7 +596,7 @@ internal static class UiRegression
 
         void CheckMuteButton(Slider slider, Button button)
         {
-            CheckAlignedSliders();
+            CheckVolumeTracks();
             var text = UiSmoke.Descendants(button).OfType<TextBlock>().Single();
             var bounds = text.TransformToAncestor(button).TransformBounds(new Rect(text.RenderSize));
             Check(slider.ActualWidth >= 60 && bounds.Left >= 0 && bounds.Right <= button.ActualWidth + 1
@@ -606,19 +607,27 @@ internal static class UiRegression
 
         void CheckStatus(bool visible, string state)
         {
-            CheckAlignedSliders();
+            CheckVolumeTracks();
             Check(Math.Abs(device.ActualWidth - deviceWidth) <= 1
                 && (visible ? status.IsVisible && status.TranslatePoint(new(), deviceRow).Y >= device.ActualHeight
                     : status.Visibility == Visibility.Collapsed && Math.Abs(deviceRow.ActualHeight - rowHeight) <= 1),
                 $"{label}: {state} volume status sits below a stable-width slider and leaves no empty row", checks);
         }
 
-        void CheckAlignedSliders()
+        void CheckVolumeTracks()
         {
-            var masterStart = master.TranslatePoint(new(), panel).X;
-            var deviceStart = device.TranslatePoint(new(), panel).X;
-            Check(Math.Abs(masterStart - deviceStart) <= 1 && Math.Abs(master.ActualWidth - device.ActualWidth) <= 1,
-                $"{label}: device and master volume tracks share the same start and width", checks);
+            Check(FillsColumn(master, masterRow) && FillsColumn(device, deviceRow)
+                && device.TranslatePoint(new(), panel).X < master.TranslatePoint(new(), panel).X
+                && device.ActualWidth > master.ActualWidth,
+                $"{label}: volume tracks fill their own columns and the device uses the space beside the master label", checks);
+        }
+
+        static bool FillsColumn(Slider slider, Grid row)
+        {
+            var column = Grid.GetColumn(slider);
+            var start = row.ColumnDefinitions.Take(column).Sum(definition => definition.ActualWidth);
+            return Math.Abs(slider.TranslatePoint(new(), row).X - start) <= 1
+                && Math.Abs(slider.ActualWidth - row.ColumnDefinitions[column].ActualWidth) <= 1;
         }
     }
     private static async Task Pump() { await Application.Current.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle); await Task.Delay(20); }

@@ -469,7 +469,15 @@
           <TextBlock Text="AirFlash" FontSize="22" FontWeight="SemiBold"/>
           <TextBlock Text="{loc:Text 'Settings and devices'}" Style="{StaticResource Hint}" Margin="0,4,0,0"/>
         </StackPanel>
-        <ListBox x:Name="Navigation" ItemsSource="{Binding Pages}" SelectedIndex="{Binding SelectedPage}" BorderThickness="0" Background="Transparent" VerticalAlignment="Top" AutomationProperties.Name="{loc:Text 'Settings navigation'}"/>
+        <ListBox x:Name="Navigation" ItemsSource="{Binding Pages}" SelectedIndex="{Binding SelectedPage}" BorderThickness="0" Background="Transparent" VerticalAlignment="Top" AutomationProperties.Name="{loc:Text 'Settings navigation'}">
+          <ListBox.Template>
+            <ControlTemplate TargetType="ListBox">
+              <ScrollViewer Style="{StaticResource InsetListScrollViewer}" CanContentScroll="{TemplateBinding ScrollViewer.CanContentScroll}">
+                <ItemsPresenter/>
+              </ScrollViewer>
+            </ControlTemplate>
+          </ListBox.Template>
+        </ListBox>
       </DockPanel>
     </Border>
     <Grid Grid.Column="1" Margin="26,23,20,0">
