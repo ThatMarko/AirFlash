@@ -787,8 +787,20 @@ impl SilenceProbe {
             last_probe: None,
         }
     }
-    fn observe(&mut self, now: Instant, silent: bool, after_discontinuity: bool) -> bool {
-        if !silent {
+    fn observe(
+        &mut self,
+        now: Instant,
+        received_packet: bool,
+        audio: bool,
+        last_packet: Instant,
+        after_discontinuity: bool,
+    ) -> bool {
+        // Empty polls just after a packet or rebind are not evidence of audio.
+        if !received_packet && now.saturating_duration_since(last_packet) <= NO_PACKET_SILENCE_AFTER
+        {
+            return false;
+        }
+        if received_packet && audio {
             self.silent_since = None;
             self.last_probe = None;
             return false;
@@ -1283,16 +1295,12 @@ fn capture(
                 }
             }
         }
-        if trigger.is_none() && budget.can_attempt() {
-            let silent = if packets > 0 {
-                !audio
-            } else {
-                now.saturating_duration_since(last_packet) > NO_PACKET_SILENCE_AFTER
-            };
-            if probe.observe(now, silent, discontinuity_seen) {
-                state.lock().unwrap().metrics.silent_probes += 1;
-                trigger = Some("silent_probe");
-            }
+        if trigger.is_none()
+            && budget.can_attempt()
+            && probe.observe(now, packets > 0, audio, last_packet, discontinuity_seen)
+        {
+            state.lock().unwrap().metrics.silent_probes += 1;
+            trigger = Some("silent_probe");
         }
         let Some(reason) = trigger else {
             continue;
@@ -1481,23 +1489,61 @@ pub(crate) mod tests {
     #[test]
     fn silence_probe_needs_the_window_a_prior_break_and_one_probe_per_minute() {
         let start = Instant::now();
-        let mut probe = SilenceProbe::new(Duration::from_secs(2), Duration::from_secs(60));
+        let mut probe = SilenceProbe::new(SILENT_PROBE_WINDOW, SILENT_PROBE_INTERVAL);
+        let packet = |probe: &mut SilenceProbe, millis, audio, after_break| {
+            let now = start + Duration::from_millis(millis);
+            probe.observe(now, true, audio, now, after_break)
+        };
         // Playback has not started: no discontinuity, so silence is never a probe.
-        for seconds in [0, 1, 2, 10, 120] {
-            assert!(!probe.observe(start + Duration::from_secs(seconds), true, false));
+        for millis in [0, 1_000, 2_000, 10_000, 120_000] {
+            assert!(!packet(&mut probe, millis, false, false));
         }
         // A real break happened: the two-second window starts now.
-        assert!(!probe.observe(start, true, true));
-        assert!(!probe.observe(start + Duration::from_millis(1999), true, true));
-        assert!(probe.observe(start + Duration::from_secs(2), true, true));
+        assert!(!packet(&mut probe, 0, false, true));
+        assert!(!packet(&mut probe, 1_999, false, true));
+        assert!(packet(&mut probe, 2_000, false, true));
         // One probe per minute, measured from the probe itself.
-        assert!(!probe.observe(start + Duration::from_secs(3), true, true));
-        assert!(!probe.observe(start + Duration::from_secs(61), true, true));
-        assert!(probe.observe(start + Duration::from_secs(62), true, true));
+        assert!(!packet(&mut probe, 3_000, false, true));
+        assert!(!packet(&mut probe, 61_000, false, true));
+        assert!(packet(&mut probe, 62_000, false, true));
         // Non-silent audio clears the run and the probe budget.
-        assert!(!probe.observe(start + Duration::from_secs(63), false, true));
-        assert!(!probe.observe(start + Duration::from_secs(64), true, true));
-        assert!(probe.observe(start + Duration::from_secs(66), true, true));
+        assert!(!packet(&mut probe, 63_000, true, true));
+        assert!(!packet(&mut probe, 64_000, false, true));
+        assert!(packet(&mut probe, 66_000, false, true));
+    }
+
+    #[test]
+    fn empty_grace_polls_after_rebind_do_not_rearm_the_silence_probe() {
+        let start = Instant::now();
+        let mut probe = SilenceProbe::new(SILENT_PROBE_WINDOW, SILENT_PROBE_INTERVAL);
+        let missing = start + NO_PACKET_SILENCE_AFTER + Duration::from_millis(1);
+        assert!(!probe.observe(missing, false, false, start, true));
+        let reopened = missing + SILENT_PROBE_WINDOW;
+        assert!(probe.observe(reopened, false, false, start, true));
+
+        // A successful rebind resets last_packet, even before the new stream has samples.
+        for millis in [50, 100, 250] {
+            let now = reopened + Duration::from_millis(millis);
+            assert!(!probe.observe(now, false, false, reopened, true));
+        }
+        // A real silent packet and a second long empty gap must respect the cooldown.
+        let silent_packet = reopened + Duration::from_millis(300);
+        assert!(!probe.observe(silent_packet, true, false, silent_packet, true));
+        let missing = silent_packet + NO_PACKET_SILENCE_AFTER + Duration::from_millis(1);
+        for now in [
+            missing,
+            missing + SILENT_PROBE_WINDOW,
+            reopened + SILENT_PROBE_INTERVAL - Duration::from_millis(1),
+        ] {
+            assert!(!probe.observe(now, false, false, silent_packet, true));
+        }
+        assert!(probe.observe(
+            reopened + SILENT_PROBE_INTERVAL,
+            false,
+            false,
+            silent_packet,
+            true
+        ));
     }
 
     #[test]
