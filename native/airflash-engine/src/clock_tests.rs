@@ -379,7 +379,6 @@ fn follower_grants_require_valid_fields_source_target_and_live_pending_request()
         followed_packet(&mut state, &bad, 0, now, 7);
         assert_eq!(state.packets.last_rejection, Some(reason), "byte {index}");
         assert_eq!(state.received_grants, 0);
-        assert_eq!(state.received_grant_sequence, None);
         assert_eq!(state.subscriptions[0].len(), 1);
     }
     followed_packet(&mut state, &grant, 0, now + SAMPLE_LIFETIME, 7);
@@ -396,7 +395,44 @@ fn follower_grants_require_valid_fields_source_target_and_live_pending_request()
 }
 
 #[test]
-fn grant_receive_history_wraps_and_applies_all_tlvs_once() {
+fn reordered_separate_grants_adopt_each_pending_type_and_ignore_unrequested_duplicates() {
+    let now = Instant::now();
+    let mut state = follower(now);
+    for (index, interval) in [-3, 0, 0].into_iter().enumerate() {
+        pend(&mut state, index, interval, now);
+    }
+    // Independent, valid sender sequences arrive out of order across types.
+    for (sequence, kind) in [(12, 11), (10, 0), (11, 9)] {
+        followed_packet(&mut state, &literal_grant(sequence, kind, 1), 0, now, 7);
+    }
+    assert_eq!(state.received_grants, 3);
+    let leases = [Some(now + Duration::from_secs(30)); 3];
+    assert_eq!(state.granted_until, leases);
+    assert!(state.subscriptions.iter().all(|pending| pending.is_empty()));
+
+    let later = now + SUBSCRIPTION_RETRY;
+    // No request remains, so repeated or older packets cannot renew a lease.
+    for (sequence, kind) in [(10, 0), (9, 0), (11, 9), (10, 9), (12, 11), (11, 11)] {
+        followed_packet(&mut state, &literal_grant(sequence, kind, 1), 0, later, 7);
+        assert_eq!(state.packets.last_rejection, Some("grant_no_pending"));
+        assert_eq!(state.received_grants, 3);
+        assert_eq!(state.granted_until, leases);
+    }
+    assert_eq!(state.packets.grant_rejected_no_pending_or_stale, 6);
+    assert_eq!(state.packets.grant_rejected_replay, 0);
+
+    // Consuming an unrequested TLV must not discard another current type in
+    // the same packet, regardless of the sender's sequence.
+    pend(&mut state, 1, 0, later);
+    let mut mixed = literal_grant(0, 0, 1);
+    append_tlv(&mut mixed, &literal_grant(0, 9, 1)[44..]);
+    followed_packet(&mut state, &mixed, 0, later, 7);
+    assert_eq!(state.received_grants, 4);
+    assert!(state.subscriptions.iter().all(|pending| pending.is_empty()));
+}
+
+#[test]
+fn grants_use_current_pending_across_sequence_wrap_and_apply_all_tlvs_once() {
     let now = Instant::now();
     let mut state = follower(now);
     for (index, interval) in [-3, 0, 0].into_iter().enumerate() {
@@ -411,28 +447,65 @@ fn grant_receive_history_wraps_and_applies_all_tlvs_once() {
         state.granted_until,
         [Some(now + Duration::from_secs(30)); 3]
     );
-    assert_eq!(state.received_grant_sequence, Some(u16::MAX));
-    pend(&mut state, 0, -3, now);
+
     let later = now + SUBSCRIPTION_RETRY;
-    for sequence in [u16::MAX, u16::MAX - 1] {
-        followed_packet(&mut state, &literal_grant(sequence, 0, 1), 0, later, 7);
-        assert_eq!(state.packets.last_rejection, Some("grant_replay"));
-        assert_eq!(state.granted_until[0], Some(now + Duration::from_secs(30)));
-    }
+    followed_packet(&mut state, &packet, 0, later, 7);
+    assert_eq!(state.received_grants, 3);
+    assert_eq!(
+        state.granted_until,
+        [Some(now + Duration::from_secs(30)); 3]
+    );
+    assert_eq!(state.packets.grant_rejected_no_pending_or_stale, 3);
+    pend(&mut state, 0, -3, later);
     followed_packet(&mut state, &literal_grant(0, 0, 1), 0, later, 7);
     assert_eq!(state.received_grants, 4);
     assert_eq!(
         state.granted_until[0],
         Some(later + Duration::from_secs(30))
     );
-    assert_eq!(state.received_grant_sequence, Some(0));
-    assert_eq!(state.packets.grant_tlv_checked, 4);
+    assert_eq!(state.packets.grant_tlv_checked, 7);
     assert_eq!(state.packets.grant_accepted, 4);
-    assert_eq!(state.packets.grant_rejected_replay, 2);
+    assert_eq!(state.packets.grant_rejected_replay, 0);
 }
 
 #[test]
-fn malformed_and_non_grant_signaling_do_not_poison_lease_or_history() {
+fn same_identity_grants_after_contract_expiry_use_fresh_pending_not_sender_sequence() {
+    let now = Instant::now();
+    for restarted_sequence in [100, 0] {
+        let mut state = follower(now);
+        pend(&mut state, 0, -3, now);
+        let mut first = literal_grant(100, 0, 1);
+        first[50..54].copy_from_slice(&1u32.to_be_bytes());
+        followed_packet(&mut state, &first, 0, now, 7);
+        assert_eq!(state.received_grants, 1);
+        let original_lease = Some(now + Duration::from_secs(1));
+        assert_eq!(state.granted_until[0], original_lease);
+
+        // The lease and original request have both expired. No new source,
+        // port or grandmaster identity is needed to negotiate another lease.
+        let later = now + SAMPLE_LIFETIME + Duration::from_millis(1);
+        let mut restarted = literal_grant(restarted_sequence, 0, 1);
+        followed_packet(&mut state, &restarted, 0, later, 7);
+        assert_eq!(state.packets.last_rejection, Some("grant_no_pending"));
+        assert_eq!(state.granted_until[0], original_lease);
+
+        pend(&mut state, 0, -3, now);
+        followed_packet(&mut state, &restarted, 0, later, 7);
+        assert_eq!(state.received_grants, 1); // An expired request is insufficient.
+        assert_eq!(state.granted_until[0], original_lease);
+
+        pend(&mut state, 0, -3, later);
+        restarted[50..54].copy_from_slice(&2u32.to_be_bytes());
+        followed_packet(&mut state, &restarted, 0, later, 7);
+        assert_eq!(state.received_grants, 2);
+        assert_eq!(state.granted_until[0], Some(later + Duration::from_secs(2)));
+        assert!(state.subscriptions[0].is_empty());
+        assert_eq!(state.packets.grant_rejected_replay, 0);
+    }
+}
+
+#[test]
+fn malformed_and_non_grant_signaling_do_not_consume_pending_or_change_leases() {
     let now = Instant::now();
     let mut state = follower(now);
     pend(&mut state, 0, -3, now);
@@ -450,7 +523,6 @@ fn malformed_and_non_grant_signaling_do_not_poison_lease_or_history() {
             assert_eq!(state.packets.rejected, rejection_count);
             assert_eq!(state.packets.grant_tlv_checked, 1);
             assert_eq!(state.packets.grant_accepted, 1);
-            assert_eq!(state.received_grant_sequence, Some(11));
         }
     }
     let mut bad = literal_grant(40, 0, 0);
@@ -461,7 +533,6 @@ fn malformed_and_non_grant_signaling_do_not_poison_lease_or_history() {
     assert_eq!(state.subscriptions[0].len(), 1);
     followed_packet(&mut state, &literal_grant(41, 11, 1), 0, now, 7);
     assert_eq!(state.packets.last_rejection, Some("grant_no_pending"));
-    assert_eq!(state.received_grant_sequence, Some(11));
     followed_packet(&mut state, &literal_grant(12, 0, 1), 0, now, 7);
     assert_eq!(state.received_grants, 2);
 }
@@ -489,7 +560,6 @@ fn grant_framing_rejects_complete_odd_length_tlv_before_or_after_grant() {
         assert_eq!(state.packets.last_rejection, Some("grant_framing"));
         assert_eq!(state.received_grants, 1);
         assert_eq!(state.granted_until[0], lease);
-        assert_eq!(state.received_grant_sequence, Some(11));
         assert_eq!(state.subscriptions[0].len(), 1);
     }
 
@@ -501,7 +571,6 @@ fn grant_framing_rejects_complete_odd_length_tlv_before_or_after_grant() {
         state.granted_until[0],
         Some(later + Duration::from_secs(30))
     );
-    assert_eq!(state.received_grant_sequence, Some(12));
 }
 
 fn packet_sequence(packet: &[u8]) -> u16 {
@@ -549,7 +618,7 @@ fn requests_retries_and_generated_grants_use_per_peer_signaling_sequences() {
 }
 
 #[test]
-fn source_port_or_grandmaster_change_restarts_only_the_receive_history() {
+fn source_port_or_grandmaster_change_expires_leases_and_pending_but_keeps_transmit_sequence() {
     let now = Instant::now();
     for index in [27, 29, 60] {
         let mut state = follower(now);
@@ -557,12 +626,10 @@ fn source_port_or_grandmaster_change_restarts_only_the_receive_history() {
         state.packets.subscription_requests_sent = 42;
         pend(&mut state, 0, -3, now);
         followed_packet(&mut state, &literal_grant(123, 0, 0), 0, now, 7);
-        assert_eq!(state.received_grant_sequence, Some(123));
         pend(&mut state, 0, -3, now);
         let mut new_announce = announce(8, 1, 0);
         new_announce[index] ^= 1;
         followed_packet(&mut state, &new_announce, 0, now, 7);
-        assert_eq!(state.received_grant_sequence, None);
         assert!(state.subscriptions[0].is_empty());
         assert_eq!(state.granted_until[0], None);
         assert_eq!(state.signaling_sequence, 18);
@@ -573,7 +640,6 @@ fn source_port_or_grandmaster_change_restarts_only_the_receive_history() {
         let mut new_grant = literal_grant(1, 0, 1);
         new_grant[20..30].copy_from_slice(&new_announce[20..30]);
         followed_packet(&mut state, &new_grant, 0, now, 7);
-        assert_eq!(state.received_grant_sequence, Some(1));
         assert_eq!(state.received_grants, 1);
         assert_eq!(state.packets.grant_accepted, 2);
     }

@@ -212,7 +212,6 @@ struct PeerState {
     source_port: Option<u16>,
     subscriptions: [VecDeque<Subscription>; 3],
     signaling_sequence: u16,
-    received_grant_sequence: Option<u16>,
     granted_until: [Option<Instant>; 3],
     received_grants: u64,
     last_request: Option<(u8, u16, Instant)>,
@@ -294,6 +293,7 @@ pub struct PacketSnapshot {
     grant_tlv_checked: u64,
     // Unlike received_grants, this count survives changes of the remote source.
     grant_accepted: u64,
+    // Retained in serialized diagnostics; source sequence is not a request token.
     grant_rejected_replay: u64,
     grant_rejected_fields: u64,
     grant_rejected_no_pending_or_stale: u64,
@@ -344,7 +344,6 @@ impl PeerState {
             "grant_framing" | "grant_target" | "grant_fields" => {
                 &mut self.packets.grant_rejected_fields
             }
-            "grant_replay" => &mut self.packets.grant_rejected_replay,
             "grant_no_pending" => &mut self.packets.grant_rejected_no_pending_or_stale,
             _ => return,
         };
@@ -840,16 +839,9 @@ fn receive_grants(s: &mut PeerState, data: &[u8], own_id: u64, now: Instant) {
         s.reject("grant_target");
         return;
     }
-    let sequence = u16::from_be_bytes([data[30], data[31]]);
-    // The remote port owns this Signaling sequence. Compare once per packet
-    // using serial ordering; only an accepted grant advances the history.
-    if s.received_grant_sequence
-        .is_some_and(|previous| !(1..0x8000).contains(&sequence.wrapping_sub(previous)))
-    {
-        s.reject("grant_replay");
-        return;
-    }
-    let mut accepted = false;
+    // A Grant's sequence belongs to its sender, not the local request. Its
+    // continuity cannot prove freshness across receiver restarts or contract
+    // renewal; acceptance requires a current pending request of this type.
     let mut at = 44;
     while at < data.len() {
         let kind = u16::from_be_bytes([data[at], data[at + 1]]);
@@ -896,10 +888,6 @@ fn receive_grants(s: &mut PeerState, data: &[u8], own_id: u64, now: Instant) {
         s.received_grants = s.received_grants.saturating_add(1);
         s.packets.grant_accepted = s.packets.grant_accepted.saturating_add(1);
         s.subscriptions[index].clear();
-        accepted = true;
-    }
-    if accepted {
-        s.received_grant_sequence = Some(sequence);
     }
 }
 fn subscription(clock: u64, remote: Option<(u64, u16)>, seq: u16, kind: u8) -> Vec<u8> {
