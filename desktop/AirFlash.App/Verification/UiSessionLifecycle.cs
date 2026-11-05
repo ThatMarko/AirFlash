@@ -36,6 +36,7 @@ internal static class UiSessionLifecycle
         await AutomaticOwnershipAsync(checks);
         await AutomaticEligibilityAsync(checks);
         await AutomaticSaveFailureAsync(checks);
+        await RejectedPlayRetainsPendingGainAsync(checks);
         await StopWaitingForAdmissionAsync(checks);
         await EligibilityArrivalAsync(checks);
         await ManualSelectionAsync(checks);
@@ -604,6 +605,74 @@ internal static class UiSessionLifecycle
                 "shutdown preserves valid pending edits and rejects delayed automatic admission", checks);
         }
         finally { gate.Release.TrySetResult(); await Task.WhenAll(automatic, shutdown).WaitAsync(Limit); }
+    }
+
+    private static async Task RejectedPlayRetainsPendingGainAsync(List<string> checks)
+    {
+        var current = Pod("pending-gain-current");
+        var other = Pod("pending-gain-rejected", "192.0.2.20");
+        var settings = Settings(); SeedAliases(settings, current, other);
+        await using var fixture = await Fixture.CreateAsync(settings, [current, other]);
+        await fixture.App.ToggleAsync(current);
+        await StateAsync(fixture, PlaybackState.Streaming);
+        var process = fixture.Engine.Connections.Single();
+        var owner = fixture.App.Session.Capture();
+        Check(CurrentGain(process) == 1, "the original worker starts at the saved master gain", checks);
+
+        var save = fixture.Store.Hold();
+        fixture.App.MasterVolume = 37;
+        var flushing = fixture.App.FlushVolumeAsync();
+        Task discovery = Task.CompletedTask;
+        Task<Exception?> playing = Task.FromResult<Exception?>(null);
+        try
+        {
+            await save.Entered.Task.WaitAsync(Limit);
+            // Eligibility is queued before Play's own flush. Both wait behind the
+            // entered save, while Play captures the still-online selection.
+            discovery = fixture.App.ApplyDiscoveryAsync([current]);
+            playing = AttemptPlayAsync(fixture.App, other);
+            Check(!discovery.IsCompleted && !playing.IsCompleted
+                && fixture.App.Session.Capture().Owner == owner.Owner
+                && fixture.App.Session.Capture().AutomaticIntent != owner.AutomaticIntent,
+                "a new Play invalidates the held gain update before queued discovery removes its receiver", checks);
+            var staleAccepted = await fixture.App.Session.TryUpdateSettingsAsync(fixture.App.Settings.Clone(), owner);
+            Check(!staleAccepted && CurrentGain(process) == 1,
+                "the old captured settings update is legitimately rejected without altering the owned worker", checks);
+
+            save.Release.TrySetResult();
+            await Task.WhenAll(flushing, discovery).WaitAsync(Limit);
+            var rejection = await playing.WaitAsync(Limit);
+            await DrainAsync();
+            Check(rejection is InvalidOperationException
+                && rejection.Message == L.Get("The receiver is unavailable.")
+                && fixture.App.Session.Capture().Owner == owner.Owner
+                && fixture.Engine.OpenCount == 1 && !process.Disposed
+                && fixture.App.Snapshot.State == PlaybackState.Streaming
+                && fixture.App.Settings.MasterVolume == 37 && fixture.Store.Saved.MasterVolume == 37
+                && fixture.App.Settings.LastReceiverId == current.Id,
+                "an unavailable queued Play preserves the original stream and the successfully saved volume", checks);
+
+            // Controlled scheduling substitutes this explicit flush for the next
+            // normal debounce tick. Persistence must not consume an unapplied gain.
+            await fixture.App.FlushVolumeAsync().WaitAsync(Limit);
+            Check(CurrentGain(process) == 0.37 && fixture.App.Session.Capture().Owner == owner.Owner
+                && fixture.Engine.OpenCount == 1 && !process.Disposed,
+                "a saved gain still reaches the original worker after the newer Play is rejected", checks);
+        }
+        finally
+        {
+            save.Release.TrySetResult();
+            await Task.WhenAll(flushing, discovery, playing).WaitAsync(Limit);
+        }
+
+        static double? CurrentGain(ScriptedConnection process) =>
+            process.Commands.Last(command => command.Name is "start" or "set_gain").Parameters.Number("gain");
+
+        static async Task<Exception?> AttemptPlayAsync(AppViewModel app, Receiver receiver)
+        {
+            try { await app.ToggleAsync(receiver); return null; }
+            catch (InvalidOperationException error) { return error; }
+        }
     }
 
     private static async Task EligibilityArrivalAsync(List<string> checks)
