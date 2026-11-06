@@ -397,8 +397,9 @@ struct Member {
     event_key: Vec<u8>,
     event_rebuilds: u8,
     next_event_rebuild: Instant,
-    /// Control-plane evidence plus the quiet re-probe queue. The receiver's live
-    /// `statusFlags` probe — not a signal and not a media symptom — decides.
+    /// Control-plane evidence and probe scheduling (confirmation and liveness
+    /// retries). The receiver's live `statusFlags` probe — not a signal and not
+    /// a media symptom — decides.
     preemption: preemption::Tracker,
     /// The receiver took this session over. Never send a TEARDOWN back to it.
     preempted: bool,
@@ -432,36 +433,35 @@ impl Drop for EventTask {
         }
     }
 }
-/// Outcome of one preemption poll. Only `Yield` is a terminal fault; a
-/// confirmed takeover returns a reclaim signal so the live loop can open a
-/// fresh connection instead of reporting a generic transport failure.
+/// Outcome of one preemption poll under `receiver_ownership_guard`. `Yield`
+/// is the only terminal outcome: a member never reclaims its receiver
+/// in-session (see the `preemption` module docs).
 #[derive(Debug)]
 enum PreemptionPoll {
     /// No evidence, or the next probe is not due yet.
     None,
-    /// A probe (or its confirmation) is in flight, or the receiver is playing
-    /// another sender's session. This is a queue, not a failure: the next probe
-    /// is scheduled and the session keeps its media loop.
+    /// An ownership check is open and a probe (or its confirmation) is in
+    /// flight or scheduled. The media loop keeps running meanwhile, and a dead
+    /// control channel is expected rather than a fault.
     Waiting,
-    /// A takeover was confirmed (or the probe failed open, or the busy queue
-    /// was exhausted): end this attempt and reclaim the receiver on a fresh
-    /// connection.
-    /// The consecutive limit was hit: stop reclaiming, non-retryable.
+    /// End this attempt and stop the whole group: `preempted` (another
+    /// controller took over), `ownership_unconfirmed` (ownership could not be
+    /// proven; manual reconnect) or `peer_closed` (the receiver confirmed free;
+    /// retryable, and an automatic restart re-runs the free-receiver preflight).
     Yield(Fault),
 }
 
-/// One member's preemption evidence for a loop round, gathered **before** any
-/// decision so Q42's group-wide rule can see every member at once: deciding
-/// member by member would reclaim the first failing receiver before the second
-/// one's identical failure was even probed.
+/// One member's preemption round for a loop tick. Every member's round is
+/// prepared (finished probes collected, due probes started on a background
+/// thread) before any member's verdict is applied. Each verdict uses only its
+/// own member's probe: probes finish on independent ticks, so Q46's group-wide
+/// rule is not applied in production (see `AllFailedEpisode`).
 struct PreemptionRound {
     media_healthy: bool,
-    /// Signals drained from the feedback workers this round (evidence line).
+    /// Signals the tracker collected since the previous probe started; they
+    /// are logged on this probe's evidence line.
     signals: Vec<preemption::Signal>,
-    /// The control-port probe taken for the evidence line, when a signal
-    /// arrived but no verdict was due.
-    evidence: Option<preemption::ReceiverLiveness>,
-    /// The verdict half: present only when a probe was due this round.
+    /// The verdict half: present only on the tick a probe finished.
     probe: Option<RoundProbe>,
 }
 
@@ -486,6 +486,16 @@ struct RoundProbe {
 /// full all-failed round, because a gateway that comes back has to end the
 /// suppression and, with no gateway at all, the fallback clock only advances
 /// here.
+///
+/// Test-only: `send_packets` used to run this with a synchronous gateway
+/// connect (up to [`preemption::GATEWAY_PROBE_TIMEOUT`] per port) on the audio
+/// thread, and the rework that moved every network wait off that thread
+/// retired it. Member probes now finish on independent ticks, so a full
+/// all-failed round never forms without delaying one member's verdict, and the
+/// signals that dominate ownership checks (feedback loss, clock loss, an
+/// unexpected `TEARDOWN`) yield `ownership_unconfirmed` either way. Production
+/// therefore passes `local_suspected = false`; this model keeps the rule's
+/// bookkeeping exercised for a future asynchronous reference probe.
 #[cfg(test)]
 struct AllFailedEpisode {
     /// Start of the current all-failed episode; `None` between episodes.
@@ -612,7 +622,7 @@ impl Member {
             plan,
             &peer.profile,
             options.sample_rate,
-            options.timing == "ptp",
+            peer.profile.inherits_ptp(&options.timing),
         )?;
         if compat.uses_ptp() && ptp.is_none() {
             let peers = options.peers.iter().map(|p| p.host).collect();
@@ -623,8 +633,9 @@ impl Member {
                 .map(|p| p.host)
                 .collect();
             let timer = PtpMaster::start_with_followers(peers, followers, clock.clone())?;
-            // Timing is activated after SETPEERS below. Automatic role negotiation
-            // before activation cannot send probes; keep the configured clock role.
+            // The clock role is the profile's (`follow_receiver_clock`); there is
+            // no runtime BMCA negotiation (see the `clock` module docs). Timing
+            // is activated after SETPEERS below.
             *ptp = Some(timer);
         }
         let clock_id = compat.uses_ptp().then(|| ptp.as_ref().unwrap().clock_id);
@@ -885,7 +896,6 @@ impl Member {
     fn poll_preemption(
         &mut self,
         cancel: &Cancellation,
-        takeovers: &mut preemption::TakeoverCounters,
         now: Instant,
         emit: &impl Fn(Json),
     ) -> (PreemptionPoll, bool) {
@@ -894,7 +904,7 @@ impl Member {
             thread::sleep(Duration::from_millis(1));
             round = self.prepare_preemption(cancel, now);
         }
-        self.apply_preemption(round, takeovers, now, emit, false)
+        self.apply_preemption(round, now, emit, false)
     }
 
     /// Drain completed probe results or start one bounded background round.
@@ -904,7 +914,6 @@ impl Member {
         let empty = || PreemptionRound {
             media_healthy: healthy,
             signals: Vec::new(),
-            evidence: None,
             probe: None,
         };
         if cancel.is_cancelled() {
@@ -926,8 +935,7 @@ impl Member {
                 .join()
                 .unwrap_or_else(|_| empty());
         }
-        let signals = self.health.take_preemption_signals();
-        for signal in &signals {
+        for signal in &self.health.take_preemption_signals() {
             if signal.ends_session()
                 || matches!(
                     signal,
@@ -947,6 +955,9 @@ impl Member {
         if !self.preemption.due(now) {
             return empty();
         }
+        // Everything observed since the previous probe, including signals that
+        // arrived while a confirmation or liveness retry was pending.
+        let signals = self.preemption.take_signals();
         // A successful UDP send is local socket acceptance, not receiver playback.
         // In particular it cannot contradict a receiver-initiated TEARDOWN.
         let media_healthy = self.media.media_healthy(now, MEDIA_HEALTH_WINDOW)
@@ -998,7 +1009,6 @@ impl Member {
                 PreemptionRound {
                     media_healthy,
                     signals,
-                    evidence: None,
                     probe: Some(RoundProbe {
                         liveness,
                         result,
@@ -1019,13 +1029,13 @@ impl Member {
     }
 
     /// Phase 2: feed the round through Q42's escalation rule and act on the
-    /// verdict. `local_suspected` is the group-wide result: every receiver
-    /// failed at once, so the failure belongs to our own side, not to this
-    /// device.
+    /// verdict. `local_suspected` is Q46's group-wide result (every receiver
+    /// failed at once, so the failure belongs to our own side); `send_packets`
+    /// always passes `false` because that rule is not wired (see
+    /// `AllFailedEpisode`).
     fn apply_preemption(
         &mut self,
         round: PreemptionRound,
-        takeovers: &mut preemption::TakeoverCounters,
         now: Instant,
         emit: &impl Fn(Json),
         local_suspected: bool,
@@ -1043,17 +1053,8 @@ impl Member {
             );
         }
         let Some(probe) = round.probe else {
-            // Evidence only: no probe was due this round.
-            if let Some(probed) = round.evidence {
-                emit(preemption_evidence(
-                    self,
-                    &round.signals,
-                    media_healthy,
-                    probed,
-                    None,
-                    false,
-                ));
-            }
+            // No probe finished this tick. Signals stay with the tracker and
+            // are logged with the next probe's evidence line.
             let investigating = (self.ownership_uncertain || self.preemption.session_ended())
                 && (self.probe_task.is_some() || self.preemption.scheduled().is_some());
             return (
@@ -1115,7 +1116,6 @@ impl Member {
         match note.action {
             preemption::ProbeAction::Confirm => (PreemptionPoll::Waiting, media_healthy),
             preemption::ProbeAction::Requeue => {
-                let _ = takeovers.takeover(self.peer.host, now);
                 self.preempted = true;
                 if let Ok(mut connection) = self.conn.try_lock() {
                     connection.poison();
@@ -1128,7 +1128,7 @@ impl Member {
                                 .as_ref()
                                 .is_ok_and(|r| r.outcome == preemption::ProbeOutcome::BusyElsewhere)
                         {
-                            preemption_fault(self, preemption::ReclaimReason::Takeover, 1)
+                            preemption_fault(self)
                         } else {
                             ownership_unconfirmed(self.peer.host)
                         },
@@ -1500,30 +1500,11 @@ fn run_session(
 ) -> Result<()> {
     options.validate()?;
     let standby = crate::standby::Control::new(options.standby);
-    let mut takeovers = preemption::TakeoverCounters::default();
-    if let Err(error) = run_stream(
-        &options,
-        &cancel,
-        &gain,
-        volume,
-        equalizer,
-        None,
-        &standby,
-        &mut takeovers,
-        // A finite qualification is a single fresh timeline: the baseline of its
-        // own row, not a reset.
-        None,
-        None,
-        &emit,
-        clocks,
-    ) {
-        // A finite qualification cannot reopen a session; report the confirmed
-        // takeover as the preempted fault instead of the internal reclaim signal.
-        if let Some(reclaim) = error.downcast_ref::<preemption::Reclaim>() {
-            return Err(preemption_takeover_fault(reclaim.host, reclaim.consecutive).into());
-        }
-        return Err(error);
-    }
+    // A finite qualification is a single fresh timeline: the baseline of its
+    // own row, not a reset (`reset_before` is `None`).
+    run_stream(
+        &options, &cancel, &gain, volume, equalizer, None, &standby, None, &emit, clocks,
+    )?;
     emit(json!({"event":"stopped","cancelled":cancel.is_cancelled()}));
     Ok(())
 }
@@ -1573,17 +1554,10 @@ fn run_live(
         .capture_process_id
         .zip(options.capture_process_started_at);
     let mut next_metrics = Instant::now();
-    // Persist across reclaims: "taken over N times in a row" is a property of
-    // this live playback run, not of one Member/connection.
-    let mut takeovers = preemption::TakeoverCounters::default();
     // Q40: why the *next* attempt builds a fresh timeline. `None` for the first
     // attempt — that schedule is the baseline of the row, so a normal stop stays
     // all-zero. Every resumed attempt must name its cause here.
     let mut reset_before: Option<TimelineResetReason> = None;
-    // The member the previous iteration reclaimed. Its fresh session is the
-    // "successful reclaim" the takeover counter needs: only a takeover that
-    // follows one inside `TAKEOVER_WINDOW` continues the same cycle (Q34 §四).
-    let mut reclaimed: Option<IpAddr> = None;
     while !cancel.is_cancelled() {
         if let Some(live) = &source {
             emit_capture_warnings(live, &emit);
@@ -1681,7 +1655,11 @@ fn run_live(
         }
         emit(json!({"event":"resuming"}));
         live.discard_stale();
-        let ended = match run_stream(
+        // A preemption yield (`preempted`, `ownership_unconfirmed`,
+        // `peer_closed`) ends the live run like any other fault: the engine
+        // never reclaims a receiver in-session, the host decides whether to
+        // start again (receiver_ownership_guard).
+        let ended = run_stream(
             &options,
             &cancel,
             &gain,
@@ -1689,32 +1667,10 @@ fn run_live(
             equalizer.clone(),
             Some(live),
             &standby,
-            &mut takeovers,
             reset_before,
-            reclaimed.take(),
             &emit,
             (Clock::new(), None),
-        ) {
-            Ok(ended) => ended,
-            Err(error) => {
-                // The live status probe said free (or the device is gone / the
-                // probe failed open). This is a reclaim, not a transport
-                // failure: close the poisoned control connection by dropping the
-                // Member and open a fresh one. The counter above limits how
-                // often a *takeover* can happen in a row; a busy receiver never
-                // gets here at all because it only queues.
-                let Some(reclaim) = error.downcast_ref::<preemption::Reclaim>() else {
-                    return Err(error);
-                };
-                reclaimed = Some(reclaim.host);
-                live.discard_stale();
-                // The next attempt is a reconnect after the receiver was taken
-                // over: the engine-side timeline restarts with the new session.
-                reset_before = Some(TimelineResetReason::SessionRestart);
-                options.intent = StartIntent::Automatic;
-                continue;
-            }
-        };
+        )?;
         // Every subsequent attempt is automatic, including a capture-source
         // restart and waking after we released the receiver for silence.
         options.intent = StartIntent::Automatic;
@@ -1856,12 +1812,7 @@ fn run_stream(
     equalizer: crate::equalizer::Control,
     provided: Option<&crate::live::Loopback>,
     standby: &crate::standby::Control,
-    takeovers: &mut preemption::TakeoverCounters,
     reset_before: Option<TimelineResetReason>,
-    // The receiver the previous attempt reclaimed, if any. Once this fresh
-    // session is established it counts as a *successful* reclaim for the
-    // takeover cycle window (Q34 §四).
-    reclaimed: Option<IpAddr>,
     emit: &impl Fn(Json),
     clocks: (Clock, Option<PtpMaster>),
 ) -> Result<StreamEnd> {
@@ -2066,13 +2017,6 @@ fn run_stream(
             thread::sleep(Duration::from_millis(2));
         }
     }
-    // The group is fully configured and RECORDed: a reclaim that produced this
-    // session is "successful" from here on. Only then can a following takeover
-    // be another turn of the same reclaim → takeover cycle (Q34 §四). A failed
-    // reclaim never reaches this point, so it can never arm the counter.
-    if let Some(host) = reclaimed {
-        takeovers.reclaimed(host, Instant::now());
-    }
     let outcome = send_packets(
         options,
         cancel,
@@ -2084,7 +2028,6 @@ fn run_stream(
         clock_id,
         &mut members,
         ptp.as_ref(),
-        takeovers,
         &samples,
         reset_before,
         emit,
@@ -2136,7 +2079,6 @@ fn send_packets(
     clock_id: Option<u64>,
     members: &mut [Member],
     ptp: Option<&PtpMaster>,
-    takeovers: &mut preemption::TakeoverCounters,
     samples: &[i16],
     reset_before: Option<TimelineResetReason>,
     emit: &impl Fn(Json),
@@ -2256,11 +2198,6 @@ fn send_packets(
     let mut pcm = vec![0; PCM_BYTES];
     let started_ns = crate::wasapi::qpc_ns();
     let mut pending_clock_fault: Option<String> = None;
-    // Q46's all-failed rule state. The gateway address is discovered once per
-    // all-failed episode (not per round: a routing-table lookup every 3 s of an
-    // outage would buy nothing) while its reachability is probed again on every
-    // full round, so a recovered reference ends the suppression.
-
     let outcome = (|| -> Result<StreamEnd> {
         while (options.duration_ms == 0 || start.elapsed() < duration) && !cancel.is_cancelled() {
             if let Some(source) = live {
@@ -2285,10 +2222,9 @@ fn send_packets(
                     emit(event);
                 }
             }
-            // Gather the whole round before deciding anything: Q42's group-wide
-            // rule needs every member's liveness at once, and a member-by-member
-            // decision would reclaim the first failing receiver before the
-            // second one's identical failure was even probed.
+            // Prepare every member's round (collect finished probes, start due
+            // ones on background threads) before applying any verdict. Nothing
+            // here waits for the network.
             let mut rounds = Vec::with_capacity(members.len());
             for member in members.iter_mut() {
                 rounds.push(member.prepare_preemption(cancel, Instant::now()));
@@ -2297,8 +2233,10 @@ fn send_packets(
                 for notice in member.health.notices() {
                     emit(notice);
                 }
+                // `false`: Q46's group-wide gateway check is not wired; each
+                // member is judged on its own probe (see `AllFailedEpisode`).
                 let (preemption, media_healthy) =
-                    member.apply_preemption(round, takeovers, Instant::now(), emit, false);
+                    member.apply_preemption(round, Instant::now(), emit, false);
                 let waiting = match preemption {
                     PreemptionPoll::None => false,
                     PreemptionPoll::Waiting => true,
@@ -2321,9 +2259,9 @@ fn send_packets(
                     }
                 };
                 member.health.check()?;
-                // While another sender owns the receiver, a dead control channel
-                // is expected; the status-probe queue decides when to move, not the
-                // generic control check.
+                // While an ownership check is open, a dead control channel is
+                // expected; the status probe decides whether this member yields,
+                // not the generic control check.
                 if !waiting {
                     // Control-plane trouble only ends media that has already stopped
                     // arriving; a dead RTSP feedback loop on a healthy RTP stream keeps
@@ -2619,6 +2557,7 @@ fn send_packets(
                     sample_capture(source, &mut capture_baseline, &mut telemetry);
                     emit(json!({"event":"capture_metrics","metrics":source.metrics()}));
                 }
+                record_member_counters(&mut telemetry, members);
                 let snapshot = transport_metrics(
                     members,
                     &schedule,
@@ -2773,6 +2712,7 @@ fn send_packets(
             emit(notice);
         }
     }
+    record_member_counters(&mut telemetry, members);
     let snapshot = transport_metrics(
         members,
         &schedule,
@@ -2823,7 +2763,10 @@ fn send_packets(
     );
     let path = (!options.report_session_id.is_empty()).then(crate::telemetry::summary_path);
     emit_session_summary(&summary, path.as_deref(), emit);
+    // Both workers share each member's control connection: stop them before
+    // TEARDOWN so neither contends for the lock nor writes after it.
     drop(volume_workers);
+    drop(metadata_worker);
     for m in members.iter_mut() {
         m.close();
     }
@@ -2934,31 +2877,13 @@ pub(crate) fn emit_session_summary(
 }
 
 /// A confirmed takeover yields until the user explicitly starts playback again.
-fn preemption_fault(
-    member: &Member,
-    reason: preemption::ReclaimReason,
-    _consecutive: u32,
-) -> Fault {
+fn preemption_fault(member: &Member) -> Fault {
     Fault::new(
         member.peer.host,
         "control",
         "preempted",
         false,
         "Another controller took over this receiver; AirFlash stopped and will not reconnect automatically. Start playback again to claim it back.",
-    )
-    .with_reason(reason.name())
-}
-/// Finite qualification cannot reopen a session, so a confirmed takeover is
-/// reported as the terminal `PREEMPTED(takeover)` fault there.
-fn preemption_takeover_fault(host: IpAddr, consecutive: u32) -> Fault {
-    Fault::new(
-        host,
-        "control",
-        "preempted",
-        false,
-        format!(
-            "Another controller took over this receiver (takeover {consecutive}); AirFlash stopped and will not reconnect automatically. Start playback again to claim it back."
-        ),
     )
     .with_reason(preemption::ReclaimReason::Takeover.name())
 }
@@ -3126,7 +3051,8 @@ fn preemption_probe(
 /// every re-evaluation round; `verdict` separates "the gateway answered nothing"
 /// (`local_network`) from "there was no default route to ask"
 /// (`local_network_unproven`), and `all_failed_for_ms` is how long the episode
-/// has run (it matters only for the time-boxed fallback).
+/// has run (it matters only for the time-boxed fallback). Test-only, like
+/// [`AllFailedEpisode`]: production never emits this event.
 #[cfg(test)]
 fn preemption_local_network(
     receivers: usize,
@@ -3231,6 +3157,17 @@ fn sample_capture(
         }
     }
     *baseline = Some(metrics);
+}
+
+/// Copy per-member counters into the session block before a snapshot. The
+/// member values are cumulative, so they are assigned rather than added.
+fn record_member_counters(telemetry: &mut crate::telemetry::SessionTelemetry, members: &[Member]) {
+    telemetry.events_dropped = members.iter().map(|m| m.health.commands_dropped()).sum();
+    let mut rtx_gap = crate::telemetry::Histogram::default();
+    for member in members {
+        rtx_gap.merge(&member.media.rtx_gap);
+    }
+    telemetry.rtx_gap = rtx_gap;
 }
 
 fn transport_metrics(
@@ -3674,6 +3611,51 @@ mod tests {
         assert_eq!(options.peers[0].profile.latency_ms, Some(120));
     }
     #[test]
+    fn member_counters_reach_transport_metrics() {
+        let (mut left, _left_receiver, left_server) = local_member();
+        let (mut right, _right_receiver, right_server) = local_member();
+        left.media.rtx_gap.observe(8.0);
+        right.media.rtx_gap.observe(24.0);
+        let command = || crate::events::ParsedEvent {
+            commands: vec![crate::events::RemoteCommand::Pause],
+            volume: None,
+            source: None,
+        };
+        // The inbox keeps the newest 32 commands; the rest are evicted.
+        for _ in 0..35 {
+            left.health.push_command_for_test(command());
+        }
+        for _ in 0..33 {
+            right.health.push_command_for_test(command());
+        }
+        let members = vec![left, right];
+        let mut telemetry = crate::telemetry::SessionTelemetry::new();
+        assert_eq!(telemetry.snapshot()["events_dropped"], 0);
+        record_member_counters(&mut telemetry, &members);
+        let snapshot = transport_metrics(
+            &members,
+            &MediaSchedule::new(Instant::now(), 44_100),
+            &telemetry,
+            Duration::from_millis(200),
+            None,
+            None,
+            &LiveLead::default(),
+        );
+        assert_eq!(snapshot["event"], "transport_metrics");
+        assert_eq!(snapshot["events_dropped"], 4);
+        assert_eq!(snapshot["retransmit_gap"]["count"], 2);
+        assert_eq!(snapshot["retransmit_gap"]["max_ms"], 24.0);
+        // Draining the inbox does not undo the count, and re-recording does
+        // not double either counter.
+        let _ = members[0].health.commands();
+        record_member_counters(&mut telemetry, &members);
+        assert_eq!(telemetry.snapshot()["events_dropped"], 4);
+        assert_eq!(telemetry.snapshot()["retransmit_gap"]["count"], 2);
+        drop(members);
+        left_server.join().unwrap();
+        right_server.join().unwrap();
+    }
+    #[test]
     fn alignment_guard_is_not_mistaken_for_an_adaptive_ladder_step() {
         let (mut member, _receiver, server) = local_member();
         member
@@ -4028,7 +4010,6 @@ mod tests {
             None,
             &mut members,
             None,
-            &mut preemption::TakeoverCounters::default(),
             &vec![0; FRAMES * 2],
             None,
             &|event| events.lock().unwrap().push(event),
@@ -4070,15 +4051,14 @@ mod tests {
             .health
             .preemption_signal(preemption::Signal::ClockLost);
         let now = Instant::now();
-        let mut takeovers = preemption::TakeoverCounters::default();
         assert!(matches!(
             member
-                .poll_preemption(&Cancellation::default(), &mut takeovers, now, &|_| {})
+                .poll_preemption(&Cancellation::default(), now, &|_| {})
                 .0,
             PreemptionPoll::Waiting
         ));
         assert!(
-            matches!(member.poll_preemption(&Cancellation::default(), &mut takeovers, now + preemption::CONFIRM_DELAY, &|_| {}).0,
+            matches!(member.poll_preemption(&Cancellation::default(), now + preemption::CONFIRM_DELAY, &|_| {}).0,
             PreemptionPoll::Yield(ref f) if f.code == "ownership_unconfirmed" && !f.retryable)
         );
         drop(member);
@@ -4129,7 +4109,6 @@ mod tests {
             None,
             &mut members,
             Some(&timer),
-            &mut preemption::TakeoverCounters::default(),
             &vec![0; FRAMES * 2],
             None,
             &|e| events.lock().unwrap().push(e),
@@ -4201,7 +4180,6 @@ mod tests {
             None,
             &mut members,
             Some(&timer),
-            &mut preemption::TakeoverCounters::default(),
             &[],
             None,
             &|event| {
@@ -4260,9 +4238,8 @@ mod tests {
             .health
             .preemption_signal(preemption::Signal::FeedbackLost);
         let now = Instant::now();
-        let mut takeovers = preemption::TakeoverCounters::default();
         assert!(
-            matches!(member.poll_preemption(&Cancellation::default(), &mut takeovers, now, &|_| {}).0,
+            matches!(member.poll_preemption(&Cancellation::default(), now, &|_| {}).0,
             PreemptionPoll::Yield(ref f) if f.code == "ownership_unconfirmed" && !f.retryable)
         );
         drop(member);
@@ -4274,11 +4251,10 @@ mod tests {
         let round = PreemptionRound {
             media_healthy: true,
             signals: vec![],
-            evidence: None,
             probe: None,
         };
         assert!(
-            matches!(member.apply_preemption(round, &mut takeovers, now + Duration::from_secs(15), &|_| {}, false).0,
+            matches!(member.apply_preemption(round, now + Duration::from_secs(15), &|_| {}, false).0,
             PreemptionPoll::Yield(ref f) if f.code == "ownership_unconfirmed" && !f.retryable)
         );
         drop(member);
@@ -4444,12 +4420,10 @@ mod tests {
             .preemption_signal(preemption::Signal::UnexpectedTeardown);
         let emitted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen = emitted.clone();
-        let mut counters = preemption::TakeoverCounters::default();
         let now = Instant::now() + Duration::from_secs(3);
-        let (poll, healthy) =
-            member.poll_preemption(&Cancellation::default(), &mut counters, now, &|json| {
-                seen.lock().unwrap().push(json)
-            });
+        let (poll, healthy) = member.poll_preemption(&Cancellation::default(), now, &|json| {
+            seen.lock().unwrap().push(json)
+        });
         assert!(!healthy, "the media health window has expired");
         assert!(
             matches!(poll, PreemptionPoll::Waiting),
@@ -4469,7 +4443,6 @@ mod tests {
         }
         let (poll, _) = member.poll_preemption(
             &Cancellation::default(),
-            &mut counters,
             now + preemption::CONFIRM_DELAY,
             &|json| seen.lock().unwrap().push(json),
         );
@@ -4548,13 +4521,10 @@ mod tests {
             .preemption_signal(preemption::Signal::ConnectionClose);
         let emitted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen = emitted.clone();
-        let mut counters = preemption::TakeoverCounters::default();
-        let (poll, healthy) = member.poll_preemption(
-            &Cancellation::default(),
-            &mut counters,
-            Instant::now(),
-            &|json| seen.lock().unwrap().push(json),
-        );
+        let (poll, healthy) =
+            member.poll_preemption(&Cancellation::default(), Instant::now(), &|json| {
+                seen.lock().unwrap().push(json)
+            });
         assert!(healthy, "our own media is still flowing");
         assert!(
             matches!(poll, PreemptionPoll::None),
@@ -4565,7 +4535,6 @@ mod tests {
             !member.conn.lock().unwrap().is_poisoned(),
             "a healthy session's control connection must stay usable"
         );
-        assert_eq!(counters.consecutive(member.peer.host), 0);
         {
             let events = emitted.lock().unwrap();
             assert!(
@@ -4608,10 +4577,8 @@ mod tests {
         member
             .health
             .preemption_signal(preemption::Signal::UnexpectedTeardown);
-        let mut counters = preemption::TakeoverCounters::default();
         let now = Instant::now();
-        let (first, healthy) =
-            member.poll_preemption(&Cancellation::default(), &mut counters, now, &|_| {});
+        let (first, healthy) = member.poll_preemption(&Cancellation::default(), now, &|_| {});
         assert!(
             !healthy,
             "UDP acceptance cannot contradict the explicit TEARDOWN"
@@ -4619,7 +4586,6 @@ mod tests {
         assert!(matches!(first, PreemptionPoll::Waiting));
         let (second, _) = member.poll_preemption(
             &Cancellation::default(),
-            &mut counters,
             now + preemption::CONFIRM_DELAY,
             &|_| {},
         );
@@ -4660,11 +4626,9 @@ mod tests {
             .preemption_signal(preemption::Signal::UnexpectedTeardown);
         let emitted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen = emitted.clone();
-        let mut counters = preemption::TakeoverCounters::default();
-        let (first, healthy) =
-            member.poll_preemption(&Cancellation::default(), &mut counters, now, &|json| {
-                seen.lock().unwrap().push(json)
-            });
+        let (first, healthy) = member.poll_preemption(&Cancellation::default(), now, &|json| {
+            seen.lock().unwrap().push(json)
+        });
         assert!(!healthy, "the media health window has expired");
         assert!(
             matches!(first, PreemptionPoll::Waiting),
@@ -4674,7 +4638,6 @@ mod tests {
         assert!(!member.conn.lock().unwrap().is_poisoned());
         let (poll, _) = member.poll_preemption(
             &Cancellation::default(),
-            &mut counters,
             now + preemption::CONFIRM_DELAY,
             &|json| seen.lock().unwrap().push(json),
         );
@@ -4715,10 +4678,8 @@ mod tests {
             .preemption_signal(preemption::Signal::ConnectionClose);
         let emitted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen = emitted.clone();
-        let mut counters = preemption::TakeoverCounters::default();
         let (poll, _) = member.poll_preemption(
             &Cancellation::default(),
-            &mut counters,
             // Q34 only consults statusFlags while RTP is unhealthy; fail-open
             // applies on that branch.
             Instant::now() + Duration::from_secs(3),
@@ -4757,13 +4718,10 @@ mod tests {
             .preemption_signal(preemption::Signal::ConnectionClose);
         let emitted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen = emitted.clone();
-        let mut counters = preemption::TakeoverCounters::default();
-        let (poll, healthy) = member.poll_preemption(
-            &Cancellation::default(),
-            &mut counters,
-            Instant::now(),
-            &|json| seen.lock().unwrap().push(json),
-        );
+        let (poll, healthy) =
+            member.poll_preemption(&Cancellation::default(), Instant::now(), &|json| {
+                seen.lock().unwrap().push(json)
+            });
         assert!(healthy);
         assert!(
             matches!(poll, PreemptionPoll::None),
@@ -4813,21 +4771,12 @@ mod tests {
             .preemption_signal(preemption::Signal::ConnectionClose);
         let emitted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen = emitted.clone();
-        let mut counters = preemption::TakeoverCounters::default();
-        let (poll, _) = member.poll_preemption(
-            &Cancellation::default(),
-            &mut counters,
-            Instant::now(),
-            &|json| seen.lock().unwrap().push(json),
-        );
+        let (poll, _) = member.poll_preemption(&Cancellation::default(), Instant::now(), &|json| {
+            seen.lock().unwrap().push(json)
+        });
         assert!(
             matches!(poll, PreemptionPoll::Yield(ref fault) if fault.code == "ownership_unconfirmed" && !fault.retryable),
             "an unreachable receiver must not authorize automatic recovery"
-        );
-        assert_eq!(
-            counters.consecutive(member.peer.host),
-            0,
-            "a receiver that cannot serve us is not a takeover cycle"
         );
         let events = emitted.lock().unwrap();
         let probe = events
@@ -4866,7 +4815,6 @@ mod tests {
         PreemptionRound {
             media_healthy,
             signals,
-            evidence: None,
             probe: Some(RoundProbe {
                 liveness,
                 result,
@@ -4884,7 +4832,6 @@ mod tests {
             local_member_with_health(receiver.local_addr().unwrap(), None, Health::default());
         let emitted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen = emitted.clone();
-        let mut counters = preemption::TakeoverCounters::default();
         let round = synthetic_round(
             true,
             preemption::ReceiverLiveness::Refused,
@@ -4896,18 +4843,12 @@ mod tests {
         );
         let (poll, _) = member.apply_preemption(
             round,
-            &mut counters,
             Instant::now(),
             &|json| seen.lock().unwrap().push(json),
             false,
         );
         assert!(
             matches!(poll, PreemptionPoll::Yield(ref fault) if fault.code == "ownership_unconfirmed" && !fault.retryable)
-        );
-        assert_eq!(
-            counters.consecutive(member.peer.host),
-            0,
-            "refused is not a takeover cycle"
         );
         let events = emitted.lock().unwrap();
         let probe = events
@@ -4951,7 +4892,6 @@ mod tests {
             local_member_with_health(receiver.local_addr().unwrap(), None, Health::default());
         let emitted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen = emitted.clone();
-        let mut counters = preemption::TakeoverCounters::default();
         let now = Instant::now();
         let unknown_round = || {
             synthetic_round(
@@ -4968,7 +4908,6 @@ mod tests {
             let at = now + Duration::from_secs(u64::from(step) * 3);
             let (poll, _) = member.apply_preemption(
                 unknown_round(),
-                &mut counters,
                 at,
                 &|json| seen.lock().unwrap().push(json),
                 false,
@@ -4988,7 +4927,6 @@ mod tests {
         let at = now + Duration::from_secs(u64::from(preemption::LIVENESS_PATIENCE) * 3);
         let (poll, _) = member.apply_preemption(
             unknown_round(),
-            &mut counters,
             at,
             &|json| seen.lock().unwrap().push(json),
             false,
@@ -4996,11 +4934,6 @@ mod tests {
         assert!(
             matches!(poll, PreemptionPoll::Yield(ref fault) if fault.code == "ownership_unconfirmed" && !fault.retryable),
             "the fifth consecutive unknown escalates to a reclaim"
-        );
-        assert_eq!(
-            counters.consecutive(member.peer.host),
-            0,
-            "an escalated unknown is not a takeover cycle"
         );
         assert!(member.preempted);
         let events = emitted.lock().unwrap();
@@ -5027,7 +4960,6 @@ mod tests {
             local_member_with_health(receiver.local_addr().unwrap(), None, Health::default());
         let emitted = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen = emitted.clone();
-        let mut counters = preemption::TakeoverCounters::default();
         let round = synthetic_round(
             true,
             preemption::ReceiverLiveness::Dead,
@@ -5038,13 +4970,8 @@ mod tests {
             Vec::new(),
         );
         let now = Instant::now();
-        let (poll, media_healthy) = member.apply_preemption(
-            round,
-            &mut counters,
-            now,
-            &|json| seen.lock().unwrap().push(json),
-            true,
-        );
+        let (poll, media_healthy) =
+            member.apply_preemption(round, now, &|json| seen.lock().unwrap().push(json), true);
         assert!(
             matches!(poll, PreemptionPoll::None),
             "a group-wide failure must not reclaim any single device"
@@ -5463,7 +5390,6 @@ mod tests {
             assert!(activity > 0);
             let drained = AtomicU64::new(0);
             let drain_activity = AtomicU64::new(0);
-            let mut takeovers = preemption::TakeoverCounters::default();
             let outcome = send_packets(
                 &options,
                 &Cancellation::default(),
@@ -5475,7 +5401,6 @@ mod tests {
                 None,
                 &mut members,
                 None,
-                &mut takeovers,
                 &[],
                 None,
                 &|event| {
@@ -5587,7 +5512,6 @@ mod tests {
             None,
             &mut members,
             None,
-            &mut preemption::TakeoverCounters::default(),
             &[],
             None,
             &|event| {
@@ -5636,7 +5560,6 @@ mod tests {
             None,
             &mut members,
             None,
-            &mut preemption::TakeoverCounters::default(),
             &[],
             None,
             &|event| {
@@ -5689,7 +5612,6 @@ mod tests {
             None,
             &mut members,
             None,
-            &mut preemption::TakeoverCounters::default(),
             &[],
             None,
             &|_| {},
@@ -5715,7 +5637,6 @@ mod tests {
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = events.clone();
         let mut members = vec![member];
-        let mut takeovers = preemption::TakeoverCounters::default();
         let outcome = send_packets(
             &options,
             &Cancellation::default(),
@@ -5727,7 +5648,6 @@ mod tests {
             None,
             &mut members,
             None,
-            &mut takeovers,
             &[],
             None,
             &|event| sink.lock().unwrap().push(event),
@@ -5788,7 +5708,6 @@ mod tests {
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = events.clone();
         let mut members = vec![member];
-        let mut takeovers = preemption::TakeoverCounters::default();
         let outcome = send_packets(
             &options,
             &Cancellation::default(),
@@ -5800,7 +5719,6 @@ mod tests {
             None,
             &mut members,
             None,
-            &mut takeovers,
             &[],
             None,
             &|event| sink.lock().unwrap().push(event),
@@ -5926,7 +5844,6 @@ mod tests {
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = events.clone();
         let mut members = vec![member];
-        let mut takeovers = preemption::TakeoverCounters::default();
         let outcome = send_packets(
             &options,
             &Cancellation::default(),
@@ -5938,7 +5855,6 @@ mod tests {
             None,
             &mut members,
             None,
-            &mut takeovers,
             &[],
             Some(TimelineResetReason::SilenceResume),
             &|event| sink.lock().unwrap().push(event),
@@ -5974,7 +5890,6 @@ mod tests {
         let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let sink = events.clone();
         let mut members = vec![member];
-        let mut takeovers = preemption::TakeoverCounters::default();
         let outcome = send_packets(
             &options,
             &Cancellation::default(),
@@ -5986,7 +5901,6 @@ mod tests {
             None,
             &mut members,
             None,
-            &mut takeovers,
             &[],
             Some(source_restart_reason()),
             &|event| sink.lock().unwrap().push(event),

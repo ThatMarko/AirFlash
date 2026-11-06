@@ -1059,3 +1059,98 @@ fn older_exchange_instants_cannot_refresh_or_inflate_readiness() {
     state.exchanged(start + Duration::from_millis(250));
     assert!(state.ready(start + Duration::from_millis(250)));
 }
+
+/// An Announce whose grandmaster outranks ours on priority1 alone.
+fn better_announce(identity: u64) -> Vec<u8> {
+    let mut packet = announce(identity, 0, 0);
+    packet[47] = 10;
+    packet
+}
+
+#[test]
+fn a_sender_role_announce_fills_the_bmca_dataset_and_stops_the_probes() {
+    let start = Instant::now();
+    let own = 7;
+    let mut state = PeerState {
+        active: true,
+        ..Default::default()
+    };
+    assert!(!state.follow);
+    assert!(state.bmca_probe_due(start));
+    observe_announce(&mut state, &better_announce(9), start, own);
+    assert_eq!(state.bmca.map(|b| b.priority1), Some(10));
+    assert_eq!(state.bmca.map(|b| b.grandmaster), Some(9));
+    assert!(state.better_master);
+    assert_eq!(state.announced_clock_id, Some(9));
+    assert!(
+        !state.follow,
+        "the dataset is diagnostic; the role never changes"
+    );
+    assert!(
+        !state.bmca_probe_due(start + Duration::from_secs(1)),
+        "an answered peer is not asked again"
+    );
+    // Equal rank on every field but identity: the larger identity loses.
+    observe_announce(&mut state, &announce(u64::MAX >> 1, 1, 0), start, own);
+    assert_eq!(state.bmca.map(|b| b.priority1), Some(96));
+    assert!(!state.better_master);
+    assert_eq!(state.identity_changes, 1);
+    // Other message types never touch the dataset.
+    let (sync, _) = sync_pair(9, 2, 0);
+    observe_announce(&mut state, &sync, start, own);
+    assert_eq!(state.bmca.map(|b| b.grandmaster), Some(u64::MAX >> 1));
+}
+
+#[test]
+fn a_silent_master_role_peer_is_probed_a_bounded_number_of_times() {
+    let start = Instant::now();
+    let mut state = PeerState {
+        bmca_probes: BMCA_PROBE_ATTEMPTS - 1,
+        next_probe: Some(start + BMCA_PROBE_INTERVAL),
+        ..Default::default()
+    };
+    assert!(!state.bmca_probe_due(start), "the interval is honoured");
+    assert!(state.bmca_probe_due(start + BMCA_PROBE_INTERVAL));
+    state.bmca_probes = BMCA_PROBE_ATTEMPTS;
+    assert!(!state.bmca_probe_due(start + Duration::from_secs(60)));
+}
+
+#[test]
+fn snapshots_report_a_sender_role_peers_announced_dataset() {
+    let host: IpAddr = "192.0.2.50".parse().unwrap();
+    // The peer stays inactive, so the worker neither sends nor accepts packets.
+    let master = PtpMaster::from_sockets(
+        vec![host],
+        vec![],
+        Clock::new(),
+        UdpSocket::bind("127.0.0.1:0").unwrap(),
+        UdpSocket::bind("127.0.0.1:0").unwrap(),
+    )
+    .unwrap();
+    let before = master
+        .snapshots()
+        .into_iter()
+        .find(|p| p.host == host)
+        .unwrap();
+    assert_eq!(before.bmca_priority1, None);
+    assert!(!before.better_master);
+    {
+        let mut states = master.states.lock().unwrap();
+        observe_announce(
+            states.get_mut(&host).unwrap(),
+            &better_announce(9),
+            Instant::now(),
+            master.clock_id,
+        );
+    }
+    let after = master
+        .snapshots()
+        .into_iter()
+        .find(|p| p.host == host)
+        .unwrap();
+    assert_eq!(after.mode, "sender");
+    assert_eq!(after.bmca_priority1, Some(10));
+    assert_eq!(after.bmca_grandmaster, Some(9));
+    assert_eq!(after.bmca_clock_class, Some(248));
+    assert!(after.better_master);
+}

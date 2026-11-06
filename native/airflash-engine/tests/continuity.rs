@@ -571,3 +571,37 @@ fn requested_packets_arrive_as_original_ciphertext_out_of_order_and_across_wrap(
     }
     assert_eq!(m.packetizer.seq,next_seq); assert_eq!(m.metrics.retransmits_sent,4);
 }
+
+#[test]
+fn retransmit_requests_record_how_far_behind_the_live_edge_they_reach() {
+    let (mut m, _a, c) = media();
+    m.configure_latency(Duration::from_secs(2), false);
+    let h = Health::default();
+    // Sequences 65534, 65535 and 0 are sent; the next one is 1.
+    for _ in 0..3 {
+        m.send(
+            &vec![0; PCM_BYTES],
+            false,
+            Instant::now(),
+            Instant::now(),
+            &h,
+        )
+        .unwrap();
+    }
+    let address = std::net::SocketAddr::from(([127, 0, 0, 1], m.control_port().unwrap()));
+    // One packet behind across the wrap, three behind, and one past the live
+    // edge that must not count.
+    for seq in [0u16, 65534, 1] {
+        let [hi, lo] = seq.to_be_bytes();
+        c.send_to(&[0x80, 0xd5, 0, 1, hi, lo, 0, 1], address)
+            .unwrap();
+    }
+    until(|| {
+        m.service_retransmits();
+        m.metrics.retransmit_requests == 3
+    });
+    let packet_ms = 352.0 * 1000.0 / f64::from(RATE);
+    assert_eq!(m.rtx_gap.count(), 2);
+    assert!((m.rtx_gap.percentile_ms(1.0) - 3.0 * packet_ms).abs() < 1e-9);
+    assert!((m.rtx_gap.mean_ms() - 2.0 * packet_ms).abs() < 1e-9);
+}

@@ -13,8 +13,18 @@
 //! Artwork is deliberately not sent yet: the receiver accepts `image/jpeg`, but we
 //! cannot verify the size/format constraints without a device, and a rejected
 //! artwork request must never interfere with audio.
+//!
+//! An empty update (no title, artist or album; see [`NowPlaying::is_empty`])
+//! sends nothing at all, so the receiver keeps its previous display. The desktop
+//! sends one when its Now Playing source goes away; replacing the stored value
+//! also keeps a transport rebuilt in the same IPC session (standby resume) from
+//! re-sending the old track. A new `start` clears the stored value.
+//!
+//! [`Worker`] shares each member's control connection with the volume worker.
+//! The session drops it before closing the members, so it never contends for
+//! the connection lock during teardown or writes after `TEARDOWN`.
 
-use crate::rtsp::{Cancellation, Connection};
+use crate::rtsp::{Cancellation, Connection, WireError};
 use anyhow::{Result, ensure};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -48,7 +58,8 @@ fn playing_default() -> bool {
 }
 impl NowPlaying {
     /// Nothing to show: the receiver keeps its previous display, which is what
-    /// Apple senders do when the source goes away.
+    /// Apple senders do when the source goes away. [`Worker`] sends neither
+    /// progress nor tags for such a value. Genre alone is not displayable.
     pub fn is_empty(&self) -> bool {
         self.title.is_empty() && self.artist.is_empty() && self.album.is_empty()
     }
@@ -94,12 +105,6 @@ pub fn dmap_tags(now: &NowPlaying) -> Vec<u8> {
     out.extend_from_slice(&(inner.len() as u32).to_be_bytes());
     out.extend_from_slice(&inner);
     out
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Command {
-    pub sequence: u64,
-    pub sent_at: Instant,
 }
 
 #[derive(Clone, Default)]
@@ -184,6 +189,12 @@ impl Worker {
                         thread::sleep(Duration::from_millis(50));
                         continue;
                     }
+                    if now.is_empty() {
+                        // A progress line for an empty track would reset the
+                        // receiver's display; leave it as it is.
+                        last = Some((sequence, now, Instant::now()));
+                        continue;
+                    }
                     let mut errors = Vec::new();
                     let mut tags_updated = false;
                     for (index, (host, uri, connection)) in peers.iter().enumerate() {
@@ -209,6 +220,15 @@ impl Worker {
                                 // A complete rejection is persistent for this session. An I/O
                                 // failure must not monopolise the shared control connection.
                                 progress_enabled[index] = false;
+                                if connection.is_poisoned() {
+                                    // No later write on it can succeed.
+                                    tags_enabled[index] = false;
+                                }
+                                if transport_failure(&error) {
+                                    // Do not wait out a second timeout on a connection
+                                    // that just failed; the volume worker shares it.
+                                    continue;
+                                }
                             }
                         }
                         let tags = dmap_tags(&now);
@@ -250,6 +270,13 @@ impl Worker {
             events,
         })
     }
+}
+/// A failure of the connection itself (I/O, timeout, poisoned), as opposed to
+/// the receiver answering with a non-200 status.
+fn transport_failure(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.is::<WireError>() || cause.is::<std::io::Error>())
 }
 impl Drop for Worker {
     fn drop(&mut self) {
@@ -339,11 +366,21 @@ mod tests {
         assert_eq!(control.latest().unwrap().0, 3);
     }
 
-    #[test]
-    fn worker_sends_progress_then_tags_and_only_repeats_progress() {
+    type Requests = mpsc::Receiver<(String, Vec<u8>)>;
+
+    /// A fake receiver that answers every RTSP request with `200 OK` and
+    /// reports each request line block and body. It exits when the sender
+    /// closes the connection.
+    fn recording_server() -> (std::net::SocketAddr, Requests, JoinHandle<()>) {
+        scripted_server(|_| "200 OK")
+    }
+
+    /// Like [`recording_server`], with the status line chosen per request.
+    fn scripted_server(
+        status: fn(&str) -> &'static str,
+    ) -> (std::net::SocketAddr, Requests, JoinHandle<()>) {
         use std::io::{Read, Write};
         use std::net::TcpListener;
-        use std::sync::mpsc;
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
@@ -351,7 +388,7 @@ mod tests {
         let server = std::thread::spawn(move || {
             let (mut socket, _) = listener.accept().unwrap();
             socket
-                .set_read_timeout(Some(Duration::from_millis(500)))
+                .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
             let mut pending = Vec::new();
             let mut buffer = [0; 4096];
@@ -386,8 +423,11 @@ mod tests {
                     });
                     if let Some(cseq) = cseq {
                         let _ = socket.write_all(
-                            format!("RTSP/1.0 200 OK\r\nCSeq: {cseq}\r\nContent-Length: 0\r\n\r\n")
-                                .as_bytes(),
+                            format!(
+                                "RTSP/1.0 {}\r\nCSeq: {cseq}\r\nContent-Length: 0\r\n\r\n",
+                                status(&request)
+                            )
+                            .as_bytes(),
                         );
                     }
                     if requests.send((request, body)).is_err() {
@@ -396,13 +436,32 @@ mod tests {
                 }
             }
         });
+        (addr, received, server)
+    }
+
+    fn connect(addr: std::net::SocketAddr) -> Arc<Mutex<Connection>> {
+        Arc::new(Mutex::new(
+            Connection::connect(addr, Cancellation::default()).unwrap(),
+        ))
+    }
+
+    fn peer(connection: &Arc<Mutex<Connection>>) -> Vec<Peer> {
+        vec![(
+            "127.0.0.1".to_string(),
+            "/stream".to_string(),
+            connection.clone(),
+        )]
+    }
+
+    #[test]
+    fn worker_sends_progress_then_tags_and_only_repeats_progress() {
+        let (addr, received, server) = recording_server();
         let control = Control::default();
         control.set(1, sample());
-        let connection = Connection::connect(addr, Cancellation::default()).unwrap();
         let peers = vec![(
             "127.0.0.1".to_string(),
             "/stream".to_string(),
-            Arc::new(Mutex::new(connection)),
+            connect(addr),
         )];
         let worker = Worker::start(
             peers,
@@ -446,6 +505,126 @@ mod tests {
         drop(worker);
         drop(received);
         let _ = server.join();
+    }
+
+    #[test]
+    fn an_empty_track_sends_nothing_and_the_next_track_is_sent() {
+        let (addr, received, server) = recording_server();
+        let control = Control::default();
+        control.set(1, NowPlaying::default());
+        let connection = connect(addr);
+        let worker =
+            Worker::start(peer(&connection), control.clone(), Timeline::new(0, 44100)).unwrap();
+        assert!(
+            received.recv_timeout(Duration::from_millis(300)).is_err(),
+            "an empty track must not reset the receiver's display"
+        );
+        assert!(worker.events.try_recv().is_err(), "nothing was sent");
+        control.set(2, sample());
+        let first = received
+            .recv_timeout(Duration::from_secs(2))
+            .expect("progress for the real track");
+        assert!(String::from_utf8_lossy(&first.1).starts_with("progress: "));
+        drop(worker);
+        drop(connection);
+        drop(received);
+        let _ = server.join();
+    }
+
+    #[test]
+    fn dropping_the_worker_releases_the_shared_connection_and_stops_sending() {
+        let (addr, received, server) = recording_server();
+        let control = Control::default();
+        control.set(1, sample());
+        let connection = connect(addr);
+        let worker =
+            Worker::start(peer(&connection), control.clone(), Timeline::new(0, 44100)).unwrap();
+        for payload in ["progress", "tags"] {
+            received
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap_or_else(|_| panic!("{payload} payload"));
+        }
+        // What the session relies on before TEARDOWN: the worker thread is
+        // joined, so it holds neither the connection nor its lock.
+        drop(worker);
+        assert_eq!(Arc::strong_count(&connection), 1);
+        assert!(connection.try_lock().is_ok());
+        control.set(
+            2,
+            NowPlaying {
+                position_ms: 60_000,
+                ..sample()
+            },
+        );
+        assert!(
+            received.recv_timeout(Duration::from_millis(300)).is_err(),
+            "a stopped worker never writes to the connection again"
+        );
+        drop(connection);
+        drop(received);
+        let _ = server.join();
+    }
+
+    #[test]
+    fn a_rejected_progress_still_sends_the_tags() {
+        // A non-200 answer is the receiver declining one payload type; the
+        // connection is fine, so the tags still go out.
+        let (addr, received, server) = scripted_server(|request| {
+            if request.to_ascii_lowercase().contains("text/parameters") {
+                "451 Parameter Not Understood"
+            } else {
+                "200 OK"
+            }
+        });
+        let control = Control::default();
+        control.set(1, sample());
+        let connection = connect(addr);
+        let worker = Worker::start(peer(&connection), control, Timeline::new(0, 44100)).unwrap();
+        for payload in ["progress", "tags"] {
+            received
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap_or_else(|_| panic!("{payload} payload"));
+        }
+        let event = worker.events.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(event["tags_updated"], true);
+        drop(worker);
+        drop(connection);
+        drop(received);
+        let _ = server.join();
+    }
+
+    #[test]
+    fn a_failed_progress_connection_is_not_tried_again_for_the_tags() {
+        use std::io::Read;
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        // Read the progress request, then hang up without answering.
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut pending = Vec::new();
+            let mut buffer = [0; 4096];
+            while find_request_end(&pending).is_none() {
+                let read = socket.read(&mut buffer).unwrap();
+                assert!(read > 0);
+                pending.extend_from_slice(&buffer[..read]);
+            }
+        });
+        let control = Control::default();
+        control.set(1, sample());
+        let connection = connect(addr);
+        let worker = Worker::start(peer(&connection), control, Timeline::new(0, 44100)).unwrap();
+        server.join().unwrap();
+        let event = worker.events.recv_timeout(Duration::from_secs(6)).unwrap();
+        let message = event["message"].as_str().unwrap();
+        assert!(message.contains("progress"), "{message}");
+        assert!(
+            !message.contains("tags"),
+            "the tags must not wait out a second failure: {message}"
+        );
+        assert_eq!(event["tags_updated"], false);
+        drop(worker);
     }
 
     /// Index just past the blank line that ends the RTSP header block.

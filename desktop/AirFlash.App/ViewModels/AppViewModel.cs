@@ -215,8 +215,10 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         Session = new(factory, audio, AppPaths.Log, sessionRecords: isolatedVerification ? _ => { } : null);
         Session.Changed += SessionChanged;
         Session.EndpointRecoveryFailed += error => _dispatcher.BeginInvoke(() => ShowError(error));
-        // A receiver's own buttons arrive as transport commands; forward them to the
-        // media keys so the app that is playing reacts, without touching the stream.
+        // A receiver's own buttons (or a remote pointed at it) arrive as commands for
+        // the sender: transport commands go to SMTC or the media keys so the app that
+        // is playing reacts, and mute/volume steps go to AirFlash's own controls on
+        // the dispatcher. See RemoteCommand for what is deliberately ignored.
         _nowPlayingStop = new();
         if (isolatedVerification)
         {
@@ -228,17 +230,32 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             var nowPlayingSource = new AirFlash.App.Metadata.SmtcNowPlayingSource(AppPaths.Log);
             Session.RemoteCommandReceived += command =>
             {
-                if (command.Name is "play" or "pause")
+                switch (command.Target)
                 {
-                    _ = nowPlayingSource.ExecuteAsync(command, _nowPlayingStop.Token);
-                    return;
+                    case RemoteCommandTarget.MediaSession:
+                        _ = nowPlayingSource.ExecuteAsync(command, _nowPlayingStop.Token);
+                        break;
+                    case RemoteCommandTarget.MediaKey when command.VirtualKey is { } key:
+                        _dispatcher.BeginInvoke(() => AirFlash.App.Input.MediaKeys.Press(key, AppPaths.Log));
+                        break;
+                    case RemoteCommandTarget.Mute:
+                        _dispatcher.BeginInvoke(async () =>
+                        {
+                            if (_closing) return;
+                            try { await ToggleMuteAsync(); }
+                            catch (Exception error) { ShowError(error); }
+                        });
+                        break;
+                    case RemoteCommandTarget.MasterVolume:
+                        // The setter clamps, ignores closing/reset and persists like a slider move.
+                        _dispatcher.BeginInvoke(() => MasterVolume += command.VolumeDelta);
+                        break;
                 }
-                if (command.VirtualKey is not { } key) return;
-                _dispatcher.BeginInvoke(() => AirFlash.App.Input.MediaKeys.Press(key, AppPaths.Log));
             };
             // Now Playing is polled from SMTC and pushed only when it actually changed;
             // the engine turns it into the receiver's SET_PARAMETER payloads.
             NowPlaying = new NowPlayingPump(nowPlayingSource, log: AppPaths.Log);
+            NowPlaying.SourceCleared += () => _ = Session.ClearNowPlayingAsync(_nowPlayingStop.Token);
             _nowPlayingWork = Task.Run(() => NowPlaying.RunAsync(now => _ = Session.PublishNowPlayingAsync(now, _nowPlayingStop.Token), _nowPlayingStop.Token));
         }
         _discovery.Changed += list =>
@@ -273,7 +290,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         _discoverySearchTimer.Stop();
         StopCommand = new(() => StopAsync(), ShowError, () => !IsStopping && (_snapshot.IsActive || Session.NeedsCleanup));
         ReconnectCommand = new(() => _snapshot.Receiver is { } receiver ? ToggleAsync(receiver) : Task.CompletedTask, ShowError, () => CanReconnect);
-        MuteCommand = new(async () => { await Session.SetMutedAsync(!Session.Muted); Notify(nameof(Muted)); Notify(nameof(MuteLabel)); }, ShowError);
+        MuteCommand = new(ToggleMuteAsync, ShowError);
         MergeManualReceivers();
         RefreshLatencyChoices();
     }
@@ -281,6 +298,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     {
         _startup = StartAsync();
     }
+    private async Task ToggleMuteAsync() { await Session.SetMutedAsync(!Session.Muted); Notify(nameof(Muted)); Notify(nameof(MuteLabel)); }
     public Task Startup => _startup;
     private async Task StartAsync()
     {
