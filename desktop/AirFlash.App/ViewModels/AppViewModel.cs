@@ -215,8 +215,9 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         Session = new(factory, audio, AppPaths.Log, sessionRecords: isolatedVerification ? _ => { } : null);
         Session.Changed += SessionChanged;
         Session.EndpointRecoveryFailed += error => _dispatcher.BeginInvoke(() => ShowError(error));
-        // A receiver's own buttons arrive as transport commands; forward them to the
-        // media keys so the app that is playing reacts, without touching the stream.
+        // A receiver's own buttons arrive as transport commands; forward them to SMTC
+        // or the media keys so the app that is playing reacts, without touching the
+        // stream. Volume, mute, shuffle and repeat are ignored (see RemoteCommand).
         _nowPlayingStop = new();
         if (isolatedVerification)
         {
@@ -239,6 +240,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             // Now Playing is polled from SMTC and pushed only when it actually changed;
             // the engine turns it into the receiver's SET_PARAMETER payloads.
             NowPlaying = new NowPlayingPump(nowPlayingSource, log: AppPaths.Log);
+            NowPlaying.SourceCleared += () => _ = Session.ClearNowPlayingAsync(_nowPlayingStop.Token);
             _nowPlayingWork = Task.Run(() => NowPlaying.RunAsync(now => _ = Session.PublishNowPlayingAsync(now, _nowPlayingStop.Token), _nowPlayingStop.Token));
         }
         _discovery.Changed += list =>

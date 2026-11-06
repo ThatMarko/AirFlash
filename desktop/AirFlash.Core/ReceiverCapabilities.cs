@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
 using System.Text.Json;
 namespace AirFlash.Core;
 
@@ -51,7 +49,12 @@ public sealed class ReceiverCapabilityCatalog(IEngineFactory factory) : IReceive
         }
         finally { _queries.Release(); }
     }
-    public static async Task<ReceiverCapabilitySet> QueryConnectionAsync(IEngineConnection connection, string session, JsonElement hello, Receiver receiver, CancellationToken cancellation)
+    /// <summary>Ask an open engine connection for <paramref name="receiver"/>'s
+    /// supported stream profiles. <paramref name="resolved"/> maps member ids to the
+    /// IPv4 addresses a caller already resolved, so a session start probes the same
+    /// addresses it streams to; other members are resolved with the session's rule
+    /// (<see cref="ReceiverAddress.ResolveIPv4Async"/>).</summary>
+    public static async Task<ReceiverCapabilitySet> QueryConnectionAsync(IEngineConnection connection, string session, JsonElement hello, Receiver receiver, CancellationToken cancellation, IReadOnlyDictionary<string, string>? resolved = null)
     {
         EngineHandshake.RequireCapabilities(hello);
         // A valid legacy hello may expose no selectable capabilities.
@@ -59,8 +62,7 @@ public sealed class ReceiverCapabilityCatalog(IEngineFactory factory) : IReceive
         var peers = new List<object>();
         foreach (var member in receiver.Peers)
         {
-            var addresses = await Dns.GetHostAddressesAsync(member.Address, cancellation).ConfigureAwait(false);
-            var host = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)?.ToString() ?? throw new IOException(L.Format("Cannot resolve IPv4 address: {0}", member.Address));
+            var host = resolved?.GetValueOrDefault(member.Id) ?? await ReceiverAddress.ResolveIPv4Async(member.Address, cancellation).ConfigureAwait(false);
             peers.Add(new { receiver_id = member.Id, host, port = member.Port, codecs = member.Codecs.Select(c => (int)c).ToArray(), profile = new { features = member.Features, follow_receiver_clock = member.FollowReceiverClock } });
         }
         await connection.SendAsync(session, "get_receiver_capabilities", new { peers }, cancellation).ConfigureAwait(false);

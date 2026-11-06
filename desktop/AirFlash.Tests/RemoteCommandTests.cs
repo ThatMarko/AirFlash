@@ -41,6 +41,16 @@ public sealed class RemoteCommandTests
     }
 
     [Fact]
+    public void A_volume_only_event_yields_no_command()
+    {
+        // Event-channel volume is not acted on (Q25); the receiver's volume is
+        // read back separately as `device_volume`.
+        Assert.Empty(RemoteCommand.Parse(Json("""
+            {"event":"remote_command","host":"192.168.1.20","commands":[],"source":null,"volume":0.5}
+            """)));
+    }
+
+    [Fact]
     public void A_malformed_body_yields_nothing_instead_of_throwing()
     {
         Assert.Empty(RemoteCommand.Parse(Json("""{"event":"remote_command"}""")));

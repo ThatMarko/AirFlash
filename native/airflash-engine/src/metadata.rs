@@ -15,7 +15,10 @@
 //! artwork request must never interfere with audio.
 //!
 //! An empty update (no title, artist or album; see [`NowPlaying::is_empty`])
-//! sends nothing at all, so the receiver keeps its previous display.
+//! sends nothing at all, so the receiver keeps its previous display. The desktop
+//! sends one when its Now Playing source goes away; replacing the stored value
+//! also keeps a transport rebuilt in the same IPC session (standby resume) from
+//! re-sending the old track. A new `start` clears the stored value.
 //!
 //! [`Worker`] shares each member's control connection with the volume worker.
 //! The session drops it before closing the members, so it never contends for

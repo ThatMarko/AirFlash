@@ -7,6 +7,12 @@
 //! deliberately permissive: it looks for a known key, accepts either the string
 //! form or the MRP numeric form, and reports what it could not understand instead
 //! of guessing.
+//!
+//! Everything parsed is forwarded as a `remote_command` IPC event, including
+//! volume-only messages. The desktop acts on the transport commands (play, pause,
+//! toggle, stop, next, previous) and deliberately ignores mute, volume up/down,
+//! shuffle, repeat and the absolute volume (Q25): the receiver applies its own
+//! volume buttons, and `volume::Worker` reports the result as `device_volume`.
 
 use plist::Value;
 use std::collections::VecDeque;
@@ -83,7 +89,8 @@ impl RemoteCommand {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ParsedEvent {
     pub commands: Vec<RemoteCommand>,
-    /// Absolute volume request in the receiver's own unit (0..1 when normalised).
+    /// Absolute volume in the receiver's own unit (0..1 when normalised).
+    /// Forwarded for diagnostics only; nothing acts on it (see the module docs).
     pub volume: Option<f64>,
     /// Key that supplied the command, for diagnostics.
     pub source: Option<&'static str>,

@@ -1055,7 +1055,9 @@ pub fn probe_report(
 ///
 /// Only `takeover` is produced: the retired reclaim → takeover cycle limiter
 /// that reported `limit` no longer exists, because the first confirmed takeover
-/// already yields. The desktop still maps `limit` for older engines.
+/// already yields. No engine that advertises `receiver_ownership_guard` (which
+/// the desktop requires) ever sent `limit`; the desktop keeps a message for it
+/// only as a tolerated reason value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReclaimReason {
     /// Another controller took the receiver over: the member yields and the

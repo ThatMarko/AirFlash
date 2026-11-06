@@ -6,6 +6,9 @@ namespace AirFlash.Core;
 /// <summary>What the receiver should show right now.</summary>
 public sealed record NowPlaying(string Title, string Artist, string Album, string Genre, bool Playing, long DurationMs, long PositionMs)
 {
+    /// <summary>Nothing displayable: no title, artist or album. Matches the engine's
+    /// <c>metadata::NowPlaying::is_empty</c>, which sends nothing to the receiver for
+    /// such a value so its display is kept.</summary>
     public bool IsEmpty => Title.Length == 0 && Artist.Length == 0 && Album.Length == 0;
     /// <summary>Display delay of a poll that lands between two updates of the same
     /// track: the receiver's progress bar is driven by interpolating from the last
@@ -31,6 +34,13 @@ public interface INowPlayingSource
 /// only forwards a sample when the tags or the playback state changed, or when the
 /// position moved far enough that the receiver's own interpolation would be visibly
 /// wrong.
+/// <para>
+/// When the source goes away (no media session, or nothing displayable) nothing is
+/// forwarded, so an active receiver keeps its display. The pump does forget what it
+/// published and raises <see cref="SourceCleared"/> once, so a player that comes back
+/// on the same track and position is sent again, and owners can drop their cached
+/// copy instead of showing it in a session started later.
+/// </para>
 /// </remarks>
 public sealed class NowPlayingPump(INowPlayingSource source, Func<long>? clock = null, Action<string>? log = null)
 {
@@ -42,14 +52,22 @@ public sealed class NowPlayingPump(INowPlayingSource source, Func<long>? clock =
     public TimeSpan PollInterval { get; init; } = TimeSpan.FromSeconds(2);
     public TimeSpan Settle { get; init; } = TimeSpan.FromMilliseconds(300);
     public NowPlaying? LastPublished => _lastPublished;
+    /// <summary>Raised by <see cref="PollAsync"/>, on the polling thread, when the
+    /// source goes away after a value was published.</summary>
+    public event Action? SourceCleared;
     /// <summary>One poll. Returns the value to send, or null when nothing changed.</summary>
     public async Task<NowPlaying?> PollAsync(CancellationToken cancellation)
     {
         var sample = await source.ReadAsync(cancellation).ConfigureAwait(false);
         if (sample is null || sample.IsEmpty)
         {
-            // Nothing playing: keep the last display instead of blanking the speaker.
+            // Nothing playing: send nothing, so the speaker keeps its last display.
             _hasPending = false;
+            if (_lastPublished is not null)
+            {
+                _lastPublished = null;
+                SourceCleared?.Invoke();
+            }
             return null;
         }
         var now = _clock();
