@@ -85,8 +85,12 @@ public sealed class IpcQueryConsumerTests
     [Theory]
     [InlineData(true, "[]")]
     [InlineData(true, "{")]
+    [InlineData(true, "null")]
+    [InlineData(true, "42")]
     [InlineData(false, "[]")]
     [InlineData(false, "{")]
+    [InlineData(false, "null")]
+    [InlineData(false, "42")]
     public async Task ApplicationMalformedRawRepliesBecomeFinalProtocolFailures(bool atHello, string raw)
     {
         var connection = new Connection((session, command) => command == "hello" && !atHello
@@ -205,6 +209,26 @@ public sealed class IpcQueryConsumerTests
             else Assert.IsAssignableFrom<OperationCanceledException>(error);
         }
         finally { cancellation.Cancel(); await Settle(query); await connection.DisposeAsync(); }
+    }
+
+    [Fact]
+    public async Task CorrelatedReceiverErrorRetainsItsExistingStructuredFailure()
+    {
+        var connection = new Connection((session, command) => command == "hello"
+            ? Hello(session, "receiver_capabilities")
+            : JsonSerializer.Serialize(new { version = 1, session_id = session, @event = "error",
+                code = "authentication_failed", channel = "authentication", host = "192.0.2.41",
+                retryable = false, message = "synthetic capability authentication rejected" }));
+        var factory = new Factory(connection);
+        var error = await Assert.ThrowsAsync<EngineFailure>(() => new ReceiverCapabilityCatalog(factory).QueryAsync(Receiver())).WaitAsync(Limit);
+        Assert.Equal("authentication_failed", error.Notice.Code);
+        Assert.Equal("authentication", error.Notice.Channel);
+        Assert.Equal("192.0.2.41", error.Notice.Host);
+        Assert.False(error.Notice.Retryable);
+        Assert.Equal("synthetic capability authentication rejected", error.Notice.Message);
+        Assert.True(connection.Disposed);
+        Assert.Equal(1, factory.OpenCount);
+        Assert.Equal(new[] { "hello", "get_receiver_capabilities" }, connection.Commands);
     }
 
     public static IEnumerable<object[]> OrdinaryNearMatches()

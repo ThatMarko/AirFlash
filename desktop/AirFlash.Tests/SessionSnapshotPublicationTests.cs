@@ -12,7 +12,7 @@ public sealed class SessionSnapshotPublicationTests
     public async Task Selected_rate_snapshot_is_published_before_waiting_for_streaming()
     {
         var connection = new Connection(); var snapshots = new ConcurrentQueue<SessionSnapshot>();
-        await using var controller = new SessionController(new Factory(connection), new Audio());
+        await using var controller = TestSessionController.Create(new Factory(connection), new Audio());
         controller.Changed += snapshots.Enqueue;
         await controller.StartAsync(new("synthetic-publication", "Synthetic publication", "192.0.2.55"), new());
         await connection.StandbySent.Task.WaitAsync(TimeSpan.FromSeconds(4));
@@ -28,7 +28,7 @@ public sealed class SessionSnapshotPublicationTests
         public readonly TaskCompletionSource StandbySent = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
         {
-            if (command == "hello") _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, session_id = session, @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release" } }));
+            if (command == "hello") _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, session_id = session, @event = "hello", capabilities = new[] { "receiver_ownership_guard", "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release" } }));
             if (command == "set_standby") StandbySent.TrySetResult();
             if (command == "stop") _events.Writer.TryComplete();
             return Task.CompletedTask;

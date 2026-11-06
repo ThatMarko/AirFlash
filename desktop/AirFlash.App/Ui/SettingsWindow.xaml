@@ -59,6 +59,9 @@
               <TextBox Width="100" Text="{Binding Draft.CustomBufferMs, UpdateSourceTrigger=PropertyChanged, ValidatesOnExceptions=True, NotifyOnValidationError=True}" AutomationProperties.Name="{loc:Text 'Custom latency'}"/>
               <TextBlock Text="{loc:Text 'ms (0–2000)'}" VerticalAlignment="Center" Margin="10,0,0,0" Style="{StaticResource Hint}"/>
             </StackPanel>
+            <CheckBox Content="{loc:Text 'Force fixed latency'}" IsChecked="{Binding Draft.ForceLatency}" IsEnabled="{Binding CanForceLatency}" AutomationProperties.Name="{loc:Text 'Force fixed latency'}"/>
+            <TextBlock Text="{loc:Text 'When forced, late audio may be dropped or the session reconnected; latency will not be increased automatically.'}" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="26,4,0,6"/>
+            <TextBlock Text="{loc:Text 'Target values are not measured end-to-end audio latency.'}" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,6,0,0"/>
           </StackPanel>
         </Border>
         <Border Style="{StaticResource Card}">
@@ -193,11 +196,14 @@
                   <TextBlock Text="{loc:Text 'Group name'}" Style="{StaticResource Hint}"/>
                   <TextBox Text="{Binding Group.Name, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,12"/>
                   <TextBlock Text="{loc:Text 'Left receiver'}" Style="{StaticResource Hint}"/>
-                  <ComboBox ItemsSource="{Binding Candidates}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding Group.LeftId, Mode=TwoWay}" Margin="0,4,0,12"/>
+                  <ComboBox ItemsSource="{Binding Candidates}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding LeftId, Mode=TwoWay}" Margin="0,4,0,12"/>
                   <TextBlock Text="{loc:Text 'Left offset / ms (−500 to +500)'}" Style="{StaticResource Hint}"/>
                   <TextBox Text="{Binding Group.LeftOffsetMs, UpdateSourceTrigger=PropertyChanged, ValidatesOnExceptions=True, NotifyOnValidationError=True}" Margin="0,4,0,12"/>
                   <TextBlock Text="{loc:Text 'Right receiver'}" Style="{StaticResource Hint}"/>
-                  <ComboBox ItemsSource="{Binding Candidates}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding Group.RightId, Mode=TwoWay}" Margin="0,4,0,12"/>
+                  <ComboBox ItemsSource="{Binding Candidates}" DisplayMemberPath="Name" SelectedValuePath="Id" SelectedValue="{Binding RightId, Mode=TwoWay}" Margin="0,4,0,12"/>
+                  <TextBlock Text="{loc:Text 'This stereo group is currently unusable.'}" Foreground="{DynamicResource ErrorBrush}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,4" Visibility="{Binding HasMembershipConflict, Converter={StaticResource BoolVisibility}}"/>
+                  <TextBlock Text="{Binding MembershipError}" Foreground="{DynamicResource ErrorBrush}" TextWrapping="Wrap" Margin="0,0,0,12" Visibility="{Binding MembershipError, Converter={StaticResource NonEmpty}}"/>
+                  <TextBlock Text="{Binding MembershipWarning}" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,12" Visibility="{Binding MembershipWarning, Converter={StaticResource NonEmpty}}"/>
                   <TextBlock Text="{loc:Text 'Right offset / ms (−500 to +500)'}" Style="{StaticResource Hint}"/>
                   <TextBox Text="{Binding Group.RightOffsetMs, UpdateSourceTrigger=PropertyChanged, ValidatesOnExceptions=True, NotifyOnValidationError=True}" Margin="0,4,0,12"/>
                   <TextBlock Text="{loc:Text 'Common sample rate'}" Style="{StaticResource Hint}"/>
@@ -205,7 +211,8 @@
                   <TextBlock Text="{Binding RateStatus}" Style="{StaticResource Hint}" Margin="0,0,0,12"/>
                   <WrapPanel>
                     <Button Content="{loc:Text 'Swap left and right'}" Command="{Binding SwapCommand}" Margin="0,0,8,0"/>
-                    <Button Content="{loc:Text 'Split group'}" Command="{Binding RemoveCommand}"/>
+                    <Button Content="{loc:Text 'Split into two independent receivers'}" Command="{Binding RepairCommand}" Margin="0,0,8,0" Visibility="{Binding HasMembershipConflict, Converter={StaticResource BoolVisibility}}"/>
+                    <Button Content="{loc:Text 'Split group'}" Command="{Binding RemoveCommand}" Visibility="{Binding HasMembershipConflict, Converter={StaticResource InverseBoolVisibility}}"/>
                   </WrapPanel>
                 </StackPanel>
               </Border>
@@ -242,6 +249,8 @@
                       <ComboBox ItemsSource="{Binding TimingChoices}" DisplayMemberPath="Label" SelectedItem="{Binding TimingChoice, Mode=TwoWay}" Margin="0,4,0,12"/>
                       <TextBlock Text="{loc:Text 'Latency mode'}" Style="{StaticResource Hint}"/>
                       <ComboBox ItemsSource="{x:Static vm:Choices.ReceiverLatencies}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Options.LatencyMode, Mode=TwoWay}" Margin="0,4,0,12"/>
+                      <TextBlock Text="{loc:Text 'Force fixed latency'}" Style="{StaticResource Hint}"/>
+                      <ComboBox ItemsSource="{x:Static vm:Choices.ForcedLatencies}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Options.ForceLatency, Mode=TwoWay}" IsEnabled="{Binding CanForceLatency}" Margin="0,4,0,8" AutomationProperties.Name="{loc:Text 'Force fixed latency'}"/>
                       <StackPanel IsEnabled="{Binding Options.LatencyMode, Converter={StaticResource Equal}, ConverterParameter=custom}">
                         <TextBlock Text="{loc:Text 'Custom latency / ms (blank uses global)'}" Style="{StaticResource Hint}"/>
                         <TextBox Text="{Binding Options.CustomBufferMs, UpdateSourceTrigger=PropertyChanged, ValidatesOnExceptions=True, NotifyOnValidationError=True}" Margin="0,4,0,12"/>
@@ -415,6 +424,7 @@
         <WrapPanel>
           <Button Content="{loc:Text 'Third-party licenses'}" Command="{Binding LicensesCommand}" Margin="0,0,10,10"/>
           <Button Content="{loc:Text 'Open log folder'}" Command="{Binding OpenLogsCommand}" Margin="0,0,10,10"/>
+          <Button Content="{loc:Text 'Export diagnostics'}" Command="{Binding ExportDiagnosticsCommand}" Margin="0,0,10,10"/>
           <Button x:Name="CoffeeButton" Content="{loc:Text 'Buy the author a cup of milk tea~'}" Click="OnCoffeeClick" Visibility="{Binding Source={x:Static core:L.IsChinese}, Converter={StaticResource BoolVisibility}}" Margin="0,0,10,10"/>
         </WrapPanel>
       </StackPanel>
@@ -459,7 +469,15 @@
           <TextBlock Text="AirFlash" FontSize="22" FontWeight="SemiBold"/>
           <TextBlock Text="{loc:Text 'Settings and devices'}" Style="{StaticResource Hint}" Margin="0,4,0,0"/>
         </StackPanel>
-        <ListBox x:Name="Navigation" ItemsSource="{Binding Pages}" SelectedIndex="{Binding SelectedPage}" BorderThickness="0" Background="Transparent" VerticalAlignment="Top" AutomationProperties.Name="{loc:Text 'Settings navigation'}"/>
+        <ListBox x:Name="Navigation" ItemsSource="{Binding Pages}" SelectedIndex="{Binding SelectedPage}" BorderThickness="0" Background="Transparent" VerticalAlignment="Top" AutomationProperties.Name="{loc:Text 'Settings navigation'}">
+          <ListBox.Template>
+            <ControlTemplate TargetType="ListBox">
+              <ScrollViewer Style="{StaticResource InsetListScrollViewer}" CanContentScroll="{TemplateBinding ScrollViewer.CanContentScroll}">
+                <ItemsPresenter/>
+              </ScrollViewer>
+            </ControlTemplate>
+          </ListBox.Template>
+        </ListBox>
       </DockPanel>
     </Border>
     <Grid Grid.Column="1" Margin="26,23,20,0">

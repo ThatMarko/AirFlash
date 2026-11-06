@@ -19,11 +19,20 @@ public sealed class SettingsStore : ISettingsStore
     private byte[]? _original;
     private bool _preservationPending;
     private bool _unsupportedSchema;
+    private bool _mixedMigrationPending;
     private string? _recoveryError;
     private readonly List<byte[]> _pendingSources = [];
     private readonly List<byte[]> _migrationSources = [];
     private readonly List<(byte[] Bytes, string Path)> _backups = [];
     public string? LoadWarning { get; private set; }
+    /// <summary>
+    /// QUESTIONS Q45: the file predates the mixed-group invariant and at least
+    /// one saved group still has to be checked against the live catalog. The
+    /// migration itself runs in the app once discovery has evidence; while this
+    /// is true the file stays at <see cref="AppSettings.PreMixedInvariantSchemaVersion"/>
+    /// so losing the process cannot skip the split.
+    /// </summary>
+    public bool MixedGroupMigrationPending => _mixedMigrationPending;
     public SettingsStore(string path) : this(path, new SettingsFileSystem()) { }
     internal SettingsStore(string path, SettingsFileSystem files) { _path = path; _files = files; }
     public AppSettings Load()
@@ -38,6 +47,11 @@ public sealed class SettingsStore : ISettingsStore
                 var text = Decode(bytes);
                 var version = ReadVersion(text);
                 var json = JsonNode.Parse(text) as JsonObject ?? throw new JsonException(L.Get("Configuration must be a JSON object."));
+                // An existing file omitted this field under the release default.
+                // Only genuinely new/reset settings adopt the normal default.
+                if (!json.Any(pair => pair.Key.Equals("latency_mode", StringComparison.OrdinalIgnoreCase)))
+                    json["latency_mode"] = "normal";
+                NormalizeLatencyModes(json);
                 if (version < AppSettings.CurrentSchemaVersion)
                 {
                     if (version < 2)
@@ -55,8 +69,6 @@ public sealed class SettingsStore : ISettingsStore
                         if (json["receivers"] is JsonObject items)
                             foreach (var value in items.Select(p => p.Value).OfType<JsonObject>()) ClampBuffer(value);
                     }
-                    PreserveOnSave(bytes);
-                    TrackMigration(bytes);
                 }
                 // Inherited rates became explicit per-receiver/group values in schema 4.
                 // A stray legacy key is removed so it can never reach playback again.
@@ -73,6 +85,19 @@ public sealed class SettingsStore : ISettingsStore
                 settings.ReceiverAliases = settings.ReceiverAliases.Where(p => ReceiverIdentity.IsBroadcast(p.Key) && !string.IsNullOrWhiteSpace(p.Value) && ReceiverIdentity.IsBroadcast(p.Value))
                     .GroupBy(p => ReceiverIdentity.Normalize(p.Key)).ToDictionary(g => g.Key, g => ReceiverIdentity.Normalize(g.First().Value), StringComparer.Ordinal);
                 if (settings.Validate() is { } error) throw new JsonException(L.Format("Configuration contains invalid values: {0}", error));
+                // Preserve the existing backup and migration bookkeeping while
+                // acknowledging legacy pairs without splitting user configuration.
+                _mixedMigrationPending = version < AppSettings.CurrentSchemaVersion
+                    && settings.SoftwareGroups.Any(group => group.MixedInvariantVersion < AppSettings.CurrentSchemaVersion);
+                // A schema-4 file with no saved pair has nothing to migrate, so a
+                // plain version bump must not create migration backups. A legacy
+                // pair check (or an older structural migration) does.
+                if (version < AppSettings.CurrentSchemaVersion
+                    && (version < AppSettings.PreMixedInvariantSchemaVersion || _mixedMigrationPending))
+                {
+                    PreserveOnSave(bytes);
+                    TrackMigration(bytes);
+                }
                 _unsupportedSchema = false;
                 UpdateWarning();
                 return settings;
@@ -80,6 +105,7 @@ public sealed class SettingsStore : ISettingsStore
             catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
             {
                 // An absent file does not discharge a previous unreadable-file obligation.
+                _mixedMigrationPending = false;
                 UpdateWarning();
                 return new();
             }
@@ -87,6 +113,7 @@ public sealed class SettingsStore : ISettingsStore
             catch (Exception error) when (error is JsonException or IOException or UnauthorizedAccessException or InvalidOperationException or FormatException or ArgumentException)
             {
                 PreserveOnSave(bytes);
+                _mixedMigrationPending = false;
                 _recoveryError = error.Message;
                 UpdateWarning();
                 return new();
@@ -144,13 +171,34 @@ public sealed class SettingsStore : ISettingsStore
     {
         if (json["custom_buffer_ms"] is JsonValue value && value.TryGetValue<int>(out var ms)) json["custom_buffer_ms"] = Math.Clamp(ms, 0, 2000);
     }
+    private static void NormalizeLatencyModes(JsonObject json)
+    {
+        static void Normalize(JsonObject owner)
+        {
+            var key = owner.Select(pair => pair.Key).FirstOrDefault(k => k.Equals("latency_mode", StringComparison.OrdinalIgnoreCase));
+            if (key is not null && owner[key] is JsonValue value && value.TryGetValue<string>(out var mode)
+                && mode.Equals(LatencyPolicy.Mode, StringComparison.OrdinalIgnoreCase))
+                owner[key] = "normal";
+        }
+        Normalize(json);
+        if (json["receivers"] is JsonObject receivers)
+            foreach (var receiver in receivers.Select(pair => pair.Value).OfType<JsonObject>()) Normalize(receiver);
+    }
     public void Save(AppSettings settings) { lock (_gate) SaveLocked(settings); }
     private void SaveLocked(AppSettings settings)
     {
         if (_unsupportedSchema) throw new NotSupportedException(L.Get("This configuration is from a newer version. Update the app first."));
         if (settings.SchemaVersion > AppSettings.CurrentSchemaVersion) throw new NotSupportedException(L.Get("This configuration is from a newer version. Update the app first."));
         var saved = settings.Clone();
-        saved.SchemaVersion = AppSettings.CurrentSchemaVersion;
+        saved.LatencyMode = saved.LatencyMode.Equals(LatencyPolicy.Mode, StringComparison.OrdinalIgnoreCase) ? "normal" : saved.LatencyMode;
+        foreach (var options in saved.Receivers.Values)
+            if (options.LatencyMode?.Equals(LatencyPolicy.Mode, StringComparison.OrdinalIgnoreCase) == true) options.LatencyMode = "normal";
+        // While the one-time Q45 split is pending, keep the file one version
+        // back: a crash before the catalog pass must not let the migration be
+        // skipped. Once it is discharged this save writes the current version.
+        saved.SchemaVersion = _mixedMigrationPending ? AppSettings.PreMixedInvariantSchemaVersion : AppSettings.CurrentSchemaVersion;
+        if (!_mixedMigrationPending)
+            foreach (var group in saved.SoftwareGroups) group.MixedInvariantVersion = AppSettings.CurrentSchemaVersion;
         if (saved.Extra is { } extra)
             foreach (var key in extra.Keys.Where(k => k.Equals("stream_sample_rate", StringComparison.OrdinalIgnoreCase)).ToArray()) extra.Remove(key);
         _files.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
@@ -192,9 +240,25 @@ public sealed class SettingsStore : ISettingsStore
         _preservationPending = false; _original = null; _recoveryError = null;
         _pendingSources.Clear(); _migrationSources.Clear(); _backups.Clear();
     }
+    /// <summary>
+    /// Persists the completed Q45 migration: every saved pair is discharged (or
+    /// split) and the file may now claim <see cref="AppSettings.CurrentSchemaVersion"/>.
+    /// The pending flag is restored if the save fails, so a later retry cannot
+    /// skip the migration.
+    /// </summary>
+    public void CompleteMixedGroupMigration(AppSettings settings)
+    {
+        lock (_gate)
+        {
+            _mixedMigrationPending = false;
+            try { SaveLocked(settings); }
+            catch { _mixedMigrationPending = true; throw; }
+        }
+    }
+    public Task CompleteMixedGroupMigrationAsync(AppSettings settings) => Task.Run(() => CompleteMixedGroupMigration(settings));
     private void PreserveMigrationBytes(byte[] bytes)
     {
-        foreach (var suffix in new[] { ".pre-v3.bak", ".pre-v4.bak" })
+        foreach (var suffix in _mixedMigrationPending ? new[] { ".pre-v3.bak", ".pre-v4.bak" } : new[] { ".pre-v3.bak", ".pre-v4.bak", ".pre-v5.bak" })
         {
             var target = _path + suffix;
             if (File.Exists(target)) continue;
@@ -283,6 +347,7 @@ public sealed class SettingsStore : ISettingsStore
             }
             _files.Delete(config);
             _preservationPending = false; _original = null; _recoveryError = null; _unsupportedSchema = false;
+            _mixedMigrationPending = false;
             _pendingSources.Clear(); _migrationSources.Clear(); _backups.Clear();
             LoadWarning = null;
         }

@@ -9,7 +9,7 @@ public sealed class ReceiverOptions : ObservableObject
     public void CopyFrom(ReceiverOptions source)
     {
         AutoConnect = source.AutoConnect; Hidden = source.Hidden; Volume = source.Volume;
-        LatencyMode = source.LatencyMode; CustomBufferMs = source.CustomBufferMs; StandbySeconds = source.StandbySeconds;
+        LatencyMode = source.LatencyMode; CustomBufferMs = source.CustomBufferMs; ForceLatency = source.ForceLatency; StandbySeconds = source.StandbySeconds;
         Codec = source.Codec; SampleRate = source.SampleRate; Transport = source.Transport; Timing = source.Timing;
     }
     private bool? _AutoConnect = null;
@@ -20,6 +20,8 @@ public sealed class ReceiverOptions : ObservableObject
     public int? Volume { get => _Volume; set => Set(ref _Volume, value); }
     private string? _LatencyMode = null;
     public string? LatencyMode { get => _LatencyMode; set => Set(ref _LatencyMode, value); }
+    private bool? _ForceLatency;
+    public bool? ForceLatency { get => _ForceLatency; set => Set(ref _ForceLatency, value); }
     private int? _CustomBufferMs = null;
     public int? CustomBufferMs { get => _CustomBufferMs; set => Set(ref _CustomBufferMs, value); }
     private double? _StandbySeconds = null;
@@ -42,18 +44,33 @@ public sealed class SoftwareStereoGroup : ObservableObject
     public string SampleRate { get => _sampleRate; set => Set(ref _sampleRate, value); }
     public int LeftOffsetMs { get => _leftOffsetMs; set => Set(ref _leftOffsetMs, value); }
     public int RightOffsetMs { get => _rightOffsetMs; set => Set(ref _rightOffsetMs, value); }
-    public SoftwareStereoGroup Clone() => new() { Id = Id, Name = Name, LeftId = LeftId, RightId = RightId, SampleRate = SampleRate, LeftOffsetMs = LeftOffsetMs, RightOffsetMs = RightOffsetMs };
+    /// <summary>
+    /// The mixed-group invariant version this saved pair was checked against
+    /// (QUESTIONS Q45). 0 means the config predates the invariant and the
+    /// one-time migration has not discharged this group yet; once it equals
+    /// <see cref="AppSettings.CurrentSchemaVersion"/> a later device TXT change
+    /// is runtime drift and is never auto-modified.
+    /// </summary>
+    public int MixedInvariantVersion { get; set; }
+    public SoftwareStereoGroup Clone() => new() { Id = Id, Name = Name, LeftId = LeftId, RightId = RightId, SampleRate = SampleRate, LeftOffsetMs = LeftOffsetMs, RightOffsetMs = RightOffsetMs, MixedInvariantVersion = MixedInvariantVersion };
     public void CopyFrom(SoftwareStereoGroup source)
     {
         Name = source.Name; LeftId = source.LeftId; RightId = source.RightId; SampleRate = source.SampleRate;
-        LeftOffsetMs = source.LeftOffsetMs; RightOffsetMs = source.RightOffsetMs;
+        LeftOffsetMs = source.LeftOffsetMs; RightOffsetMs = source.RightOffsetMs; MixedInvariantVersion = source.MixedInvariantVersion;
     }
     public void Swap() { (LeftId, RightId) = (RightId, LeftId); (LeftOffsetMs, RightOffsetMs) = (RightOffsetMs, LeftOffsetMs); }
 }
 public sealed record ManualReceiver(string Id, string Name, string Host, int Port);
 public sealed class AppSettings : ObservableObject
 {
-    public const int CurrentSchemaVersion = 4;
+    /// <summary>Schema 5 introduces the mixed-group invariant (QUESTIONS Q45).</summary>
+    public const int CurrentSchemaVersion = 5;
+    /// <summary>
+    /// Last schema written before the mixed-group invariant. While the one-time
+    /// Q45 migration is pending the store keeps the file at this version so a
+    /// crash cannot silently skip the split.
+    /// </summary>
+    public const int PreMixedInvariantSchemaVersion = 4;
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     private bool _StartAtLogin = false;
     public bool StartAtLogin { get => _StartAtLogin; set => Set(ref _StartAtLogin, value); }
@@ -79,6 +96,8 @@ public sealed class AppSettings : ObservableObject
     public EqualizerSettings Equalizer { get => _equalizer; set => Set(ref _equalizer, value ?? new()); }
     private string _LatencyMode = "normal";
     public string LatencyMode { get => _LatencyMode; set => Set(ref _LatencyMode, value); }
+    private bool _ForceLatency;
+    public bool ForceLatency { get => _ForceLatency; set => Set(ref _ForceLatency, value); }
     private int _CustomBufferMs = 1000;
     public int CustomBufferMs { get => _CustomBufferMs; set => Set(ref _CustomBufferMs, value); }
     private bool _StandbyEnabled = false;
@@ -112,14 +131,21 @@ public sealed class AppSettings : ObservableObject
     public int Latency(string id)
     {
         var options = ReadOptions(id);
-        return (options.LatencyMode ?? LatencyMode) switch { "realtime" => 120, "buffered" => 500, "custom" => Math.Clamp(options.CustomBufferMs ?? CustomBufferMs, 0, 2000), _ => 200 };
+        return (options.LatencyMode ?? LatencyMode) switch { "realtime" => 120, "buffered" => 500, "custom" => Math.Clamp(options.CustomBufferMs ?? CustomBufferMs, 0, 2000), LatencyPolicy.Mode => LatencyPolicy.For(new Receiver(id, id, "")).Initial, _ => 200 };
+    }
+    /// <summary>Lead for a known receiver: adaptive mode derives it from the topology.</summary>
+    public int Latency(Receiver receiver) => LatencyPolicy.Effective(this, receiver);
+    public bool ForcesLatency(string id)
+    {
+        var options = ReadOptions(id);
+        return (options.LatencyMode ?? LatencyMode) != LatencyPolicy.Mode && (options.ForceLatency ?? ForceLatency);
     }
     public double Gain(string id) => Math.Clamp(MasterVolume, 0, 100) / 100d;
     public string? SampleRate(Receiver receiver) => receiver.IsSoftwareGroup ? SoftwareGroups.Single(g => g.Id == receiver.Id).SampleRate : ReadOptions(receiver.Id).SampleRate;
-    public bool UsesDeviceLatency(Receiver receiver, string? globalLatencyMode = null) => (receiver.IsSoftwareGroup ? receiver.Peers : [receiver]).Any(r =>
+    public bool UsesDeviceLatency(Receiver receiver, string? globalMode = null) => (receiver.IsSoftwareGroup ? receiver.Peers : [receiver]).Any(r =>
     {
         var options = ReadOptions(r.Id);
-        return options.LatencyMode is not null || (globalLatencyMode ?? LatencyMode) == "custom" && options.CustomBufferMs is not null;
+        return options.LatencyMode is not null || options.ForceLatency is not null || (globalMode ?? LatencyMode) == "custom" && options.CustomBufferMs is not null;
     });
     public string? EffectiveEndpoint => CaptureMode == "endpoint" ? CaptureEndpoint : null;
     public string? Validate()
@@ -169,7 +195,7 @@ public sealed class AppSettings : ObservableObject
         MaxReconnectAttempts = source.MaxReconnectAttempts; UiLanguage = source.UiLanguage; Theme = source.Theme;
         DiscoveryInterfaceId = source.DiscoveryInterfaceId;
         Equalizer.CopyFrom(source.Equalizer);
-        LatencyMode = source.LatencyMode; CustomBufferMs = source.CustomBufferMs;
+        LatencyMode = source.LatencyMode; CustomBufferMs = source.CustomBufferMs; ForceLatency = source.ForceLatency;
         StandbyEnabled = source.StandbyEnabled; StandbySilenceSeconds = source.StandbySilenceSeconds;
         CaptureMode = source.CaptureMode; CaptureEndpoint = source.CaptureEndpoint;
         CaptureApplicationPath = source.CaptureApplicationPath; CaptureApplicationInstance = source.CaptureApplicationInstance;
@@ -199,7 +225,7 @@ public sealed class AppSettings : ObservableObject
         clone.CaptureApplicationInstance = CaptureApplicationInstance;
         return clone;
     }
-    public static readonly string[] Modes = ["realtime", "normal", "buffered", "custom"];
+    public static readonly string[] Modes = ["realtime", "normal", "buffered", "custom", LatencyPolicy.Mode];
     public static readonly string[] SampleRates = ["44100", "48000"];
     public static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower, WriteIndented = true, PropertyNameCaseInsensitive = true, IgnoreReadOnlyProperties = true };
 }

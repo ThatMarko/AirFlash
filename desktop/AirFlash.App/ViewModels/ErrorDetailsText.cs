@@ -6,15 +6,14 @@ internal static class ErrorDetailsText
 {
     public static string For(SessionSnapshot snapshot, string notice)
     {
-        // Retry publishes Connecting immediately after Error. Keep its cause
-        // accessible without replacing an independent discovery/settings notice.
+        var recordedFault = snapshot.Diagnostics?.LastFault?.Detail;
         var fault = snapshot.State switch
         {
-            PlaybackState.Error when !string.IsNullOrWhiteSpace(snapshot.Message) => snapshot.Message,
-            PlaybackState.Error or PlaybackState.Connecting => snapshot.Diagnostics?.LastFault?.Detail ?? "",
-            _ => ""
+            PlaybackState.Error or PlaybackState.Preempted => string.IsNullOrWhiteSpace(recordedFault) ? snapshot.Message : recordedFault,
+            PlaybackState.Connecting when snapshot.IsRetrying => recordedFault,
+            _ => null
         };
-        if (string.IsNullOrWhiteSpace(fault)) return notice;
+        if (string.IsNullOrWhiteSpace(fault)) return string.IsNullOrWhiteSpace(notice) ? "" : notice;
         if (string.IsNullOrWhiteSpace(notice) || notice == fault) return fault;
         return fault + Environment.NewLine + Environment.NewLine + notice;
     }

@@ -4,8 +4,10 @@ function Assert-AirFlashBuildDirectory {
 
     $root = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($RepoRoot))
     $target = [IO.Path]::TrimEndingDirectorySeparator([IO.Path]::GetFullPath($Path))
+    # Both package entry points reuse the checkout spelling. Keep it exact
+    # because a case-sensitive parent can contain two distinct checkouts.
     if ($root -eq [IO.Path]::GetPathRoot($root) -or
-        -not $target.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        -not $target.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::Ordinal)) {
         throw "Unsafe cleanup target: $target"
     }
     $rootItem = Get-Item -LiteralPath $root -Force -ErrorAction Stop

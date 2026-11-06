@@ -98,12 +98,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Locked managed restore failed.' }
           Invoke-AirFlashDotnet -Context $context -Arguments @('build', 'AirFlash.sln', '-c', 'Release', '--no-restore', '-p:RestoreLockedMode=true', '-p:AirFlashConsole=true') 2>&1 | Tee-Object (Join-Path $output 'managed-build.log')
           if ($LASTEXITCODE -ne 0) { throw 'Managed console Release build failed.' }
-          $binary = Join-Path $env:GITHUB_WORKSPACE 'desktop/AirFlash.App/bin/Release/net10.0-windows/win-x64/AirFlash.exe'
-          if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) { throw 'The source-built apphost is missing.' }
+          $target = @(Invoke-AirFlashDotnet -Context $context -Arguments @('msbuild', 'AirFlash.App/AirFlash.App.csproj', '-nologo', '-getProperty:TargetPath', '-p:Configuration=Release', '-p:AirFlashConsole=true'))
+          if ($LASTEXITCODE -ne 0 -or $target.Count -ne 1 -or -not [IO.Path]::IsPathFullyQualified($target[0]) -or [IO.Path]::GetExtension($target[0]) -cne '.dll') {
+            throw 'Cannot identify the source-built managed assembly.'
+          }
+          $assembly = [IO.Path]::GetFullPath($target[0])
+          $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE) + [IO.Path]::DirectorySeparatorChar
+          if (-not $assembly.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase)) { throw 'The assembly is outside the source checkout.' }
+          $binary = [IO.Path]::ChangeExtension($assembly, '.exe')
+          if (-not (Test-Path -LiteralPath $binary -PathType Leaf) -or -not (Test-Path -LiteralPath $assembly -PathType Leaf)) {
+            throw 'The source-built apphost or managed assembly is missing.'
+          }
           [ordered]@{
             source_sha = $env:REQUESTED_SOURCE; path = $binary; bytes = (Get-Item -LiteralPath $binary).Length
             sha256 = (Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
-            assembly_sha256 = (Get-FileHash -LiteralPath ([IO.Path]::ChangeExtension($binary, '.dll')) -Algorithm SHA256).Hash.ToLowerInvariant()
+            assembly_sha256 = (Get-FileHash -LiteralPath $assembly -Algorithm SHA256).Hash.ToLowerInvariant()
             build = 'locked Release solution with AirFlashConsole=true; no publish or native build'
           } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $output 'binary.json') -Encoding utf8
       - name: Run every isolated focused and regional desktop cell

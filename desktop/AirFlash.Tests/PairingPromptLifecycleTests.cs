@@ -27,7 +27,7 @@ public sealed class PairingPromptLifecycleTests
     public async Task Terminal_event_cancels_and_joins_open_input_before_failure(bool password, string terminal)
     {
         var factory = new Factory(); var prompt = new Prompt(); var audio = new Audio();
-        var controller = new SessionController(factory, audio, timing: Timing);
+        var controller = TestSessionController.Create(factory, audio, timing: Timing);
         var failed = new TaskCompletionSource<SessionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
         controller.Changed += snapshot =>
         {
@@ -82,7 +82,7 @@ public sealed class PairingPromptLifecycleTests
     public async Task Stop_cancels_and_joins_open_prompt_and_only_event_reader()
     {
         var factory = new Factory(); var prompt = new Prompt();
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         try
         {
             await controller.PairAsync(Pod(), Settings(), prompt.RequestAsync);
@@ -103,7 +103,7 @@ public sealed class PairingPromptLifecycleTests
     public async Task Prompt_win_preserves_pending_reader_and_submits_exact_value(bool password, string value)
     {
         var factory = new Factory(); var prompt = new Prompt();
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         var streaming = Signal(); controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Streaming) streaming.TrySetResult(); };
         try
         {
@@ -130,7 +130,7 @@ public sealed class PairingPromptLifecycleTests
     public async Task Paired_while_input_is_open_closes_prompt_without_late_submission()
     {
         var factory = new Factory(); var prompt = new Prompt();
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         var streaming = Signal(); controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Streaming) streaming.TrySetResult(); };
         try
         {
@@ -148,7 +148,7 @@ public sealed class PairingPromptLifecycleTests
     public async Task Terminal_failure_waits_for_prompt_cleanup_and_keeps_its_original_cause()
     {
         var factory = new Factory(); var prompt = new Prompt { HoldCancellation = true, ThrowDuringCancellation = true };
-        var controller = new SessionController(factory, new Audio(), timing: Timing);
+        var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         var failed = new TaskCompletionSource<SessionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
         controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) failed.TrySetResult(snapshot); };
         try
@@ -180,7 +180,7 @@ public sealed class PairingPromptLifecycleTests
         // Both tasks are therefore already complete when the controller races
         // them; no scheduler delay selects the expected winner.
         var factory = new Factory(synchronousEvents: true);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         var failed = new TaskCompletionSource<SessionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
         controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) failed.TrySetResult(snapshot); };
         await controller.PairAsync(Pod(), Settings(), (_, _) =>
@@ -206,12 +206,16 @@ public sealed class PairingPromptLifecycleTests
     public async Task Input_timeout_settles_prompt_and_event_reader_without_submission()
     {
         var factory = new Factory(); var prompt = new Prompt();
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing with { Pin = TimeSpan.FromMilliseconds(100) });
+        var clock = new ManualDeadlineClock(); var pinDeadline = TimeSpan.FromSeconds(1);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing with { Pin = pinDeadline }, clock: clock);
         var failed = Signal(); controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) failed.TrySetResult(); };
         try
         {
             await controller.PairAsync(Pod(), Settings(), prompt.RequestAsync);
-            await prompt.Entered.Task.WaitAsync(Limit); await failed.Task.WaitAsync(Limit);
+            await prompt.Entered.Task.WaitAsync(Limit);
+            Assert.False(failed.Task.IsCompleted);
+            clock.WakeAfter(pinDeadline, expectedDue: pinDeadline);
+            await failed.Task.WaitAsync(Limit);
             var connection = factory.Connections.Single(); await connection.Disposed.Task.WaitAsync(Limit);
             Assert.True(prompt.Settled.Task.IsCompleted); Assert.True(prompt.Cancelled.Task.IsCompleted);
             Assert.Equal(0, connection.ActiveReaders);
@@ -224,7 +228,7 @@ public sealed class PairingPromptLifecycleTests
     public async Task Leader_first_member_pairing_still_opens_one_process_per_member_then_playback()
     {
         var factory = new Factory(); var requested = new ConcurrentQueue<string>();
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         var streaming = Signal(); controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Streaming) streaming.TrySetResult(); };
         var left = Pod() with { Id = "synthetic-left", IsLeader = true };
         var right = Pod(true) with { Id = "synthetic-right", Address = "192.0.2.16" };
@@ -282,7 +286,7 @@ public sealed class PairingPromptLifecycleTests
         {
             cancellation.ThrowIfCancellationRequested(); _session = session;
             Commands.Enqueue((command, JsonSerializer.SerializeToElement(parameters)));
-            if (command == "hello") Emit("hello", new { capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_password", "member_volume" } });
+            if (command == "hello") Emit("hello", new { capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_password", "member_volume", "receiver_ownership_guard" } });
             if (command == "pair") Emit(JsonSerializer.SerializeToElement(parameters).GetProperty("password_required").GetBoolean() ? "password_required" : "pin_required");
             if (command == "pair_pin") Emit("paired");
             if (command == "start") Emit("streaming");

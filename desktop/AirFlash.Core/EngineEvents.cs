@@ -1,20 +1,20 @@
 using System.Text.Json;
 namespace AirFlash.Core;
 
-// Direct replies belong to the queried child. Session event filtering remains
-// separate; only the defined process-owned rejection bypasses correlation.
 public static class EngineResponses
 {
-    public static void ThrowIfRejected(JsonElement item)
+    internal static void ThrowIfRejected(JsonElement response)
     {
-        if (EngineEvents.IsProcessRejection(item)) throw new EngineFailure(EngineNotice.Parse(item));
+        if (EngineEvents.IsProcessRejection(response)) throw new EngineFailure(EngineNotice.Parse(response));
     }
 
+    // Direct replies belong to the queried child. Only the exact process-owned
+    // rejection bypasses the consumer's ordinary reply and correlation checks.
     public static async ValueTask<JsonElement?> ReadAsync(IEngineConnection connection, CancellationToken cancellation)
     {
-        var item = await EngineEvents.ReadAsync(connection, cancellation).ConfigureAwait(false);
-        if (item is { } reply) ThrowIfRejected(reply);
-        return item;
+        var response = await EngineEvents.ReadAsync(connection, cancellation).ConfigureAwait(false);
+        if (response is { } item) ThrowIfRejected(item);
+        return response;
     }
 }
 

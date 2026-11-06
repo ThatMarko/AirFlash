@@ -44,6 +44,7 @@ struct Running {
     gain: std::sync::Arc<std::sync::atomic::AtomicU32>,
     pending_pin: Option<std::sync::mpsc::Sender<zeroize::Zeroizing<String>>>,
     gain_limit: f64,
+    force_latency: bool,
     volume: airflash_engine::volume::Control,
     standby: airflash_engine::standby::Control,
     equalizer: Option<(airflash_engine::equalizer::Control, u32)>,
@@ -66,12 +67,62 @@ fn capabilities() -> Vec<&'static str> {
         "member_volume",
         "receiver_password",
         "standby_release",
+        "receiver_ownership_guard",
+        "now_playing",
+        "diagnostics",
+        "forced_latency",
+        "adaptive_lead_v2",
     ];
     if airflash_engine::applications::supported() {
         values.push("application_capture");
     }
     values
 }
+
+fn lead_event(running: Option<&Running>, session: &str, params: &Value) -> Value {
+    let result = (|| -> anyhow::Result<i64> {
+        let running = running
+            .filter(|r| r.id == session && r.equalizer.is_some() && !r.cancel.is_cancelled())
+            .ok_or_else(|| anyhow::anyhow!("lead session is no longer active"))?;
+        anyhow::ensure!(
+            !running.force_latency,
+            "Runtime lead changes are disabled by forced latency"
+        );
+        let ms = params
+            .get("ms")
+            .or_else(|| params.get("lead_ms"))
+            .and_then(Value::as_i64)
+            .ok_or_else(|| anyhow::anyhow!("set_lead needs an integer ms"))?;
+        anyhow::ensure!(
+            (0..=airflash_engine::session::MAX_LEAD_MS).contains(&ms),
+            "lead must be 0..2000 ms"
+        );
+        if let Some(sequence) = params.get("sequence") {
+            let sequence = sequence
+                .as_u64()
+                .ok_or_else(|| anyhow::anyhow!("lead sequence must be positive"))?;
+            let epoch = params
+                .get("session_epoch")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| anyhow::anyhow!("lead session_epoch is required"))?;
+            airflash_engine::session::request_lead_for(ms, sequence, epoch)?;
+        } else {
+            airflash_engine::session::request_lead(ms);
+        }
+        Ok(ms)
+    })();
+    match result {
+        Ok(ms) => {
+            json!({"event":"lead_requested","ms":ms,"sequence":params.get("sequence"),"session_epoch":params.get("session_epoch")})
+        }
+        Err(error) => {
+            json!({"event":"lead_error","message":error.to_string(),"sequence":params.get("sequence"),"session_epoch":params.get("session_epoch")})
+        }
+    }
+}
+
+/// Monotonic sequence for metadata updates: the worker ignores stale ones.
+static NEXT_METADATA: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 fn equalizer_event(running: Option<&Running>, session: &str, params: Value) -> Value {
     #[derive(Deserialize)]
@@ -188,7 +239,7 @@ fn main() {
             "hello" => send(
                 &request.id,
                 &request.session_id,
-                json!({"event":"hello","engine_version":env!("CARGO_PKG_VERSION"),"mode":"native","qualification":"experimental","live_loopback":true,"capabilities":capabilities(),"commands":["hello","get_receiver_capabilities","list_applications","start","probe","stop","set_gain","set_equalizer","set_standby","set_device_volume","pair","pair_pin"],"production_ready":false}),
+                json!({"event":"hello","engine_version":env!("CARGO_PKG_VERSION"),"mode":"native","qualification":"experimental","live_loopback":true,"capabilities":capabilities(),"commands":["hello","get_receiver_capabilities","list_applications","start","probe","stop","set_gain","set_equalizer","set_standby","set_device_volume","set_lead","set_now_playing","pair","pair_pin"],"production_ready":false}),
             ),
             "get_receiver_capabilities" => {
                 let result = (|| -> anyhow::Result<_> {
@@ -199,15 +250,10 @@ fn main() {
                         !peers.is_empty() && peers.len() <= 2,
                         "capability query requires one or two receivers"
                     );
-                    peers
-                        .iter()
-                        .map(|peer| {
-                            airflash_engine::receiver_capabilities::query(
-                                peer,
-                                Cancellation::default(),
-                            )
-                        })
-                        .collect::<anyhow::Result<Vec<_>>>()
+                    airflash_engine::receiver_capabilities::query_group(
+                        &peers,
+                        Cancellation::default(),
+                    )
                 })();
                 match result {
                     Ok(members) => send(
@@ -218,7 +264,7 @@ fn main() {
                     Err(error) => send(
                         &request.id,
                         &request.session_id,
-                        json!({"event":"error","message":error.to_string()}),
+                        airflash_engine::transport::error_event(&error),
                     ),
                 }
             }
@@ -257,7 +303,7 @@ fn main() {
                 }
             }
             "probe" | "start" => {
-                let options: ProbeOptions = match serde_json::from_value(request.params) {
+                let mut options: ProbeOptions = match serde_json::from_value(request.params) {
                     Ok(o) => o,
                     Err(e) => {
                         send(
@@ -268,6 +314,9 @@ fn main() {
                         continue;
                     }
                 };
+                // Not a wire parameter: the end-of-session summary needs an id to
+                // correlate a CSV row with the desktop's session log.
+                options.report_session_id = request.session_id.clone();
                 if let Err(e) = if request.command == "start" {
                     options.validate_start()
                 } else {
@@ -283,6 +332,8 @@ fn main() {
                 if let Some(old) = running.take() {
                     drop(old);
                 }
+                airflash_engine::session::reset_lead();
+                airflash_engine::metadata::global().clear();
                 let cancel = Cancellation::default();
                 let worker_cancel = cancel.clone();
                 let session = request.session_id.clone();
@@ -295,6 +346,7 @@ fn main() {
                 let worker_standby = standby.clone();
                 let gain_limit = if request.command == "probe" { 0.1 } else { 1.0 };
                 let rate = options.sample_rate;
+                let force_latency = options.force_latency;
                 let equalizer =
                     airflash_engine::equalizer::Control::new(options.equalizer, rate).unwrap();
                 let worker_equalizer = equalizer.clone();
@@ -320,6 +372,7 @@ fn main() {
                     gain,
                     pending_pin: None,
                     gain_limit,
+                    force_latency,
                     volume,
                     standby,
                     equalizer: live_equalizer,
@@ -390,6 +443,39 @@ fn main() {
                         );
                     }
                 }
+            }
+            "set_now_playing" => {
+                let result = (|| -> anyhow::Result<_> {
+                    anyhow::ensure!(
+                        running.as_ref().is_some_and(|r| r.id == request.session_id
+                            && r.equalizer.is_some()
+                            && !r.cancel.is_cancelled()),
+                        "metadata session is no longer active"
+                    );
+                    let now: airflash_engine::metadata::NowPlaying =
+                        serde_json::from_value(request.params)?;
+                    anyhow::ensure!(
+                        [&now.title, &now.artist, &now.album, &now.genre]
+                            .iter()
+                            .all(|text| text.len() <= 4096),
+                        "metadata text is too long"
+                    );
+                    let sequence = NEXT_METADATA.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    airflash_engine::metadata::global().set(sequence, now);
+                    Ok(sequence)
+                })();
+                let event = match result {
+                    Ok(sequence) => json!({"event":"metadata_accepted","sequence":sequence}),
+                    Err(error) => json!({"event":"metadata_error","message":error.to_string()}),
+                };
+                send(&request.id, &request.session_id, event);
+            }
+            "set_lead" => {
+                send(
+                    &request.id,
+                    &request.session_id,
+                    lead_event(running.as_ref(), &request.session_id, &request.params),
+                );
             }
             "pair_pin" => {
                 if let Some(r) = running.as_ref().filter(|r| r.id == request.session_id) {
@@ -501,6 +587,7 @@ fn main() {
                     gain: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
                     pending_pin: Some(tx),
                     gain_limit: 0.0,
+                    force_latency: false,
                     volume: airflash_engine::volume::Control::default(),
                     standby: airflash_engine::standby::Control::default(),
                     equalizer: None,
@@ -512,6 +599,23 @@ fn main() {
                     drop(old);
                 }
                 send(&request.id, &request.session_id, json!({"event":"stopped"}));
+            }
+            "diag_summary" => {
+                // One-shot, redacted snapshot for issue reports: hosts and paths
+                // become stable pseudonyms, credentials are dropped, and every
+                // counter keeps its value.
+                let latest =
+                    airflash_engine::telemetry::redact(&airflash_engine::telemetry::diagnostics());
+                send(
+                    &request.id,
+                    &request.session_id,
+                    json!({
+                        "event": "diag_summary",
+                        "engine_version": env!("CARGO_PKG_VERSION"),
+                        "qualification": "experimental",
+                        "session": latest,
+                    }),
+                );
             }
             _ => send(
                 &request.id,
@@ -540,10 +644,37 @@ mod tests {
             gain: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
             pending_pin: None,
             gain_limit: 1.0,
+            force_latency: false,
             volume: airflash_engine::volume::Control::default(),
             standby: airflash_engine::standby::Control::default(),
             equalizer: Some((Control::new(Settings::default(), rate).unwrap(), rate)),
         }
+    }
+
+    #[test]
+    fn forced_lead_commands_are_nonfatal_and_leave_the_current_lead_untouched() {
+        let mut running = stored_start(44100);
+        running.force_latency = true;
+        airflash_engine::session::request_lead(40);
+        for params in [
+            json!({"ms":10}),
+            json!({"ms":-1}),
+            json!({"ms":"bad"}),
+            Value::Null,
+        ] {
+            let reply = lead_event(Some(&running), "eq-session", &params);
+            assert_eq!(reply["event"], "lead_error");
+            assert!(reply.get("retryable").is_none());
+            assert_eq!(airflash_engine::session::requested_lead(), 40);
+            assert!(!running.cancel.is_cancelled());
+        }
+        running.force_latency = false;
+        assert_eq!(
+            lead_event(Some(&running), "eq-session", &json!({"ms":10}))["event"],
+            "lead_requested"
+        );
+        assert_eq!(airflash_engine::session::requested_lead(), 10);
+        airflash_engine::session::reset_lead();
     }
 
     fn reply(running: Option<&Running>, session: &str, params: Value) -> Value {

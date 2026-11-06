@@ -7,41 +7,58 @@ namespace AirFlash.App.Ui;
 
 public sealed class PinDialog : Window
 {
-    private readonly TextBox _code = new() { MaxLength = 16, FontSize = 24, HorizontalContentAlignment = HorizontalAlignment.Center };
-    private readonly PasswordBox _password = new() { MaxLength = 128, FontSize = 24 };
-    private PinDialog(Receiver receiver)
+    private readonly TextBox _code = new() { MaxLength = PairingPin.MaximumInputLength, FontSize = 24, HorizontalContentAlignment = HorizontalAlignment.Center };
+    private readonly PasswordBox _password = new() { FontSize = 24 };
+    private PinDialog(Receiver receiver, Action<PinDialog>? opened = null)
     {
         Title = L.Get("Pair receiver"); Width = 390; SizeToContent = SizeToContent.Height; ResizeMode = ResizeMode.NoResize; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         WindowThemeService.Track(this);
         AppIconService.Track(this);
         var panel = new StackPanel { Margin = new(24) };
         panel.Children.Add(new TextBlock { Text = L.Format(receiver.RequiresPassword ? "Enter the AirPlay password for {0} ({1})" : "Enter the PIN provided by {0} ({1})", receiver.Name, receiver.Address), TextWrapping = TextWrapping.Wrap, Margin = new(0, 0, 0, 18) });
-        _code.PreviewTextInput += (_, args) => args.Handled = !PinInput.AcceptsText(args.Text);
+        _code.PreviewTextInput += (_, args) => args.Handled = args.Text.Any(c => !char.IsAsciiDigit(c) && c != '-');
+        // The single-line editor can discard a suffix at a line break.
+        DataObject.AddPastingHandler(_password, (_, args) =>
+        {
+            var format = args.FormatToApply;
+            if ((format != DataFormats.UnicodeText && format != DataFormats.Text)
+                || !PasswordInput.IsValid(args.DataObject.GetData(format) as string))
+                args.CancelCommand();
+        });
         panel.Children.Add(receiver.RequiresPassword ? _password : _code);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 18, 0, 0) };
         var ok = new Button { Content = L.Get("Pair"), IsDefault = true, IsEnabled = false, MinWidth = 78, Margin = new(0, 0, 8, 0) };
-        _code.TextChanged += (_, _) => ok.IsEnabled = PinInput.Normalize(_code.Text) is not null;
+        _code.TextChanged += (_, _) => ok.IsEnabled = PairingPin.Normalize(_code.Text) is not null;
         _password.PasswordChanged += (_, _) => ok.IsEnabled = ReadValidPassword() is not null;
-        ok.Click += (_, _) => DialogResult = true;
+        ok.Click += (_, _) => { if (receiver.RequiresPassword ? ReadValidPassword() is not null : PairingPin.Normalize(_code.Text) is not null) DialogResult = true; };
         buttons.Children.Add(ok); buttons.Children.Add(new Button { Content = L.Get("Cancel"), IsCancel = true, MinWidth = 78 }); panel.Children.Add(buttons); Content = panel;
-        Loaded += (_, _) => { if (receiver.RequiresPassword) _password.Focus(); else _code.Focus(); };
+        Loaded += (_, _) => { if (receiver.RequiresPassword) _password.Focus(); else _code.Focus(); opened?.Invoke(this); };
     }
-    public static async Task<string?> RequestAsync(Window owner, Receiver receiver, CancellationToken cancellation)
+    public static Task<string?> RequestAsync(Window owner, Receiver receiver, CancellationToken cancellation)
+        => RequestAsync(owner, receiver, cancellation, null);
+    internal static async Task<string?> RequestAsync(Window owner, Receiver receiver, CancellationToken cancellation, Action<PinDialog>? opened)
     {
         return await owner.Dispatcher.InvokeAsync(() =>
         {
             cancellation.ThrowIfCancellationRequested();
-            var dialog = new PinDialog(receiver) { Owner = owner };
-            using var registration = cancellation.Register(() => owner.Dispatcher.BeginInvoke(() => dialog.Close()));
-            string? result = null;
-            if (dialog.ShowDialog() == true)
+            var dialog = new PinDialog(receiver, opened) { Owner = owner };
+            using var registration = cancellation.Register(() => owner.Dispatcher.BeginInvoke(() =>
             {
-                if (receiver.RequiresPassword) result = dialog.ReadValidPassword();
-                else result = PinInput.Normalize(dialog._code.Text);
+                if (dialog.IsVisible) dialog.Close();
+            }));
+            try
+            {
+                var result = dialog.ShowDialog() == true
+                    ? receiver.RequiresPassword ? dialog.ReadValidPassword() : PairingPin.Normalize(dialog._code.Text)
+                    : null;
+                cancellation.ThrowIfCancellationRequested();
+                return result;
             }
-            dialog._password.Clear(); dialog._code.Clear();
-            cancellation.ThrowIfCancellationRequested();
-            return result;
+            finally
+            {
+                dialog._password.Clear();
+                dialog._code.Clear();
+            }
         });
     }
 
@@ -49,8 +66,7 @@ public sealed class PinDialog : Window
     {
         var password = _password.Password;
         using var securePassword = _password.SecurePassword;
-        // WPF's plaintext getter stops at NUL while its backing value retains
-        // every character. Reject that mismatch rather than submit a prefix.
+        // WPF's plaintext getter can stop at NUL. Reject a truncated prefix.
         return securePassword.Length == password.Length && PasswordInput.IsValid(password) ? password : null;
     }
 }

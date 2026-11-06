@@ -278,6 +278,21 @@ def test_cleanup_rejects_paths_outside_its_strict_checkout_boundary(tmp_path, ca
     assert_rejected_before_remove(fixture.run(target=str(target), **overrides))
 
 
+def test_cleanup_rejects_a_case_variant_checkout_prefix(tmp_path):
+    fixture = Fixture(tmp_path)
+    # A case-sensitive NTFS parent can have both directory spellings.
+    # Model the ambiguous path without changing filesystem case settings.
+    alternate = fixture.root.with_name(fixture.root.name.upper())
+    target = alternate / "build"
+    kept = sentinel(target)
+
+    result = fixture.run(target=str(target))
+
+    assert_rejected_before_remove(result)
+    assert result["error"].startswith("Unsafe cleanup target:"), result
+    assert kept.read_text(encoding="utf-8") == "synthetic sentinel must survive"
+
+
 @pytest.mark.parametrize("kind", ["missing", "file"])
 def test_cleanup_requires_an_existing_directory_checkout_even_when_leaf_is_missing(
     tmp_path, kind

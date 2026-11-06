@@ -31,14 +31,12 @@ public partial class App : Application
                 Shutdown(1);
             }
         };
-        var args = Environment.GetCommandLineArgs();
+        var args = Environment.GetCommandLineArgs()[1..];
         if (!Program.StartupOptions(args).Any(a => a is "--ui-smoke" or "--tray-smoke" or "--ui-perf")) return;
         try
         {
-            var cultureIndex = Array.IndexOf(args, "--ui-culture");
-            if (cultureIndex < 0) return;
-            if (cultureIndex + 1 >= args.Length) throw new ArgumentException("--ui-culture requires a culture name.");
-            var culture = CultureInfo.GetCultureInfo(args[cultureIndex + 1]);
+            if (Program.StartupValue(args, "--ui-culture") is not { } cultureName) return;
+            var culture = CultureInfo.GetCultureInfo(cultureName);
             // Capture the requested verification culture before async startup.
             // This process-local selection never changes Windows regional settings.
             CultureInfo.CurrentCulture = culture;
@@ -63,9 +61,8 @@ public partial class App : Application
     {
         // Initialize before any windows, view models or static choice labels are created.
         var options = Program.StartupOptions(args.Args).ToHashSet(StringComparer.Ordinal);
-        var languageIndex = Array.IndexOf(args.Args, "--ui-language");
-        var smokeLanguage = (options.Contains("--ui-smoke") || options.Contains("--tray-smoke") || options.Contains("--ui-perf")) && languageIndex >= 0 && languageIndex + 1 < args.Args.Length
-            ? new[] { args.Args[languageIndex + 1] } : null;
+        var smokeLanguage = options.Any(option => option is "--ui-smoke" or "--tray-smoke" or "--ui-perf")
+            && Program.StartupValue(args.Args, "--ui-language") is { } language ? new[] { language } : null;
         try
         {
             if (_verificationCultureError is { } cultureError)
@@ -78,9 +75,8 @@ public partial class App : Application
             Resources["LatencyChoices"] = Choices.Latencies;
             if (options.Contains("--discovery-perf"))
             {
-                var outputIndex = Array.IndexOf(args.Args, "--output");
-                if (outputIndex < 0 || outputIndex + 1 >= args.Args.Length) throw new ArgumentException("--discovery-perf requires --output.");
-                AppPaths.DataDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args.Args[outputIndex + 1]))!, "isolated-data");
+                var output = Program.StartupValue(args.Args, "--output") ?? throw new ArgumentException("--discovery-perf requires --output.");
+                AppPaths.DataDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(output))!, "isolated-data");
                 Shutdown(await DiscoveryPerf.RunAsync(args.Args)); return;
             }
             if (options.Contains("--update-check"))
@@ -114,9 +110,14 @@ public partial class App : Application
             _viewModel = new(store, new WindowsDiscovery(log: AppPaths.Log), new Autostart(), audio, factory, Dispatcher, _engine);
             _viewModel.ResetCompleted += Quit;
             _panel = new(_viewModel); MainWindow = _panel;
-            _panel.SettingsRequested += ShowSettings; _panel.QuitRequested += Quit;
+            _panel.SettingsRequested += ShowSettings; _panel.LatencySettingsRequested += ShowSettingsPage; _panel.QuitRequested += Quit;
             _tray = new(_panel, _viewModel, ShowSettings, Quit); _panel.Tray = _tray;
-            _instance.Listen(() => Dispatcher.BeginInvoke(() => { if (_settings is not null) _settings.Activate(); else _panel.ShowPanel(); }));
+            _instance.Listen(() => Dispatcher.BeginInvoke(() =>
+            {
+                if (_quitting) return;
+                if (_settings is not null) _settings.Activate();
+                else _panel.ShowPanel();
+            }));
             _viewModel.SettingsChanged += OnSettingsChanged;
             _viewModel.MuteRecoveryRequested += ShowMuteRecovery;
             _viewModel.Start();
@@ -145,6 +146,7 @@ public partial class App : Application
             if (_quitting || _viewModel is null) return;
             L.Initialize(_uiLanguage == "system" ? null : [_uiLanguage]);
             Resources["LatencyChoices"] = Choices.Latencies;
+            _viewModel.RefreshLatencyChoices();
             var showSettings = _settings?.IsVisible == true;
             var page = _settings?.ViewModel.SelectedPage ?? 0;
             var showPanel = _panel?.IsVisible == true;
@@ -152,19 +154,29 @@ public partial class App : Application
             _settings?.Close();
             _tray?.Dispose(); _panel?.ShutdownPanel();
             _panel = new(_viewModel); MainWindow = _panel;
-            _panel.SettingsRequested += ShowSettings; _panel.QuitRequested += Quit;
+            _panel.SettingsRequested += ShowSettings; _panel.LatencySettingsRequested += ShowSettingsPage; _panel.QuitRequested += Quit;
             _tray = new(_panel, _viewModel, ShowSettings, Quit); _panel.Tray = _tray;
             foreach (var row in _viewModel.Receivers) row.Refresh();
             if (showSettings) { ShowSettings(); _settings!.ViewModel.SelectedPage = page; }
             else if (showPanel) _panel.ShowPanel();
         }, System.Windows.Threading.DispatcherPriority.ContextIdle);
     }
-    private void ShowSettings()
+    private void ShowSettings() => ShowSettings(null);
+    private void ShowSettingsPage(int page) => ShowSettings(page);
+    private void ShowSettings(int? page)
     {
-        if (_viewModel is null) return;
+        if (_quitting || _viewModel is null) return;
         _panel?.Hide();
-        if (_settings is not null) { if (_settings.WindowState == WindowState.Minimized) _settings.WindowState = WindowState.Normal; _settings.Activate(); return; }
-        _settings = new(_viewModel); _settings.Closed += (_, _) => _settings = null; _settings.Show(); _settings.Activate();
+        if (_settings is not null)
+        {
+            if (page is { } selected) _settings.ViewModel.SelectedPage = selected;
+            if (_settings.WindowState == WindowState.Minimized) _settings.WindowState = WindowState.Normal;
+            _settings.Activate(); return;
+        }
+        _settings = new(_viewModel); _settings.Closed += (_, _) => _settings = null;
+        _settings.Show();
+        if (page is { } initial) _settings.ViewModel.SelectedPage = initial;
+        _settings.Activate();
     }
     private void ShowMuteRecovery()
     {
@@ -181,12 +193,14 @@ public partial class App : Application
         {
             await ShellShutdown.RunAsync(() => _viewModel?.BeginShutdown(),
                 () => _settings?.ViewModel.ApplicationCompleted ?? Task.CompletedTask,
-                () => { try { _settings?.Close(); } finally { _muteRecovery?.Close(); } },
+                ShellShutdown.Sync(() => _settings?.Close()),
+                ShellShutdown.Sync(() => _muteRecovery?.Close()),
                 () => _engine?.DisposeAsync() ?? ValueTask.CompletedTask,
-                () => _viewModel?.DisposeAsync() ?? ValueTask.CompletedTask);
-            _tray?.Dispose(); _panel?.ShutdownPanel();
-            if (_instance is not null) await _instance.DisposeAsync();
-            _theme?.Dispose();
+                () => _viewModel?.DisposeAsync() ?? ValueTask.CompletedTask,
+                ShellShutdown.Sync(() => _tray?.Dispose()),
+                ShellShutdown.Sync(() => _panel?.ShutdownPanel()),
+                () => _instance?.DisposeAsync() ?? ValueTask.CompletedTask,
+                ShellShutdown.Sync(() => _theme?.Dispose()));
         }
         catch (Exception error) { AppPaths.Log(error.ToString()); }
         finally { Shutdown(); }
@@ -252,10 +266,9 @@ public partial class App : Application
     }
     internal static void WriteOutput(string[] args, object value, JsonSerializerOptions? options = null)
     {
-        var index = Array.FindIndex(args, a => a is "--self-check-output" or "--output");
-        if (index >= 0 && index + 1 < args.Length)
+        if (Program.StartupValue(args, "--output", "--self-check-output") is { } path)
         {
-            var output = Path.GetFullPath(args[index + 1]);
+            var output = Path.GetFullPath(path);
             Directory.CreateDirectory(Path.GetDirectoryName(output)!);
             File.WriteAllText(output, JsonSerializer.Serialize(value, options ?? new JsonSerializerOptions { WriteIndented = true }));
         }

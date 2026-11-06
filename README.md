@@ -65,6 +65,8 @@ playback and acoustic synchronization have not been qualified by this implementa
 2. Start AirFlash and wait for the receiver list to populate.
 3. Select the complete `HomePod stereo · 2/2` entry and press play.
 4. Complete PIN pairing in **Settings > Receivers** if the receiver requests it.
+   If pairing fails with `pairing rejected (TLV error [2])`, open the Home app,
+   set speaker access to **Everyone**, and try again.
 5. Choose the capture endpoint and latency profile in Settings when the defaults
    are not suitable.
 
@@ -83,6 +85,36 @@ current connecting, playing, or standby receiver uses an independent latency mod
 including either software stereo member, the control is disabled and points to
 **Settings > Receivers**. Stopping playback restores it; the global default remains
 editable in Settings.
+
+New installations and reset settings default to **Normal · 200 ms**. The
+selectable modes are Real-time, Normal, Buffered, and Custom. Existing settings
+that used the retired adaptive mode load as Normal; other fixed modes and custom
+values are preserved.
+
+In **Settings > AirFlash streaming**, the 120/200/500 ms presets and 0–2000 ms
+custom target also offer an independent **Force fixed latency** switch. With it
+off, the existing recovery behavior remains. With it on, AirFlash does not
+automatically increase latency or move the playback timeline: short stalls may
+use brief silence and clear stale capture audio, while larger stalls reconnect
+at the same target within the configured retry limit.
+
+Receiver settings can inherit the global policy, keep recovery, or force a fixed
+target. Forced software stereo requires every member to use the same forced
+target; conflicts are reported before playback without changing the group or its
+left/right synchronization offsets. Applying a target or policy change during
+playback rebuilds the session.
+
+A forced target below the receiver's reported minimum shows a warning and is
+still attempted; the receiver may reject playback or remain silent. The control
+panel distinguishes the requested target, engine plan, and receiver minimum.
+These scheduling values are not measured end-to-end audio latency. Without
+forcing, the existing negotiation of receiver latency remains in effect.
+Latency mode and UDP/TCP transport are independent settings.
+
+Stopping playback or cancelling a connection immediately shows **Disconnecting…**.
+The playback button becomes available again after the old session is cleaned up.
+AirFlash drains final engine output during shutdown and gives the engine a shared
+two-second stop budget before terminating an unresponsive engine process.
 
 **Settings > General > Reset and restart** asks once before clearing all settings
 and receiver pairing. AirFlash stops playback and discovery, restores local mute,
@@ -137,6 +169,9 @@ again after installing AirFlash.
 Use **Settings > About > Check for updates** to check for a stable release and open its download page. Checks run only when requested.
 
 The real-time profile targets 120 ms; target and local transport timings are not measurements of end-to-end acoustic latency.
+
+For `PTP exchange did not become ready`, see [PTP startup troubleshooting](docs/PTP-TROUBLESHOOTING.md)
+for clock diagnostics and the correct engine process and UDP firewall rules.
 
 See [Release workflow](docs/RELEASING.md) for version reservation and publishing.
 

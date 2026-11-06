@@ -33,6 +33,18 @@ public sealed class ReceiverSelectionTests
     }
 
     [Fact]
+    public void ManualSelectionBypassesAmbiguousDiscoveryAliasesAtOtherPorts()
+    {
+        var manual = Member("manual", port: 7002) with { IsManual = true };
+        var first = Group("first", Member("first-member") with { Aliases = [manual.Id] });
+        var second = Group("second", Member("second-member", port: 7001) with { Aliases = [manual.Id] });
+        Assert.Null(ReceiverSelection.ResolvePlayback(manual with { IsManual = false }, [first, second]));
+        var selected = Assert.IsType<Receiver>(ReceiverSelection.ResolvePlayback(manual, [first, second]));
+        Assert.Same(manual, selected);
+        Assert.Equal((manual.Id, manual.Address, 7002), (selected.Id, selected.Address, selected.Port));
+    }
+
+    [Fact]
     public void SoftwareGroupsDoNotClaimImplicitOwnershipOfPhysicalClicks()
     {
         var selected = Member();
@@ -215,6 +227,20 @@ public sealed class ReceiverSelectionTests
             Assert.False(ReceiverSelection.IsAutoConnectEligible(candidate, settings, Attempted()));
         Assert.True(ReceiverSelection.IsAutoConnectEligible(valid, settings, Attempted()));
         Assert.Same(valid, ReceiverSelection.SelectAutoConnect([hidden, offline, incomplete, disabled, valid], settings, Attempted()));
+    }
+
+    [Fact]
+    public void HiddenCompleteGroupAndGroupWithAnOfflineMemberCannotWinAutomaticSelection()
+    {
+        var hidden = Group("hidden", Member(), Member("member-b", "192.0.2.11"));
+        var incomplete = Group("incomplete", Member(), Member("member-b", "192.0.2.11") with { Online = false });
+        var fallback = Member("fallback", "192.0.2.12");
+        var settings = new AppSettings { AutoConnectOnDiscover = true, LastReceiverId = hidden.Id };
+        settings.Options(hidden.Id).Hidden = true;
+        settings.Options(hidden.Id).AutoConnect = true;
+        Assert.True(hidden.Complete);
+        Assert.False(incomplete.Complete);
+        Assert.Same(fallback, ReceiverSelection.SelectAutoConnect([hidden, incomplete, fallback], settings, Attempted()));
     }
 
     [Theory]

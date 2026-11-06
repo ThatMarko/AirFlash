@@ -12,7 +12,9 @@ public partial class SettingsWindow : Window
     public SettingsViewModel ViewModel { get; }
     private readonly HashSet<ValidationError> _errors = [];
     private readonly Dictionary<int, FrameworkElement> _pages = [];
-    public SettingsWindow(AppViewModel app, Action<string>? diagnosticsWriter = null)
+    public SettingsWindow(AppViewModel app) : this(app, null) { }
+
+    internal SettingsWindow(AppViewModel app, Action<string>? diagnosticsWriter)
     {
         InitializeComponent(); ViewModel = new(app, diagnosticsWriter); DataContext = ViewModel;
         ViewModel.ConfirmReset = () => MessageBox.Show(this, L.Get("All settings and receiver pairing will be deleted, and AirFlash will restart. Continue?"), L.Get("Reset and restart"), MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;

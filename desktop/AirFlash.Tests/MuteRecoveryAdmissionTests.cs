@@ -16,7 +16,7 @@ public sealed class MuteRecoveryAdmissionTests
     public async Task Unresolved_recovery_rejects_start_and_pair_before_opening_an_engine(MuteRecoveryStatus status)
     {
         var audio = new RecoveryAudio(status); var factory = new CountingFactory();
-        await using var controller = new SessionController(factory, audio);
+        await using var controller = TestSessionController.Create(factory, audio);
         var receiver = new Receiver("synthetic", "Synthetic", "192.0.2.1");
         await Assert.ThrowsAsync<InvalidOperationException>(() => controller.StartAsync(receiver, new()));
         await Assert.ThrowsAsync<InvalidOperationException>(() => controller.PairAsync(receiver, new(), (_, _) => throw new InvalidOperationException("PIN must not open")));
@@ -29,7 +29,7 @@ public sealed class MuteRecoveryAdmissionTests
         var audio = new RecoveryAudio(MuteRecoveryStatus.Ready)
         { OnRestore = (value, _) => value.Status = MuteRecoveryStatus.Pending };
         var factory = new CountingFactory();
-        await using var controller = new SessionController(factory, audio);
+        await using var controller = TestSessionController.Create(factory, audio);
         await Assert.ThrowsAsync<InvalidOperationException>(() => controller.StartAsync(new("synthetic", "Synthetic", "192.0.2.1"), new()));
         Assert.Equal(0, factory.Count); Assert.Equal(0, audio.Mutes);
     }
@@ -38,7 +38,7 @@ public sealed class MuteRecoveryAdmissionTests
     public async Task Rejected_replacement_publishes_idle_after_the_old_worker_has_stopped()
     {
         var audio = new RecoveryAudio(MuteRecoveryStatus.Ready); var factory = new StreamingFactory();
-        await using var controller = new SessionController(factory, audio);
+        await using var controller = TestSessionController.Create(factory, audio);
         var streaming = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         controller.Changed += value => { if (value.State == PlaybackState.Streaming) streaming.TrySetResult(); };
         await controller.StartAsync(new("first", "First", "192.0.2.1"), new());
@@ -53,7 +53,7 @@ public sealed class MuteRecoveryAdmissionTests
     public async Task Playback_without_local_muting_does_not_require_a_recovery_decision()
     {
         var audio = new RecoveryAudio(MuteRecoveryStatus.Pending); var factory = new CountingFactory();
-        await using var controller = new SessionController(factory, audio);
+        await using var controller = TestSessionController.Create(factory, audio);
         await controller.StartAsync(new("synthetic", "Synthetic", "192.0.2.1"), new() { MuteWhileStreaming = false });
         await factory.Opened.Task.WaitAsync(TimeSpan.FromSeconds(3));
         await controller.StopAsync();
@@ -69,7 +69,7 @@ public sealed class MuteRecoveryAdmissionTests
     public async Task Application_capture_preserves_unresolved_recovery_without_muting_an_endpoint(MuteRecoveryStatus status)
     {
         var audio = new RecoveryAudio(status); var factory = new StreamingFactory();
-        await using var controller = new SessionController(factory, audio);
+        await using var controller = TestSessionController.Create(factory, audio);
         var settings = new AppSettings { CaptureMode = "application", CaptureApplicationPath = "synthetic-application.exe", MuteWhileStreaming = true };
         var streaming = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         controller.Changed += value => { if (value.State == PlaybackState.Streaming) streaming.TrySetResult(); };
@@ -87,7 +87,7 @@ public sealed class MuteRecoveryAdmissionTests
     public async Task Endpoint_capture_including_a_selected_recording_input_still_requires_ready_recovery(string mode)
     {
         var audio = new RecoveryAudio(MuteRecoveryStatus.Pending); var factory = new StreamingFactory();
-        await using var controller = new SessionController(factory, audio);
+        await using var controller = TestSessionController.Create(factory, audio);
         var settings = new AppSettings { CaptureMode = mode, CaptureEndpoint = "synthetic-recording", MuteWhileStreaming = true };
         Assert.True(settings.ShouldMuteEndpoint);
         await Assert.ThrowsAsync<InvalidOperationException>(() => controller.StartAsync(new("synthetic", "Synthetic", "192.0.2.1"), settings));
@@ -98,7 +98,7 @@ public sealed class MuteRecoveryAdmissionTests
     public async Task Application_capture_pairing_does_not_discard_or_mutate_pending_recovery()
     {
         var audio = new RecoveryAudio(MuteRecoveryStatus.Pending); var factory = new StreamingFactory();
-        await using var controller = new SessionController(factory, audio);
+        await using var controller = TestSessionController.Create(factory, audio);
         await controller.PairAsync(new("synthetic", "Synthetic", "192.0.2.1"),
             new() { CaptureMode = "application", CaptureApplicationPath = "synthetic-application.exe", MuteWhileStreaming = true },
             (_, _) => throw new InvalidOperationException("Pair remains before the PIN prompt."));
@@ -116,7 +116,7 @@ public sealed class MuteRecoveryAdmissionTests
     public async Task Rejected_endpoint_replacement_keeps_the_application_worker_receiver_and_settings(string operation)
     {
         var audio = new RecoveryAudio(MuteRecoveryStatus.Pending); var factory = new StreamingFactory();
-        await using var controller = new SessionController(factory, audio);
+        await using var controller = TestSessionController.Create(factory, audio);
         var original = new Receiver("original", "Original application capture", "192.0.2.1");
         var settings = new AppSettings { CaptureMode = "application", CaptureApplicationPath = "synthetic-application.exe", MuteWhileStreaming = true };
         var streaming = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -147,7 +147,7 @@ public sealed class MuteRecoveryAdmissionTests
     public async Task Replacement_cleanup_that_becomes_pending_ends_the_old_application_worker_without_starting_endpoint_capture()
     {
         var audio = new RecoveryAudio(MuteRecoveryStatus.Ready); var factory = new StreamingFactory();
-        await using var controller = new SessionController(factory, audio);
+        await using var controller = TestSessionController.Create(factory, audio);
         var settings = new AppSettings { CaptureMode = "application", CaptureApplicationPath = "synthetic-application.exe", MuteWhileStreaming = true };
         var receiver = new Receiver("original", "Original", "192.0.2.1");
         var streaming = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -168,7 +168,7 @@ public sealed class MuteRecoveryAdmissionTests
         var audio = new RecoveryAudio(MuteRecoveryStatus.Ready)
         { OnRestore = (value, count) => { if (count >= 2) value.Status = MuteRecoveryStatus.Pending; } };
         var factory = new CountingFactory();
-        await using var controller = new SessionController(factory, audio);
+        await using var controller = TestSessionController.Create(factory, audio);
         var rejectedRetry = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         controller.Changed += value => { if (value.State == PlaybackState.Error && value.Message.Contains("recovery", StringComparison.OrdinalIgnoreCase)) rejectedRetry.TrySetResult(); };
         await controller.StartAsync(new("synthetic", "Synthetic", "192.0.2.1"), new() { ForceReconnect = true });
@@ -199,7 +199,7 @@ public sealed class MuteRecoveryAdmissionTests
             {
                 cancellation.ThrowIfCancellationRequested();
                 factory.Commands.Enqueue((command, JsonSerializer.SerializeToElement(parameters)));
-                if (command == "hello") _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, session_id = session, @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "application_capture" } }));
+                if (command == "hello") _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, session_id = session, @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_ownership_guard", "application_capture" } }));
                 if (command == "pair") factory.PairEntered.TrySetResult();
                 if (command == "start") _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, id = "synthetic", session_id = session, @event = "streaming" }));
                 return Task.CompletedTask;

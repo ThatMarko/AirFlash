@@ -31,7 +31,7 @@ public sealed class CapturePaddingMetricsTests
     public async Task NewOptionalCaptureCountersReachLiveSnapshot(int rate)
     {
         var connection = new Connection(); var factory = new Factory(connection);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         using var snapshots = new Snapshots(controller);
         await controller.StartAsync(Receiver(), Settings(rate));
         await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming);
@@ -58,7 +58,7 @@ public sealed class CapturePaddingMetricsTests
     public async Task UnsignedCounterBoundariesArePreservedWithoutSignedTruncation(ulong value)
     {
         var connection = new Connection();
-        await using var controller = new SessionController(new Factory(connection), new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(new Factory(connection), new Audio(), timing: Timing);
         using var snapshots = new Snapshots(controller);
         await controller.StartAsync(Receiver(), Settings());
         await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming);
@@ -81,7 +81,7 @@ public sealed class CapturePaddingMetricsTests
     public async Task InvalidOrAbsentCounterIsUnavailableWithoutErasingOtherMetrics(string field, string? token)
     {
         var connection = new Connection(); var factory = new Factory(connection);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         using var snapshots = new Snapshots(controller);
         await controller.StartAsync(Receiver(), Settings());
         await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming);
@@ -113,7 +113,7 @@ public sealed class CapturePaddingMetricsTests
     public async Task OldProducerEventClearsPreviouslyAvailableOptionalValues()
     {
         var connection = new Connection();
-        await using var controller = new SessionController(new Factory(connection), new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(new Factory(connection), new Audio(), timing: Timing);
         using var snapshots = new Snapshots(controller);
         await controller.StartAsync(Receiver(), Settings());
         await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming);
@@ -140,7 +140,7 @@ public sealed class CapturePaddingMetricsTests
     public async Task CaptureMetricsBeforeOrBetweenStreamingKeepNativeLifecycleState(string phase)
     {
         var connection = new Connection(autoStreaming: false);
-        await using var controller = new SessionController(new Factory(connection), new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(new Factory(connection), new Audio(), timing: Timing);
         using var snapshots = new Snapshots(controller);
         await controller.StartAsync(Receiver(), Settings());
         await connection.Started.Task.WaitAsync(Deadline);
@@ -160,7 +160,7 @@ public sealed class CapturePaddingMetricsTests
     public async Task ReplacedApplicationCaptureWorkerCanResetCountersWithinOneEngineSession()
     {
         var connection = new Connection(); var factory = new Factory(connection);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         using var snapshots = new Snapshots(controller);
         var settings = Settings(); settings.CaptureMode = "application"; settings.CaptureApplicationPath = @"C:\Synthetic\Player.exe";
         await controller.StartAsync(Receiver(), settings);
@@ -169,10 +169,13 @@ public sealed class CapturePaddingMetricsTests
         var prior = await snapshots.NextAsync(snapshot => snapshot.Metrics?.Underruns == 3);
         var session = connection.Session;
         connection.Emit(new { @event = "standby", reason = "application_unavailable" });
-        connection.Capture(new { underrun_packets = 0, padded_frames = 0UL, fully_padded_packets = 0UL, input_rate = 0 });
+        connection.Capture(new { underrun_packets = 0, input_rate = 0 });
         var absent = await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Standby && snapshot.Metrics?.Underruns == 0);
-        Assert.Equal(0UL, absent.Metrics!.PaddedFrames); Assert.Equal(0UL, absent.Metrics.FullyPaddedPackets);
+        Assert.Null(absent.Metrics!.PaddedFrames); Assert.Null(absent.Metrics.FullyPaddedPackets);
         connection.Emit(new { @event = "resuming" }); connection.Emit(new { @event = "streaming" });
+        connection.Capture(new { underrun_packets = 0, padded_frames = 0UL, fully_padded_packets = 0UL, input_rate = 48000 });
+        var fresh = await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming && snapshot.Metrics?.PaddedFrames == 0);
+        Assert.Equal(0UL, fresh.Metrics!.FullyPaddedPackets);
         connection.Capture(new { underrun_packets = 1, padded_frames = 1UL, fully_padded_packets = 0UL, input_rate = 48000 });
         var replaced = await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming && snapshot.Metrics?.Underruns == 1);
         Assert.Equal(1UL, replaced.Metrics!.PaddedFrames); Assert.Equal(0UL, replaced.Metrics.FullyPaddedPackets);
@@ -184,7 +187,7 @@ public sealed class CapturePaddingMetricsTests
     public async Task StaleSessionAndWrongVersionCaptureEventsCannotModifyReplacement()
     {
         var first = new Connection(); var second = new Connection();
-        await using var controller = new SessionController(new Factory(first, second), new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(new Factory(first, second), new Audio(), timing: Timing);
         using var snapshots = new Snapshots(controller);
         await controller.StartAsync(Receiver(), Settings());
         await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming);
@@ -210,7 +213,7 @@ public sealed class CapturePaddingMetricsTests
         var first = new Connection(); var gate = new Gate();
         var second = new Connection(startGate: gate); var third = new Connection();
         var factory = new Factory(first, second, third);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         using var snapshots = new Snapshots(controller);
         await controller.StartAsync(Receiver(), Settings(reconnect: true));
         await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming);
@@ -263,7 +266,7 @@ public sealed class CapturePaddingMetricsTests
     {
         var first = new Connection(); var second = new Connection(autoStreaming: false);
         var factory = new Factory(first, second);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         using var snapshots = new Snapshots(controller);
         await controller.StartAsync(Receiver(), Settings(reconnect: true));
         await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming);
@@ -286,7 +289,7 @@ public sealed class CapturePaddingMetricsTests
     {
         var first = new Connection(); var gate = new Gate(); var second = new Connection(startGate: gate);
         var factory = new Factory(first, second);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         using var snapshots = new Snapshots(controller);
         await controller.StartAsync(Receiver(), Settings(reconnect: true));
         await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming);
@@ -315,7 +318,7 @@ public sealed class CapturePaddingMetricsTests
     {
         var connection = new Connection(); var factory = new Factory(connection);
         var audio = new Audio();
-        await using var controller = new SessionController(factory, audio, timing: Timing);
+        await using var controller = TestSessionController.Create(factory, audio, timing: Timing);
         using var snapshots = new Snapshots(controller);
         await controller.StartAsync(Receiver(), Settings(reconnect: true));
         await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming);
@@ -395,7 +398,7 @@ public sealed class CapturePaddingMetricsTests
             if (command == "hello")
             {
                 Session = session;
-                Emit(new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "application_capture", "member_volume" } });
+                Emit(new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_ownership_guard", "application_capture", "member_volume" } });
             }
             else if (command == "start")
             {

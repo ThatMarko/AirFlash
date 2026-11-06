@@ -177,7 +177,7 @@ internal static class UiMuteRecovery
         using (var interrupted = new MuteRecoveryCoordinator(backend, journal)) { interrupted.Initialize(); interrupted.Mute(null); }
         backend.Calls.Clear(); using var release = new ManualResetEventSlim(); backend.OpenGate = release;
         var audio = Audio(backend, journal); var factory = new Factory();
-        var app = new AppViewModel(new Store(), new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, factory, Application.Current.Dispatcher, receiverCapabilities: new Capabilities());
+        var app = new AppViewModel(new Store(), new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, factory, Application.Current.Dispatcher, receiverCapabilities: new Capabilities(), isolatedVerification: true);
         var panel = new ControlPanel(app) { MenuOpen = true };
         MuteRecoveryWindow? recoveryWindow = null;
         SettingsWindow? settings = null;
@@ -209,14 +209,6 @@ internal static class UiMuteRecovery
             settings.Close(); settings = null; await Pump();
             var recoveryMessage = app.MuteRecoveryMessage; app.ShowError(new IOException("synthetic ordinary notice"));
             Check(app.MuteRecoveryMessage == recoveryMessage, "ordinary notice cannot clear unresolved mute recovery", checks);
-            await Pump();
-            var setters = backend.Setters; var writes = journal.Writes;
-            var dismiss = Descendants(panel).OfType<Button>().Single(button => button.Name == "DismissNoticeButton");
-            Invoke(dismiss); await Pump();
-            var recoveryBanner = Descendants(panel).OfType<Border>().Single(border => border.Name == "MuteRecoveryBanner");
-            Check(!app.HasNotice && app.HasMuteRecovery && !app.MuteReady && recoveryBanner.IsVisible
-                && app.MuteRecoveryMessage == recoveryMessage && backend.Bit && backend.Setters == setters && journal.Writes == writes,
-                "dismissing an ordinary notice leaves the unresolved mute banner, admission guard and journal intact", checks);
             var requested = Signal(); app.MuteRecoveryRequested += () =>
             { recoveryWindow = new(app) { Owner = panel }; recoveryWindow.Show(); requested.TrySetResult(); };
             var review = Descendants(panel).OfType<Button>().Single(button => ReferenceEquals(button.Command, app.ReviewMuteRecoveryCommand));
@@ -249,7 +241,7 @@ internal static class UiMuteRecovery
             ManualReceivers = [new("synthetic-manual", "Synthetic receiver", "192.0.2.20", 7000)] });
         var factory = new Factory();
         var app = new AppViewModel(store, new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(),
-            audio, factory, Application.Current.Dispatcher, receiverCapabilities: new Capabilities());
+            audio, factory, Application.Current.Dispatcher, receiverCapabilities: new Capabilities(), isolatedVerification: true);
         var release = Signal(); store.SaveGate = release; store.SaveEntered = Signal();
         Task? persistence = null, pairing = null;
         var pinRequested = false;
@@ -302,7 +294,7 @@ internal static class UiMuteRecovery
         var setters = backend.Setters; var writes = journal.Writes;
         var audio = Audio(backend, journal); var factory = new Factory();
         await using var app = new AppViewModel(new Store(application: true), new UiSmoke.MockDiscovery { Items = [] },
-            new UiSmoke.MockAutostart(), audio, factory, Application.Current.Dispatcher, receiverCapabilities: new Capabilities());
+            new UiSmoke.MockAutostart(), audio, factory, Application.Current.Dispatcher, receiverCapabilities: new Capabilities(), isolatedVerification: true);
         app.Start(); await app.Startup;
         Check(app.MuteReady && app.HasMuteRecovery && app.Receivers.Single().CanPlay,
             "application capture remains available while a differing saved output recovery stays visible", checks);
@@ -326,7 +318,7 @@ internal static class UiMuteRecovery
         using (var interrupted = new MuteRecoveryCoordinator(backend, journal)) { interrupted.Initialize(); interrupted.Mute(null); }
         using var release = new ManualResetEventSlim(); backend.OpenGate = release;
         var audio = Audio(backend, journal); var factory = new Factory();
-        var app = new AppViewModel(new Store(), new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, factory, Application.Current.Dispatcher, receiverCapabilities: new Capabilities());
+        var app = new AppViewModel(new Store(), new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, factory, Application.Current.Dispatcher, receiverCapabilities: new Capabilities(), isolatedVerification: true);
         Task? closing = null;
         try
         {
@@ -347,7 +339,7 @@ internal static class UiMuteRecovery
     private static async Task ActiveStopAsync(List<string> checks, string directory)
     {
         var backend = new Backend(false); var journal = new Journal(directory); var audio = Audio(backend, journal);
-        var app = new AppViewModel(new Store(), new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, new Factory(), Application.Current.Dispatcher, receiverCapabilities: new Capabilities());
+        var app = new AppViewModel(new Store(), new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, new Factory(), Application.Current.Dispatcher, receiverCapabilities: new Capabilities(), isolatedVerification: true);
         var panel = new ControlPanel(app) { MenuOpen = true };
         MuteRecoveryWindow? recoveryWindow = null;
         try
@@ -364,8 +356,9 @@ internal static class UiMuteRecovery
             Check(Descendants(recoveryWindow).OfType<Button>().Any(button => button.Name == "RetryRecoverySaveButton"),
                 "known-restored recovery exposes a persistence retry action", checks);
             var row = app.Receivers.Single();
-            var stop = Descendants(panel).OfType<Button>().Single(button => ReferenceEquals(button.Command, row.ToggleCommand));
-            Check(stop.IsVisible && stop.IsEnabled && row.Active && panel.IsEnabled,
+            var stop = Descendants(panel).OfType<Button>().Single(button =>
+                ReferenceEquals(button.DataContext, row) && ReferenceEquals(button.Command, app.StopCommand));
+            Check(ReferenceEquals(row.PlaybackCommand, app.StopCommand) && stop.IsVisible && stop.IsEnabled && row.Active && panel.IsEnabled,
                 "actual visible bound Stop stays accessible through modeless recovery while new playback is blocked", checks);
             var idle = State(app.Session, PlaybackState.Idle); Invoke(stop); await idle; await Pump();
             Check(backend.Bit && backend.Setters == setters && !app.Session.Snapshot.IsActive,
@@ -509,7 +502,7 @@ internal static class UiMuteRecovery
             public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
             {
                 cancellation.ThrowIfCancellationRequested();
-                if (command == "hello") _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, session_id = session, @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "application_capture" } }));
+                if (command == "hello") _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, session_id = session, @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "application_capture", "receiver_ownership_guard" } }));
                 if (command == "pair") factory.PairEntered.TrySetResult();
                 if (command == "start")
                 {

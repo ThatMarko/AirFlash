@@ -41,9 +41,9 @@ internal static class UiPairing
             await CaseAsync("12-34", "1234", checks, input: InputMode.Typed);
             foreach (var (text, pin) in new (string, string?)[]
             {
-                ("12-34", "1234"), ("12345678", "12345678"), ("--------1234----", "1234"),
+                ("12-34", "1234"), ("1234", "1234"), ("12345678", "12345678"), ("12-34-56-78", "12345678"), ("--------1234----", "1234"),
                 ("", null), ("123", null), ("123456789", null), ("12a34", null),
-                ("12 34", null), ("1234\n", null), ("１２３４", null), ("١٢٣٤", null), ("12−34", null)
+                ("12 34", null), (" 1234", null), ("1234\n", null), ("１２３４", null), ("١٢٣٤", null), ("12−34", null), ("-------------1234", null)
             }) await CaseAsync(text, pin, checks);
             foreach (var completion in new[] { Completion.Cancel, Completion.Stop, Completion.Timeout })
                 await CaseAsync("1234", "1234", checks, completion: completion);
@@ -55,9 +55,11 @@ internal static class UiPairing
             if (useClipboard)
                 foreach (var (text, inserted, pin) in new (string, string, string?)[]
                 {
-                    ("12-34", "12-34", "1234"), ("12345678", "12345678", "12345678"),
+                    ("12-34", "12-34", "1234"), ("1234", "1234", "1234"), ("12345678", "12345678", "12345678"),
+                    ("12-34-56-78", "12-34-56-78", "12345678"), ("--------1234----", "--------1234----", "1234"),
                     ("-------------1234", "-------------123", null), ("123456789", "123456789", null),
-                    ("１２３４", "１２３４", null), ("12−34", "12−34", null),
+                    ("123", "123", null), ("123a", "123a", null), ("12 34", "12 34", null), (" 1234", " 1234", null),
+                    ("１２３４", "１２３４", null), ("١٢٣٤", "١٢٣٤", null), ("12−34", "12−34", null),
                     ("12\n34", "12", null), ("1234\n", "1234", "1234")
                 }) await CaseAsync(text, pin, checks, input: InputMode.Clipboard, inserted: inserted);
         }
@@ -77,14 +79,14 @@ internal static class UiPairing
         _ = directory;
         try
         {
-            // This value is inside the unchanged 128-unit edit limit, but its
+            // This value is within the ASCII length of a valid input, but its
             // 258 UTF-8 bytes exceed the native limit. Keep this decisive case
             // first so a red run cannot be manufactured by later cancellation.
             await CaseAsync(new string('界', 86), null, checks, password: true);
             // Bypass only the fake dialog's disabled button to exercise the
             // final submission guard independently from its enablement rule.
             await CaseAsync(new string('界', 86), null, checks, password: true, forceSubmit: true);
-            foreach (var password in new[] { " ", "\t", " \t ", "\u00a0", "  raw-pässword-12-34 \t",
+            foreach (var password in new[] { " ", "\t", " \t ", "\u00a0", "  raw-pässword-12-34 \t", "12-AB-34",
                 new string('界', 85), new string('é', 128), string.Concat(Enumerable.Repeat("😀", 64)) })
                 await CaseAsync(password, password, checks, password: true);
             // The plaintext getter loses the NUL suffix, while SecurePassword
@@ -92,9 +94,9 @@ internal static class UiPairing
             // submission may silently authenticate with that shortened secret.
             await CaseAsync("before\0after", null, checks, password: true, inserted: "before");
             await CaseAsync("before\0after", null, checks, password: true, inserted: "before", forceSubmit: true);
-            foreach (var password in new[] { "", "before\rafter", "before\nafter", "\ud800", "\udc00" })
+            foreach (var password in new[] { "", new string('x', 257), "before\rafter", "before\nafter", "\ud800", "\udc00" })
                 await CaseAsync(password, null, checks, password: true);
-            await CaseAsync(new string('x', 128), new string('x', 128), checks, password: true, input: InputMode.Typed);
+            await CaseAsync(new string('x', 256), new string('x', 256), checks, password: true, input: InputMode.Typed);
             foreach (var completion in new[] { Completion.Cancel, Completion.Stop, Completion.Timeout,
                 Completion.IpcError, Completion.EndOfStream, Completion.Stopped })
                 await CaseAsync("raw-password", "raw-password", checks, password: true, completion: completion);
@@ -136,7 +138,7 @@ internal static class UiPairing
         var factory = new PairingFactory(password); var audio = new Audio();
         var timing = new SessionTiming(Limit, Limit,
             completion == Completion.Timeout ? TimeSpan.FromSeconds(2) : TimeSpan.FromSeconds(30), TimeSpan.Zero);
-        await using var controller = new SessionController(factory, audio, timing: timing);
+        await using var controller = new SessionController(factory, audio, timing: timing, sessionRecords: _ => { });
         var owner = Owner(); owner.Show();
         var handled = Signal(); var terminal = Signal(); var closed = Signal();
         PinDialog? prompt = null; Task? stop = null; var actionStarted = false;
@@ -158,14 +160,24 @@ internal static class UiPairing
                 if (password)
                 {
                     var box = UiSmoke.Descendants(dialog).OfType<PasswordBox>().Single();
-                    Check(!UiSmoke.Descendants(dialog).OfType<TextBox>().Any() && box.MaxLength == 128 && !pair.IsEnabled,
-                        "password prompt uses only the bounded password control and starts disabled", checks);
+                    Check(!UiSmoke.Descendants(dialog).OfType<TextBox>().Any() && box.MaxLength == 0 && !pair.IsEnabled,
+                        "password prompt uses only the secure password control and starts disabled", checks);
                     if (input == InputMode.Typed)
                     {
+                        // Use a routed event with an in-memory data object. The editor
+                        // must reject the original value before single-line paste truncation.
+                        foreach (var (sample, rejected) in new[] { ("valid password", false), ("before\nafter", true), (new string('界', 86), true) })
+                        {
+                            var data = new DataObject(DataFormats.UnicodeText, sample);
+                            var paste = new DataObjectPastingEventArgs(data, false, DataFormats.UnicodeText);
+                            box.RaiseEvent(paste);
+                            Check(paste.CommandCancelled == rejected, "password paste validates the complete selected text", checks);
+                        }
                         Keyboard.Focus(box); Type(box, text);
-                        Check(box.Password == text && pair.IsEnabled, "password typing reaches its 128-character boundary", checks);
+                        Check(box.Password == text && pair.IsEnabled, "password typing reaches the 256-byte boundary", checks);
                         Type(box, "y");
-                        Check(box.Password == text, "password typing cannot insert a 129th character", checks);
+                        Check(box.Password == text + "y" && !pair.IsEnabled, "overlong typing is rejected without truncating to a valid password", checks);
+                        box.Password = text;
                     }
                     else box.Password = text;
                     var actual = box.Password;
@@ -199,7 +211,18 @@ internal static class UiPairing
                 }
                 Check(pair.IsEnabled == (expected is not null), label + " enablement follows the resulting input", checks, passwordObservation);
                 Volatile.Write(ref actionStarted, true);
-                if (forceSubmit) { pair.IsEnabled = true; Invoke(pair); }
+                if (forceSubmit)
+                {
+                    // Dispatch the real Click handler synchronously, bypassing the
+                    // button's enablement gate. A rejected submission leaves the
+                    // modal open, so the fixture must dismiss it explicitly.
+                    pair.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, pair));
+                    Check(dialog.IsVisible && dialog.DialogResult is null && !closed.Task.IsCompleted
+                        && controller.Snapshot.State == PlaybackState.Pairing
+                        && !factory.Commands.Any(command => command.Text("command") is "pair_pin" or "start"),
+                        label + " rejects forced submission and leaves the modal open", checks);
+                    Invoke(cancel);
+                }
                 else if (completion == Completion.Stop) stop = controller.StopAsync();
                 else if (completion is Completion.IpcError or Completion.EndOfStream or Completion.Stopped)
                     factory.Connections.First().Fail(completion);
@@ -353,7 +376,7 @@ internal static class UiPairing
             if (command == "hello") _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new
             {
                 version = 1, session_id = session, @event = "hello",
-                capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_password" }
+                capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_password", "receiver_ownership_guard" }
             }));
             var name = command switch { "pair" => password ? "password_required" : "pin_required", "pair_pin" => "paired", "start" => "streaming", _ => null };
             if (name is not null) _events.Writer.TryWrite(JsonSerializer.SerializeToElement(new { version = 1, session_id = session, @event = name }));

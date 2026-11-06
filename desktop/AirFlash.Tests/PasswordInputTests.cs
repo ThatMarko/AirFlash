@@ -1,5 +1,5 @@
 using System.Text;
-using AirFlash.App.Ui;
+using AirFlash.Core;
 using Xunit;
 
 namespace AirFlash.Tests;
@@ -53,7 +53,7 @@ public sealed class PasswordInputTests
 
     [Theory]
     [MemberData(nameof(EncodedBoundaries))]
-    public void SubmissionUsesUtf8BytesRatherThanTheSeparateEditingLimit(string password, int encodedBytes, bool expected)
+    public void SubmissionUsesTheUtf8ByteLimit(string password, int encodedBytes, bool expected)
     {
         Assert.Equal(encodedBytes, Encoding.UTF8.GetByteCount(password));
         Assert.Equal(expected, PasswordInput.IsValid(password));

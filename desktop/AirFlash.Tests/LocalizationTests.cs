@@ -3,6 +3,11 @@ using AirFlash.Core;
 using Xunit;
 namespace AirFlash.Tests;
 
+// This fixture changes process-wide localization and must run without other collections.
+[CollectionDefinition("Localization", DisableParallelization = true)]
+public sealed class LocalizationCollection;
+
+[Collection("Localization")]
 public sealed class LocalizationTests
 {
     [Theory]
@@ -38,6 +43,27 @@ public sealed class LocalizationTests
         Assert.Equal("Settings…", L.Get("Settings…"));
         Assert.Equal("Unknown engine detail", L.Get("Unknown engine detail"));
         Assert.Equal("HomePod stereo · 2/2", L.Format("HomePod stereo · {0}/2", 2));
+    }
+
+    [Fact]
+    public void HomeAccessGuidanceUsesEveryEmbeddedTranslation()
+    {
+        const string key = "In the Home app, set speaker access to “Everyone,” then try again.";
+        var expected = new Dictionary<string, string>
+        {
+            ["zh"] = "请在家庭App中，将扬声器访问权限设置为所有人，然后重试。",
+            ["zh-TW"] = "請在「家庭」App 中，將揚聲器存取權限設為「所有人」，然後再試一次。",
+            ["de"] = "Legen Sie in der Home-App den Lautsprecherzugriff auf „Alle“ fest, und versuchen Sie es dann erneut."
+        };
+        foreach (var (resource, language) in new[] { ("zh", "zh-CN"), ("zh-TW", "zh-TW"), ("de", "de-DE") })
+        {
+            using var stream = typeof(L).Assembly.GetManifestResourceStream($"AirFlash.Core.Strings.{resource}.json")!;
+            var translations = JsonSerializer.Deserialize<Dictionary<string, string>>(stream)!;
+            Assert.Equal(expected[resource], translations[key]);
+            try { L.Initialize([language]); Assert.Equal(expected[resource], L.Get(key)); }
+            finally { L.Initialize(["en-US"]); }
+        }
+        Assert.Equal(key, L.Get(key));
     }
 
     [Fact]

@@ -44,8 +44,20 @@ jobs:
         timeout-minutes: 3
         run: |
           $ErrorActionPreference = 'Stop'
-          $exe = (Resolve-Path desktop/AirFlash.App/bin/Release/net10.0-windows/win-x64/AirFlash.exe).Path
-          @{apphost_sha256=(Get-FileHash $exe -Algorithm SHA256).Hash;app_dll_sha256=(Get-FileHash (Join-Path (Split-Path $exe) 'AirFlash.dll') -Algorithm SHA256).Hash} | ConvertTo-Json | Set-Content artifacts/ui-diagnostics/binary.json
+          . ./scripts/dotnet-common.ps1
+          $context = Get-AirFlashDotnetContext -RepoRoot $env:GITHUB_WORKSPACE
+          $target = @(Invoke-AirFlashDotnet -Context $context -Arguments @('msbuild', 'AirFlash.App/AirFlash.App.csproj', '-nologo', '-getProperty:TargetPath', '-p:Configuration=Release'))
+          if ($LASTEXITCODE -ne 0 -or $target.Count -ne 1 -or -not [IO.Path]::IsPathFullyQualified($target[0]) -or [IO.Path]::GetExtension($target[0]) -cne '.dll') {
+            throw 'Cannot identify the source-built managed assembly.'
+          }
+          $assembly = [IO.Path]::GetFullPath($target[0])
+          $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE) + [IO.Path]::DirectorySeparatorChar
+          if (-not $assembly.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase)) { throw 'The assembly is outside the source checkout.' }
+          $exe = [IO.Path]::ChangeExtension($assembly, '.exe')
+          if (-not (Test-Path -LiteralPath $exe -PathType Leaf) -or -not (Test-Path -LiteralPath $assembly -PathType Leaf)) {
+            throw 'The source-built apphost or managed assembly is missing.'
+          }
+          @{apphost_sha256=(Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash;app_dll_sha256=(Get-FileHash -LiteralPath $assembly -Algorithm SHA256).Hash} | ConvertTo-Json | Set-Content artifacts/ui-diagnostics/binary.json
           foreach ($language in @('en-US', 'zh-CN', 'zh-TW')) {
             $report = [IO.Path]::GetFullPath("artifacts/ui-diagnostics/$language/report.json")
             New-Item -ItemType Directory -Path (Split-Path $report) -Force | Out-Null

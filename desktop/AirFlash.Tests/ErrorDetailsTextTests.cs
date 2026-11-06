@@ -9,38 +9,16 @@ public sealed class ErrorDetailsTextTests
     private const string Warning = "Synthetic discovery warning";
     private static readonly EngineNotice Fault = new("clock_lost", "", "clock", "Synthetic clock failure", true);
 
-    [Fact]
-    public void ReconnectRetainsThePlaybackCauseAlongsideDiscoveryWarnings()
+    [Theory]
+    [InlineData(PlaybackState.Connecting, true)]
+    [InlineData(PlaybackState.Error, false)]
+    [InlineData(PlaybackState.Preempted, false)]
+    public void IndependentNoticeDoesNotReplacePlaybackFault(PlaybackState state, bool retrying)
     {
-        var snapshot = new SessionSnapshot(PlaybackState.Connecting, Message: "Reconnecting (3/5)",
-            Diagnostics: new(LastFault: Fault));
+        var snapshot = new SessionSnapshot(state, Message: "Status summary", Diagnostics: new(LastFault: Fault)) { IsRetrying = retrying };
 
-        Assert.Equal(Fault.Detail + Environment.NewLine + Environment.NewLine + Warning,
-            ErrorDetailsText.For(snapshot, Warning));
-        Assert.Same(Fault, snapshot.Diagnostics!.LastFault);
-    }
-
-    [Fact]
-    public void ReconnectWithoutDiscoveryWarningStillExposesThePlaybackCause()
-    {
-        var snapshot = new SessionSnapshot(PlaybackState.Connecting, Diagnostics: new(LastFault: Fault));
-        Assert.Equal(Fault.Detail, ErrorDetailsText.For(snapshot, ""));
-    }
-
-    [Fact]
-    public void TerminalErrorRetainsBothIndependentFailures()
-    {
-        var snapshot = new SessionSnapshot(PlaybackState.Error, Message: Fault.Detail,
-            Diagnostics: new(LastFault: Fault));
-        Assert.Equal(Fault.Detail + Environment.NewLine + Environment.NewLine + Warning,
-            ErrorDetailsText.For(snapshot, Warning));
-    }
-
-    [Fact]
-    public void EmptyTerminalMessageFallsBackToTheRecordedFault()
-    {
-        var snapshot = new SessionSnapshot(PlaybackState.Error, Diagnostics: new(LastFault: Fault));
-        Assert.Equal(Fault.Detail, ErrorDetailsText.For(snapshot, ""));
+        Assert.Equal(Fault.Detail + Environment.NewLine + Environment.NewLine + Warning, ErrorDetailsText.For(snapshot, Warning));
+        Assert.Equal(Fault.Detail, ErrorDetailsText.For(snapshot, Fault.Detail));
     }
 
     [Theory]
@@ -48,24 +26,20 @@ public sealed class ErrorDetailsTextTests
     [InlineData(PlaybackState.Streaming)]
     [InlineData(PlaybackState.Standby)]
     [InlineData(PlaybackState.Pairing)]
-    public void CompletedRecoveryOrDifferentActivityDoesNotDisplayTheOldFault(PlaybackState state)
+    [InlineData(PlaybackState.Connecting)]
+    public void OtherActivityDoesNotDisplayTheHistoricalFault(PlaybackState state)
     {
         var snapshot = new SessionSnapshot(state, Diagnostics: new(LastFault: Fault));
         Assert.Equal(Warning, ErrorDetailsText.For(snapshot, Warning));
     }
 
-    [Fact]
-    public void FreshConnectionDoesNotTreatProgressTextAsAnError()
-        => Assert.Equal(Warning, ErrorDetailsText.For(new(PlaybackState.Connecting, Message: "Connecting…"), Warning));
+    [Theory]
+    [InlineData(PlaybackState.Error)]
+    [InlineData(PlaybackState.Preempted)]
+    public void TerminalSummaryIsAvailableWithoutStructuredFault(PlaybackState state)
+        => Assert.Equal("Synthetic terminal summary", ErrorDetailsText.For(new(state, Message: "Synthetic terminal summary"), ""));
 
     [Fact]
-    public void IdenticalPlaybackAndNoticeTextIsNotRepeated()
-    {
-        var snapshot = new SessionSnapshot(PlaybackState.Connecting, Diagnostics: new(LastFault: Fault));
-        Assert.Equal(Fault.Detail, ErrorDetailsText.For(snapshot, Fault.Detail));
-    }
-
-    [Fact]
-    public void AnEmptyIdlePanelHasNoErrorDetails()
-        => Assert.Equal("", ErrorDetailsText.For(new(PlaybackState.Idle), ""));
+    public void WhitespaceDoesNotShowAnEmptyDetailsPanel()
+        => Assert.Equal("", ErrorDetailsText.For(new(PlaybackState.Connecting, Message: "Connecting…"), " \t "));
 }

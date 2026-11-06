@@ -13,6 +13,8 @@ public sealed record Receiver(string Id, string Name, string Address, int Port =
     public Receiver[] Members { get; init; } = [];
     public byte[] Codecs { get; init; } = [];
     public ulong? Features { get; init; }
+    /// <summary>TXT <c>srcvers</c>, kept verbatim for capability evidence and diagnostics.</summary>
+    public string SourceVersion { get; init; } = "";
     public bool RequiresPassword { get; init; }
     public bool FollowReceiverClock { get; init; }
     public bool IsSoftwareGroup { get; init; }
@@ -20,8 +22,27 @@ public sealed record Receiver(string Id, string Name, string Address, int Port =
     public int SyncOffsetMs { get; init; }
     public string[] Aliases { get; init; } = [];
     public bool IsGroup => IsSoftwareGroup || Members.Length > 0 || Id.StartsWith("stereo:", StringComparison.Ordinal);
-    public bool Complete => !IsGroup || Members.Length == 2 && Members.All(m => m.Online && !m.IsGroup && (!IsSoftwareGroup || m.StereoId.Length == 0));
-    public string Detail => IsSoftwareGroup ? L.Get("Software stereo · experimental") : IsGroup ? L.Format("HomePod stereo · {0}/2", Members.Length) : Model.Length > 0 ? Model : L.Get("AirFlash receiver");
+    // The engine requires distinct peer hosts even when two services advertise different ports.
+    private int NativeMemberEndpointCount => Members.Where(m => m.Online && !m.IsGroup && m.Address.Length > 0)
+        .Select(m => m.Address).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+    // Keep excess announcements visible even when they share an address.
+    [JsonIgnore] public int GroupDisplayMemberCount => IsSoftwareGroup || Members.Length > 2 ? Members.Length : NativeMemberEndpointCount;
+    public bool Complete => !IsGroup || Members.Length == 2 && (IsSoftwareGroup
+        ? Members.All(m => m.Online && !m.IsGroup && m.StereoId.Length == 0)
+        : NativeMemberEndpointCount == 2);
+    /// <summary>TXT-only four-state label; missing features never become classic.</summary>
+    public AirPlayCapability Support => AirPlayCapabilityClassifier.Classify(Features, SourceVersion);
+    /// <summary>WAC's routing predicate: TXT bit 40 and <c>srcvers &gt;= 354.54.6</c>.</summary>
+    public bool SupportsAirPlay2 => AirPlayRouting.SupportsAirPlay2(Features, SourceVersion);
+    private string CapabilityDetail => Support switch
+    {
+        AirPlayCapability.AirPlay2 => L.Get("AirPlay 2"),
+        AirPlayCapability.NotAirPlay2 => L.Get("Classic AirPlay only"),
+        AirPlayCapability.ClaimsAirPlay2Outdated => L.Get("AirPlay 2 claimed, firmware too old"),
+        _ => L.Get("AirPlay 2 support unknown")
+    };
+    private string BaseDetail => Model.Length > 0 ? Model : L.Get("AirFlash receiver");
+    public string Detail => IsSoftwareGroup ? L.Get("Software stereo · experimental") : IsGroup ? L.Format("HomePod stereo · {0}/2", GroupDisplayMemberCount) : $"{BaseDetail} · {CapabilityDetail}";
     [JsonIgnore] public IEnumerable<Receiver> Peers => IsGroup ? Members : [this];
     public string TransportKey => string.Join(";", Peers.OrderBy(p => p.Address, StringComparer.Ordinal).ThenBy(p => p.Port).Select(p => $"{p.Address}:{p.Port}:{(IsGroup && p.IsLeader)}:{p.Channel}:{p.SyncOffsetMs}"));
     public static string PhysicalKey(string identity, string address) => string.IsNullOrWhiteSpace(identity) ? address : ReceiverIdentity.Normalize(identity);
@@ -73,6 +94,7 @@ public static class ReceiverAggregator
                 Aliases = aliases,
                 Codecs = codecText.Split(',').Select(x => byte.TryParse(x, out var value) ? (byte?)value : null).OfType<byte>().ToArray(),
                 Features = ParseFeatures(Field(group, "features") is { Length: > 0 } features ? features : Field(group, "ft")),
+                SourceVersion = Field(group, "srcvers"),
                 RequiresPassword = Field(group, "pw").Equals("true", StringComparison.OrdinalIgnoreCase),
                 FollowReceiverClock = Model(service).StartsWith("AudioAccessory", StringComparison.Ordinal) && Field(group, "igl") == "1" && Field(group, "tsid").Length == 0 && Field(group, "pgid").Length == 0 && int.TryParse(Field(group, "osvers").Split('.')[0], out var os) && os >= 27
             };

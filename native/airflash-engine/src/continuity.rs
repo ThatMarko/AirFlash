@@ -1,4 +1,60 @@
 //! Five millisecond, sample-domain boundaries. No lookahead and no music gating.
+
+/// 16-bit output conversion with TPDF dither.
+///
+/// Rounding a float mix to 16 bits without dither correlates the quantisation
+/// error with the signal, which is audible as a gritty tail on quiet passages.
+/// Triangular dither decorrelates it for about one bit of extra noise. Digital
+/// silence stays exactly zero: dithering an empty stream would only add a noise
+/// floor, and exact-zero frames are what the receiver's own concealment keys on.
+pub struct Quantizer {
+    seed: u64,
+    dither_frames: u64,
+}
+impl Default for Quantizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl Quantizer {
+    pub fn new() -> Self {
+        Self {
+            // Any nonzero seed works; fixed so tests are reproducible.
+            seed: 0x9E37_79B9_7F4A_7C15,
+            dither_frames: 0,
+        }
+    }
+    fn uniform(&mut self) -> f32 {
+        self.seed ^= self.seed >> 12;
+        self.seed ^= self.seed << 25;
+        self.seed ^= self.seed >> 27;
+        let value = self.seed.wrapping_mul(0x2545_F491_4F6C_DD1D);
+        (value >> 40) as f32 / (1u32 << 24) as f32 - 0.5
+    }
+    /// Two independent uniforms give a triangular distribution over ±1 LSB.
+    fn tpdf(&mut self) -> f32 {
+        self.uniform() + self.uniform()
+    }
+    pub fn quantize(&mut self, value: f32) -> i16 {
+        if !value.is_finite() {
+            return 0;
+        }
+        let value = value.clamp(-1.0, 1.0);
+        if value == 0.0 {
+            return 0;
+        }
+        self.dither_frames += 1;
+        let dither = self.tpdf();
+        (value * 32767.0 + dither)
+            .round()
+            .clamp(-32768.0, 32767.0) as i16
+    }
+    /// Frames that received dither (diagnostics only).
+    pub fn dither_frames(&self) -> u64 {
+        self.dither_frames
+    }
+}
+
 pub struct Splice {
     length: u32,
     remaining: u32,
@@ -11,6 +67,12 @@ pub struct Splice {
     missing: bool,
     silent_frames: u32,
     rate: u32,
+    /// Exponential decay applied when the capture queue runs dry. A hard cut to
+    /// zero leaves a click at the gap edge; a short natural tail reads as the
+    /// music stopping rather than the speaker being unplugged.
+    conceal: u32,
+    conceal_length: u32,
+    conceal_from: [f32; 2],
     pub transitions: u64,
     gain_initialized: bool,
 }
@@ -28,6 +90,9 @@ impl Splice {
             missing: false,
             silent_frames: 0,
             rate,
+            conceal: 0,
+            conceal_length: (rate / 100).max(1),
+            conceal_from: [0.0; 2],
             transitions: 1,
             gain_initialized: false,
         }
@@ -47,6 +112,12 @@ impl Splice {
         if missing != self.missing {
             self.boundary();
             self.missing = missing;
+            if missing {
+                self.conceal = self.conceal_length;
+                self.conceal_from = self.last;
+            } else {
+                self.conceal = 0;
+            }
         }
         let silent = input.iter().all(|s| *s == 0.0);
         if !silent && self.silent_frames >= self.rate {
@@ -71,6 +142,15 @@ impl Splice {
             self.gain = self.gain_target;
         }
         let mut out = input.map(|s| (s * self.gain).clamp(-1.0, 1.0));
+        if self.conceal > 0 {
+            // About -52 dB at the end of the tail, then exact silence takes over.
+            let elapsed = (self.conceal_length - self.conceal) as f32 + 1.0;
+            let level = (-6.0 * elapsed / self.conceal_length as f32).exp();
+            for (i, sample) in out.iter_mut().enumerate() {
+                *sample = self.conceal_from[i] * level;
+            }
+            self.conceal -= 1;
+        }
         if self.remaining > 0 {
             let t = 1.0 - self.remaining as f32 / self.length as f32;
             let w = 0.5 - 0.5 * (std::f32::consts::PI * t).cos();
@@ -86,6 +166,36 @@ impl Splice {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn quantizer_keeps_silence_exact_and_bounds_the_dither() {
+        let mut q = Quantizer::new();
+        for _ in 0..10_000 {
+            assert_eq!(q.quantize(0.0), 0);
+        }
+        assert_eq!(q.dither_frames(), 0);
+        // A constant nonzero value lands within one LSB of the undithered result.
+        let exact = (0.25f32 * 32767.0).round() as i32;
+        let (mut low, mut high, mut changed) = (i32::MAX, i32::MIN, 0);
+        for _ in 0..10_000 {
+            let sample = i32::from(q.quantize(0.25));
+            low = low.min(sample);
+            high = high.max(sample);
+            if sample != exact {
+                changed += 1;
+            }
+        }
+        assert!(low >= exact - 1 && high <= exact + 1, "{low}..{high}");
+        assert!(changed > 0, "dither must actually move the sample");
+        assert!(low < exact && high > exact, "dither is symmetric");
+    }
+    #[test]
+    fn quantizer_clamps_and_survives_non_finite_input() {
+        let mut q = Quantizer::new();
+        assert_eq!(q.quantize(f32::NAN), 0);
+        assert_eq!(q.quantize(f32::INFINITY), 0);
+        assert!(i32::from(q.quantize(4.0)) <= 32767);
+        assert!(i32::from(q.quantize(-4.0)) >= -32768);
+    }
     #[test]
     fn startup_respects_initial_gain_and_silence_resume_has_no_peak() {
         for rate in [44100, 48000] {
@@ -126,6 +236,49 @@ mod tests {
                 s.frame([0.0; 2], 1.0, true);
             }
             assert_eq!(s.frame([0.8; 2], 1.0, false), [0.0; 2]);
+        }
+    }
+    #[test]
+    fn capture_gaps_decay_instead_of_cutting_to_silence() {
+        let rate = 48_000;
+        let mut s = Splice::new(rate);
+        for _ in 0..rate / 200 + 2 {
+            s.frame([0.5; 2], 1.0, false);
+        }
+        let mut previous = 1.0f32;
+        let mut samples = 0;
+        for _ in 0..(rate / 100 + 2) {
+            let out = s.frame([0.0; 2], 1.0, true);
+            assert!(
+                out[0].abs() <= previous + 1e-6,
+                "the tail must never rise: {} after {previous}",
+                out[0]
+            );
+            previous = out[0].abs();
+            samples += 1;
+        }
+        assert!(samples >= rate / 100, "the tail must span the conceal window");
+        assert!(previous < 0.01, "tail reaches silence, got {previous}");
+        assert_eq!(
+            s.frame([0.0; 2], 1.0, true),
+            [0.0; 2],
+            "after the tail, silence is exact"
+        );
+    }
+    #[test]
+    fn splice_ramp_is_five_milliseconds() {
+        // `telemetry::LEAD_SHIFT_RESET_US` is this ramp length: a lead shift the
+        // splice can cover is inaudible and is not a timeline reset (Q44 §二).
+        for rate in [44_100, 48_000] {
+            let splice = Splice::new(rate);
+            assert_eq!(splice.length, rate / 200);
+            // `rate / 200` is 5 ms rounded down to a whole frame: 240 frames at
+            // 48 kHz, 220 frames (4.99 ms) at 44.1 kHz.
+            let micros = u64::from(splice.length) * 1_000_000 / u64::from(rate);
+            assert!(
+                (4_900..=5_000).contains(&micros),
+                "the ramp must stay about 5 ms at {rate} Hz, got {micros} us"
+            );
         }
     }
     #[test]

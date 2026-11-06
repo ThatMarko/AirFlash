@@ -40,7 +40,7 @@ public sealed class SessionSettingsContextTests
         var first = new Connection { RequestPin = pairing }; var playback = pairing ? new Connection() : first;
         var factory = pairing ? new Factory(first, playback) : new Factory(first);
         var pin = new PendingPin();
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         try
         {
             if (pairing)
@@ -97,7 +97,7 @@ public sealed class SessionSettingsContextTests
         var settings = Settings(receiver);
         if (receiver.IsManual) settings.ManualReceivers.Add(new(receiver.Id, receiver.Name, receiver.Address, receiver.Port));
         var first = new Connection(); var factory = new Factory(first);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         await StartAsync(controller, first, receiver, settings);
         var incoming = settings.Clone(); incoming.Receivers.Remove(receiver.Id); incoming.MasterVolume = 37;
         incoming.Options(canonical.Id).LatencyMode = "custom"; incoming.Options(canonical.Id).CustomBufferMs = 555;
@@ -129,7 +129,7 @@ public sealed class SessionSettingsContextTests
     {
         var receiver = Legacy(); var canonical = Canonical(receiver) with { Online = false };
         var settings = Settings(receiver); var first = new Connection(); var factory = new Factory(first);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         await StartAsync(controller, first, receiver, settings);
         var incoming = Migrated(settings, receiver, canonical); incoming.MasterVolume = 37;
 
@@ -150,7 +150,7 @@ public sealed class SessionSettingsContextTests
     {
         var receiver = Legacy(); var canonical = Canonical(receiver); var settings = Settings(receiver);
         var first = new Connection(); var second = new Connection(); var factory = new Factory(first, second);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         await StartAsync(controller, first, receiver, settings);
         var incoming = Migrated(settings, receiver, canonical);
         incoming.Receivers.Clear(); incoming.MasterVolume = 37;
@@ -175,7 +175,7 @@ public sealed class SessionSettingsContextTests
     {
         var receiver = Legacy(); var canonical = Canonical(receiver); var settings = Settings(receiver);
         var first = new Connection(); var second = new Connection(); var factory = new Factory(first, second);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         await StartAsync(controller, first, receiver, settings);
         var incoming = Migrated(settings, receiver, canonical);
         incoming.Options(canonical.Id).CustomBufferMs = 555; incoming.Options(canonical.Id).SampleRate = "44100"; incoming.Options(canonical.Id).Codec = "alac";
@@ -195,7 +195,7 @@ public sealed class SessionSettingsContextTests
     {
         var receiver = Legacy(); var canonical = Canonical(receiver); var settings = Settings(receiver);
         var first = new Connection(); var second = new Connection(); var factory = new Factory(first, second); var audio = new Audio();
-        await using var controller = new SessionController(factory, audio, timing: Timing);
+        await using var controller = TestSessionController.Create(factory, audio, timing: Timing);
         await StartAsync(controller, first, receiver, settings);
         var catalog = new List<Receiver> { canonical }; var migrations = Migration(receiver, canonical); var clears = new List<string>();
         var context = new SessionSettingsContext(catalog, migrations, clears);
@@ -230,7 +230,7 @@ public sealed class SessionSettingsContextTests
     {
         var receiver = Legacy(); var canonical = Canonical(receiver); var settings = Settings(receiver);
         var first = new Connection(); var factory = new Factory(first); var audio = new Audio();
-        await using var controller = new SessionController(factory, audio, timing: Timing);
+        await using var controller = TestSessionController.Create(factory, audio, timing: Timing);
         await StartAsync(controller, first, receiver, settings);
         var captured = controller.Capture(); var incoming = Migrated(settings, receiver, canonical); incoming.MasterVolume = 0;
         var gate = audio.HoldNextRestore(); Task<bool>? holding = null; Task<bool>? queued = null;
@@ -261,7 +261,7 @@ public sealed class SessionSettingsContextTests
     {
         var receiver = Legacy(); var canonical = Canonical(receiver); var settings = Settings(receiver);
         var first = new Connection(); var second = new Connection(); var factory = new Factory(first, second);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         await StartAsync(controller, first, receiver, settings);
         var stale = controller.Capture(); var replacement = receiver with { Address = "192.0.2.99", Port = 7011 };
         var replacementSettings = settings.Clone(); replacementSettings.Options(receiver.Id).CustomBufferMs = 777;
@@ -282,7 +282,7 @@ public sealed class SessionSettingsContextTests
     {
         var receiver = Legacy(); var canonical = Canonical(receiver); var settings = Settings(receiver);
         var first = new Connection(); var second = new Connection(); var factory = new Factory(first, second);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         await StartAsync(controller, first, receiver, settings); await controller.StopAsync();
         var incoming = Migrated(settings, receiver, canonical); incoming.Options(canonical.Id).CustomBufferMs = 555;
 
@@ -298,7 +298,7 @@ public sealed class SessionSettingsContextTests
     {
         var receiver = Legacy(); var canonical = Canonical(receiver); var settings = Settings(receiver);
         var first = new Connection(); var second = new Connection(); var factory = new Factory(first, second);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         await StartAsync(controller, first, receiver, settings);
 
         Assert.True(await controller.TryUpdateSettingsAsync(Migrated(settings, receiver, canonical), controller.Capture()));
@@ -312,7 +312,7 @@ public sealed class SessionSettingsContextTests
     {
         var receiver = Legacy(); var canonical = Canonical(receiver); var settings = Settings(receiver);
         var first = new Connection(); var second = new Connection(); var factory = new Factory(first, second);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         await StartAsync(controller, first, receiver, settings);
         var captured = controller.Capture(); var incoming = Migrated(settings, receiver, canonical); incoming.MasterVolume = 37;
 
@@ -351,7 +351,7 @@ public sealed class SessionSettingsContextTests
         settings.SoftwareGroups.Add(new() { Id = "software:fixture", LeftId = left.Id, RightId = right.Id, SampleRate = "48000", LeftOffsetMs = -80, RightOffsetMs = 25 });
         var receiver = SoftwareStereo.Resolve([left, right], settings).Single();
         var first = new Connection(); var second = new Connection(); var factory = new Factory(first, second);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         await StartAsync(controller, first, receiver, settings);
         var migrations = Migration(left, canonicalLeft); migrations[right.Id] = canonicalRight.Id;
         var incoming = settings.Clone(); ReceiverCatalog.ApplyMigrations(incoming, migrations); incoming.MasterVolume = 37;
@@ -405,7 +405,7 @@ public sealed class SessionSettingsContextTests
         settings.SoftwareGroups.Add(new() { Id = "software:fixture", LeftId = left.Id, RightId = right.Id });
         var receiver = SoftwareStereo.Resolve([left, right], settings).Single();
         var first = new Connection(); var factory = new Factory(first);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         await StartAsync(controller, first, receiver, settings);
         var incoming = settings.Clone();
         if (remove) incoming.SoftwareGroups.Clear(); else incoming.SoftwareGroups[0].RightId = "explicit-unavailable-member";
@@ -425,7 +425,7 @@ public sealed class SessionSettingsContextTests
         settings.SoftwareGroups.Add(new() { Id = "software:fixture", LeftId = left.Id, RightId = right.Id, SampleRate = "48000", LeftOffsetMs = -80, RightOffsetMs = 25 });
         var receiver = SoftwareStereo.Resolve([left, right], settings).Single();
         var first = new Connection(); var second = new Connection(); var factory = new Factory(first, second);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         await StartAsync(controller, first, receiver, settings);
         var incoming = settings.Clone(); incoming.SoftwareGroups[0].LeftId = right.Id; incoming.SoftwareGroups[0].RightId = left.Id;
         var changed = new List<string> { receiver.Id };
@@ -452,7 +452,7 @@ public sealed class SessionSettingsContextTests
         settings.SoftwareGroups.Add(new() { Id = "software:fixture", LeftId = left.Id, RightId = right.Id, SampleRate = "48000" });
         var receiver = SoftwareStereo.Resolve([left, right], settings).Single();
         var first = new Connection(); var second = new Connection(); var factory = new Factory(first, second);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         await StartAsync(controller, first, receiver, settings);
         var replacement = new Receiver("manual-replacement", "Synthetic replacement", "192.0.2.12", 7020) { IsManual = true };
         var incoming = settings.Clone(); incoming.SoftwareGroups[0].RightId = replacement.Id;
@@ -479,7 +479,7 @@ public sealed class SessionSettingsContextTests
         var receiver = Legacy(); var canonical = Canonical(receiver); var settings = Settings(receiver);
         settings.Options(receiver.Id).LatencyMode = null;
         var first = new Connection(); var second = new Connection(); var factory = new Factory(first, second);
-        await using var controller = new SessionController(factory, new Audio(), timing: Timing);
+        await using var controller = TestSessionController.Create(factory, new Audio(), timing: Timing);
         await StartAsync(controller, first, receiver, settings);
         var incoming = Migrated(settings, receiver, canonical); incoming.MasterVolume = 37;
 
@@ -556,7 +556,7 @@ public sealed class SessionSettingsContextTests
             {
                 case "hello":
                     _session = session;
-                    Emit(new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "member_volume", "receiver_password", "application_capture" } });
+                    Emit(new { @event = "hello", capabilities = new[] { "receiver_ownership_guard", "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "member_volume", "receiver_password", "application_capture" } });
                     break;
                 case "start": _session = session; Started.TrySetResult(); Emit(new { @event = "streaming" }); break;
                 case "pair" when RequestPin: _session = session; Emit(new { @event = "pin_required" }); break;

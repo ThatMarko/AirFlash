@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -27,7 +28,12 @@ internal static class UiScrolling
         {
             Items = Enumerable.Range(1, 6).Select(i => new Receiver($"scroll-{i}", $"Scroll receiver {i}", $"127.0.0.{i}") { Model = "HomePod mini" }).ToArray()
         };
-        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher);
+        var audio = new PanelAudio
+        {
+            Endpoints = Enumerable.Range(1, 24).Select(i => new AudioEndpoint($"endpoint-{i}", $"Synthetic audio endpoint {i}")).ToArray()
+        };
+        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), audio, engine,
+            Application.Current.Dispatcher, applications: new ScrollApplications(), isolatedVerification: true);
         // Finish receiver initialization before measuring scrolling-only settings changes.
         app.SetPanelVisible(true);
         app.Start(); await app.Startup; await Pump();
@@ -50,6 +56,10 @@ internal static class UiScrolling
                 foreach (var (width, height, size) in new[] { (880d, 640d, "default"), (640d, 440d, "minimum") })
                 {
                     window.Width = width; window.Height = height; await Pump();
+                    var listLabel = $"settings lists {(dark ? "dark" : "light")} {size}";
+                    await VerifyNavigationAsync(window, size == "minimum", listLabel, checks, failures);
+                    if (size == "minimum")
+                        await VerifyCaptureListsAsync(window, listLabel, checks, failures);
                     for (var pageIndex = 0; pageIndex < window.ViewModel.Pages.Length; pageIndex++)
                     {
                         window.ViewModel.SelectedPage = pageIndex;
@@ -174,17 +184,107 @@ internal static class UiScrolling
         finally { window.Close(); }
     }
 
+    private static async Task VerifyNavigationAsync(SettingsWindow window, bool requireOverflow, string label,
+        List<string> checks, List<string> failures)
+    {
+        var navigation = (ListBox)window.FindName("Navigation");
+        var scroll = UiSmoke.Descendants(navigation).OfType<ScrollViewer>().Single();
+        var bar = ScrollBarFor(scroll);
+        var viewport = ViewportFor(scroll);
+        scroll.ScrollToTop(); await Pump();
+        // At least one case must exercise overflow even when font metrics fit at minimum size.
+        var constrain = requireOverflow && scroll.ScrollableHeight == 0;
+        if (constrain) { navigation.MaxHeight = 160; await Pump(); }
+        try
+        {
+            if (requireOverflow)
+                Observe(scroll.ScrollableHeight > 0, $"{label}: short navigation has a scrollable extent", checks, failures);
+            if (scroll.ScrollableHeight > 0)
+            {
+                var first = (ListBoxItem)navigation.ItemContainerGenerator.ContainerFromIndex(0);
+                Observe(bar.IsVisible && Bounds(bar, scroll).Left - Bounds(first, scroll).Right >= 7.5,
+                    $"{label}: navigation entries clear the visible scrollbar", checks, failures);
+                Wheel(first, -120); await Pump();
+                Observe(scroll.VerticalOffset > 0, $"{label}: the wheel scrolls navigation", checks, failures);
+            }
+            else
+                Observe(!bar.IsVisible && Math.Abs(viewport.ActualWidth - scroll.ActualWidth) <= 1,
+                    $"{label}: a fitting navigation list uses its entire width", checks, failures);
+
+            navigation.ScrollIntoView(navigation.Items[^1]); await Pump();
+            var last = (ListBoxItem)navigation.ItemContainerGenerator.ContainerFromIndex(navigation.Items.Count - 1);
+            var bounds = Bounds(last, viewport);
+            Observe(bounds.Top >= -.5 && bounds.Bottom <= viewport.ActualHeight + .5,
+                $"{label}: the last navigation entry is fully accessible", checks, failures);
+        }
+        finally
+        {
+            if (constrain) navigation.ClearValue(FrameworkElement.MaxHeightProperty);
+            scroll.ScrollToTop(); await Pump();
+        }
+    }
+
+    private static async Task VerifyCaptureListsAsync(SettingsWindow window, string label, List<string> checks, List<string> failures)
+    {
+        var viewModel = window.ViewModel;
+        var originalMode = viewModel.Draft.CaptureMode;
+        viewModel.SelectedPage = SettingsViewModel.AudioCapturePage;
+        try
+        {
+            foreach (var (mode, name) in new[] { ("application", "ApplicationCombo"), ("endpoint", "EndpointCombo") })
+            {
+                viewModel.Draft.CaptureMode = mode;
+                if (mode == "application") await viewModel.LoadApplicationsAsync();
+                else await viewModel.LoadEndpointsAsync(true);
+                await Pump();
+                var combo = UiSmoke.Descendants(window).OfType<ComboBox>().Single(item => item.Name == name);
+                combo.BringIntoView(); await Pump();
+                var selected = combo.SelectedItem;
+                combo.IsDropDownOpen = true;
+                try
+                {
+                    await Pump();
+                    var popup = (Popup)combo.Template.FindName("PART_Popup", combo);
+                    var scroll = UiSmoke.Descendants(popup.Child).OfType<ScrollViewer>().Single();
+                    var bar = ScrollBarFor(scroll);
+                    var viewport = ViewportFor(scroll);
+                    var first = (ComboBoxItem)combo.ItemContainerGenerator.ContainerFromIndex(0);
+                    Observe(combo.Items.Count >= 24 && scroll.ScrollableHeight > 0 && bar.IsVisible
+                        && Bounds(bar, scroll).Left - Bounds(first, scroll).Right >= 7.5,
+                        $"{label}: {mode} rows clear the popup scrollbar", checks, failures);
+                    scroll.ScrollToTop(); await Pump();
+                    Wheel(first, -120); await Pump();
+                    Observe(scroll.VerticalOffset > 0, $"{label}: the wheel scrolls the {mode} dropdown", checks, failures);
+                    scroll.ScrollToBottom(); await Pump();
+                    var last = (ComboBoxItem)combo.ItemContainerGenerator.ContainerFromIndex(combo.Items.Count - 1);
+                    var bounds = Bounds(last, viewport);
+                    Observe(bounds.Top >= -.5 && bounds.Bottom <= viewport.ActualHeight + .5
+                        && Equals(combo.SelectedItem, selected),
+                        $"{label}: the last {mode} choice is reachable without changing selection", checks, failures);
+                }
+                finally { combo.IsDropDownOpen = false; await Pump(); }
+            }
+        }
+        finally { viewModel.Draft.CaptureMode = originalMode; }
+    }
+
+    private static ScrollBar ScrollBarFor(ScrollViewer scroll)
+        => (ScrollBar)scroll.Template.FindName("PART_VerticalScrollBar", scroll);
+
+    private static ScrollContentPresenter ViewportFor(ScrollViewer scroll)
+        => (ScrollContentPresenter)scroll.Template.FindName("PART_ScrollContentPresenter", scroll);
+
     private static async Task VerifyPanelAsync(List<string> checks, string directory)
     {
         var failures = new List<string>();
         var measurements = new List<object>();
         var store = new UiSmoke.MemoryStore();
         var engine = new UiSmoke.MockFactory();
-        var audio = new UiSmoke.MockAudio();
+        var audio = new PanelAudio();
         var receivers = Enumerable.Range(1, 12).Select(i => new Receiver($"panel-scroll-{i}", $"Panel scroll receiver {i}", $"127.0.0.{i}")
             { Model = "HomePod mini" }).ToArray();
         var discovery = new UiSmoke.MockDiscovery { Items = receivers };
-        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), audio, engine, Application.Current.Dispatcher);
+        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), audio, engine, Application.Current.Dispatcher, isolatedVerification: true);
         var requestedDpi = 96;
         var panel = new ControlPanel(app, () => new MonitorArea(new PixelRect(0, 0, 1600, 1200), requestedDpi / 96d))
             { SizeToContent = SizeToContent.Manual, Height = 600, MenuOpen = true };
@@ -203,90 +303,100 @@ internal static class UiScrolling
                 {
                     requestedDpi = dpi;
                     await UseDpiAsync(panel, dpi);
-                    foreach (var width in new[] { 440d, 520d })
+                    var width = ControlPanel.CompactWidth;
+                    panel.Height = Math.Min(600, panel.MaxHeight);
+                    await ReceiversAsync(app, discovery, receivers);
+                    var scroll = panel.DeviceScroll;
+                    app.ShowError(new IOException($"Synthetic discovery warning for receiver scrolling {dark} {width:F0} {dpi}."));
+                    await Pump();
+                    var details = UiSmoke.Descendants(panel).OfType<Expander>().Single();
+                    details.IsExpanded = true; await Pump();
+                    scroll.ScrollToTop(); await Pump();
+                    var label = $"receiver scroll {(dark ? "dark" : "light")} {width:F0} DIP {dpi} DPI";
+                    var finalDpi = VisualTreeHelper.GetDpi(panel);
+                    Observe(Math.Abs(panel.ActualWidth - width) <= 1 && finalDpi.DpiScaleX == dpi / 96d && finalDpi.DpiScaleY == dpi / 96d,
+                        $"{label}: final logical width and window DPI match the requested geometry", checks, failures);
+                    Observe(panel.NoticeBanner.IsVisible && details.IsVisible && details.IsExpanded,
+                        $"{label}: receiver scrolling remains usable with a notice and expanded error details", checks, failures);
+                    var vertical = scroll.Template.FindName("PART_VerticalScrollBar", scroll) as ScrollBar
+                        ?? throw new InvalidOperationException("The receiver vertical scrollbar is unavailable.");
+                    var viewport = scroll.Template.FindName("PART_ScrollContentPresenter", scroll) as ScrollContentPresenter
+                        ?? throw new InvalidOperationException("The receiver scroll viewport is unavailable.");
+                    var cards = ReceiverCards(scroll, app).ToArray();
+                    var barBounds = Bounds(vertical, scroll);
+                    var gutters = cards.Select(card => barBounds.Left - Bounds(card.Card, scroll).Right).ToArray();
+                    var minimumGutter = gutters.DefaultIfEmpty(double.NaN).Min();
+                    var controlsFit = cards.All(card =>
                     {
-                        panel.Width = width;
-                        panel.Height = Math.Min(600, panel.MaxHeight);
-                        await ReceiversAsync(app, discovery, receivers);
-                        var scroll = panel.DeviceScroll;
-                        discovery.PublishFailure($"Synthetic discovery warning for receiver scrolling {dark} {width:F0} {dpi}.");
-                        await Pump();
-                        var details = UiSmoke.Descendants(panel).OfType<Expander>().Single();
-                        details.IsExpanded = true; await Pump();
-                        scroll.ScrollToTop(); await Pump();
-                        var label = $"receiver scroll {(dark ? "dark" : "light")} {width:F0} DIP {dpi} DPI";
-                        var finalDpi = VisualTreeHelper.GetDpi(panel);
-                        Observe(Math.Abs(panel.ActualWidth - width) <= 1 && finalDpi.DpiScaleX == dpi / 96d && finalDpi.DpiScaleY == dpi / 96d,
-                            $"{label}: final logical width and window DPI match the requested geometry", checks, failures);
-                        Observe(panel.NoticeBanner.IsVisible && details.IsVisible && details.IsExpanded,
-                            $"{label}: receiver scrolling remains usable with a notice and expanded error details", checks, failures);
-                        var vertical = scroll.Template.FindName("PART_VerticalScrollBar", scroll) as ScrollBar
-                            ?? throw new InvalidOperationException("The receiver vertical scrollbar is unavailable.");
-                        var viewport = scroll.Template.FindName("PART_ScrollContentPresenter", scroll) as ScrollContentPresenter
-                            ?? throw new InvalidOperationException("The receiver scroll viewport is unavailable.");
-                        var cards = ReceiverCards(scroll, app).ToArray();
-                        var barBounds = Bounds(vertical, scroll);
-                        var gutters = cards.Select(card => barBounds.Left - Bounds(card.Card, scroll).Right).ToArray();
-                        var controlsFit = cards.All(card =>
+                        var controls = UiSmoke.Descendants(card.Card).OfType<FrameworkElement>()
+                            .Where(element => element is Button or Slider).ToArray();
+                        return controls.OfType<Button>().Any(button => ReferenceEquals(button.Command, card.Row.PlaybackCommand))
+                            && controls.OfType<Button>().Any(button => ReferenceEquals(button.Command, card.Row.MuteCommand))
+                            && controls.OfType<Slider>().Any() && controls.OfType<Slider>().All(slider => slider.ActualWidth >= 60 - .5)
+                        && controls.All(control =>
                         {
-                            var controls = UiSmoke.Descendants(card.Card).OfType<FrameworkElement>()
-                                .Where(element => element is Button or Slider).ToArray();
-                            return controls.OfType<Button>().Any(button => ReferenceEquals(button.Command, card.Row.ToggleCommand))
-                                && controls.OfType<Button>().Any(button => ReferenceEquals(button.Command, card.Row.MuteCommand))
-                                && controls.OfType<Slider>().Any() && controls.All(control =>
-                            {
-                                var bounds = Bounds(control, scroll);
-                                var cardBounds = Bounds(card.Card, scroll);
-                                return control.IsVisible && control.ActualWidth > 0 && control.ActualHeight > 0
-                                    && bounds.Left >= cardBounds.Left - .5 && bounds.Right <= cardBounds.Right + .5
-                                    && bounds.Right <= barBounds.Left - 8 + .5;
-                            });
+                            var bounds = Bounds(control, scroll);
+                            var cardBounds = Bounds(card.Card, scroll);
+                            return control.IsVisible && control.ActualWidth > 0 && control.ActualHeight > 0
+                                && bounds.Left >= cardBounds.Left - .5 && bounds.Right <= cardBounds.Right + .5
+                                && bounds.Right <= barBounds.Left - 8 + .5;
                         });
-                        Observe(cards.Length == receivers.Length && scroll.ScrollableHeight > 1
-                            && vertical.IsVisible && vertical.ActualWidth > 0, $"{label}: all receiver cards render with a visible overflow scrollbar", checks, failures);
-                        Observe(gutters.All(gap => gap >= 8 - .5), $"{label}: every receiver card clears the actual scrollbar by at least 8 DIP (minimum {gutters.Min():F2})", checks, failures);
-                        Observe(controlsFit, $"{label}: playback, mute and volume controls stay inside their cards and clear the scrollbar", checks, failures);
-                        Observe(scroll.ScrollableWidth == 0, $"{label}: receiver controls need no horizontal scrolling", checks, failures);
-                        UiSmoke.Render(panel, Path.Combine(directory, $"receiver-scroll-{(dark ? "dark" : "light")}-{width:F0}-{dpi}-top.png"), dpi / 96d);
+                    });
+                    Observe(cards.Length == receivers.Length && scroll.ScrollableHeight > 1
+                        && vertical.IsVisible && vertical.ActualWidth > 0 && panel.DeviceScrollGutter.IsVisible, $"{label}: all receiver cards render with a visible overflow scrollbar", checks, failures);
+                    Observe(minimumGutter >= 8 - .5, $"{label}: every receiver card clears the actual scrollbar by at least 8 DIP (minimum {minimumGutter:F2})", checks, failures);
+                    Observe(controlsFit, $"{label}: playback, mute and volume controls stay inside their cards and clear the scrollbar", checks, failures);
+                    Observe(cards.All(card =>
+                    {
+                        var slider = UiSmoke.Descendants(card.Card).OfType<Slider>().Single();
+                        var innerLeft = card.Card.Padding.Left + card.Card.BorderThickness.Left;
+                        var bounds = Bounds(slider, card.Card);
+                        var row = (Grid)slider.Parent;
+                        var percentage = row.Children.OfType<TextBlock>().Single(text => Grid.GetRow(text) == 0);
+                        return Math.Abs(bounds.Left - innerLeft) <= 1
+                            && Math.Abs(slider.ActualWidth - row.ColumnDefinitions[0].ActualWidth) <= 1
+                            && Bounds(percentage, card.Card).Left >= bounds.Right - .5;
+                    }), $"{label}: receiver volume tracks fill the row from its left padding to the percentage", checks, failures);
+                    Observe(scroll.ScrollableWidth == 0, $"{label}: receiver controls need no horizontal scrolling", checks, failures);
+                    UiSmoke.Render(panel, Path.Combine(directory, $"receiver-scroll-{(dark ? "dark" : "light")}-{width:F0}-{dpi}-top.png"), dpi / 96d);
 
-                        Wheel(cards[0].Card, -120); await Pump();
-                        Observe(scroll.VerticalOffset > 0, $"{label}: ordinary wheel over a card scrolls receivers downward", checks, failures);
-                        scroll.ScrollToBottom(); await Pump();
-                        var last = cards[^1]; var lastBounds = Bounds(last.Card, viewport);
-                        var play = UiSmoke.Descendants(last.Card).OfType<Button>().Single(button => ReferenceEquals(button.Command, last.Row.ToggleCommand));
-                        panel.Activate();
-                        Observe(Math.Abs(scroll.VerticalOffset - scroll.ScrollableHeight) <= 1,
-                            $"{label}: final scroll position reaches the last receiver", checks, failures);
-                        Observe(lastBounds.Top >= -.5 && lastBounds.Bottom <= viewport.ActualHeight + .5,
-                            $"{label}: the last receiver card is fully inside the viewport", checks, failures);
-                        Observe(play.IsVisible && play.IsEnabled && play.Command!.CanExecute(play.CommandParameter)
-                            && play.Focus() && play.IsKeyboardFocused,
-                            $"{label}: the final receiver Play control remains accessible by keyboard", checks, failures);
-                        UiSmoke.Render(panel, Path.Combine(directory, $"receiver-scroll-{(dark ? "dark" : "light")}-{width:F0}-{dpi}-bottom.png"), dpi / 96d);
-                        measurements.Add(new
-                        {
-                            theme = dark ? "dark" : "light", requested_width = width, requested_dpi = dpi,
-                            actual_width = panel.ActualWidth, actual_height = panel.ActualHeight,
-                            actual_dpi_x = VisualTreeHelper.GetDpi(panel).DpiScaleX,
-                            actual_dpi_y = VisualTreeHelper.GetDpi(panel).DpiScaleY,
-                            scrollbar_bounds = Coordinates(barBounds), minimum_card_gutter_dip = gutters.Min(),
-                            controls_fit = controlsFit, viewport_height = viewport.ActualHeight,
-                            scrollable_height = scroll.ScrollableHeight, final_offset = scroll.VerticalOffset,
-                            last_card_bounds = Coordinates(lastBounds)
-                        });
+                    Wheel(cards[0].Card, -120); await Pump();
+                    Observe(scroll.VerticalOffset > 0, $"{label}: ordinary wheel over a card scrolls receivers downward", checks, failures);
+                    scroll.ScrollToBottom(); await Pump();
+                    var last = cards[^1]; var lastBounds = Bounds(last.Card, viewport);
+                    var play = UiSmoke.Descendants(last.Card).OfType<Button>().Single(button => ReferenceEquals(button.Command, last.Row.PlaybackCommand));
+                    panel.Activate();
+                    Observe(Math.Abs(scroll.VerticalOffset - scroll.ScrollableHeight) <= 1,
+                        $"{label}: final scroll position reaches the last receiver", checks, failures);
+                    Observe(lastBounds.Top >= -.5 && lastBounds.Bottom <= viewport.ActualHeight + .5,
+                        $"{label}: the last receiver card is fully inside the viewport", checks, failures);
+                    Observe(play.IsVisible && play.IsEnabled && play.Command!.CanExecute(play.CommandParameter)
+                        && play.Focus() && play.IsKeyboardFocused,
+                        $"{label}: the final receiver Play control remains accessible by keyboard", checks, failures);
+                    UiSmoke.Render(panel, Path.Combine(directory, $"receiver-scroll-{(dark ? "dark" : "light")}-{width:F0}-{dpi}-bottom.png"), dpi / 96d);
+                    measurements.Add(new
+                    {
+                        theme = dark ? "dark" : "light", requested_width = width, requested_dpi = dpi,
+                        actual_width = panel.ActualWidth, actual_height = panel.ActualHeight,
+                        actual_dpi_x = VisualTreeHelper.GetDpi(panel).DpiScaleX,
+                        actual_dpi_y = VisualTreeHelper.GetDpi(panel).DpiScaleY,
+                        scrollbar_bounds = Coordinates(barBounds), minimum_card_gutter_dip = minimumGutter,
+                        controls_fit = controlsFit, viewport_height = viewport.ActualHeight,
+                        scrollable_height = scroll.ScrollableHeight, final_offset = scroll.VerticalOffset,
+                        last_card_bounds = Coordinates(lastBounds)
+                    });
 
-                        await ReceiversAsync(app, discovery, [receivers[^1]]);
-                        scroll.ScrollToTop(); await Pump();
-                        var fitting = ReceiverCards(scroll, app).Single();
-                        var fittingBounds = Bounds(fitting.Card, viewport);
-                        Observe(scroll.ScrollableHeight <= 1 && !vertical.IsVisible,
-                            $"{label}: a fitting receiver list hides its vertical scrollbar", checks, failures);
-                        Observe(fittingBounds.Left >= -.5 && fittingBounds.Top >= -.5
-                            && fittingBounds.Right <= viewport.ActualWidth + .5 && fittingBounds.Bottom <= viewport.ActualHeight + .5,
-                            $"{label}: a fitting receiver card stays fully accessible", checks, failures);
-                        Wheel(fitting.Card, -120); await Pump();
-                        Observe(scroll.VerticalOffset == 0, $"{label}: wheel leaves a fitting receiver list at its accessible origin", checks, failures);
-                    }
+                    await ReceiversAsync(app, discovery, [receivers[^1]]);
+                    scroll.ScrollToTop(); await Pump();
+                    var fitting = ReceiverCards(scroll, app).Single();
+                    var fittingBounds = Bounds(fitting.Card, viewport);
+                    Observe(scroll.ScrollableHeight <= 1 && !vertical.IsVisible && panel.DeviceScrollGutter.Visibility == Visibility.Collapsed,
+                        $"{label}: a fitting receiver list hides its vertical scrollbar and releases the gutter", checks, failures);
+                    Observe(fittingBounds.Left >= -.5 && fittingBounds.Top >= -.5
+                        && Math.Abs(fittingBounds.Right - viewport.ActualWidth) <= .5 && fittingBounds.Bottom <= viewport.ActualHeight + .5,
+                        $"{label}: a fitting receiver card stays fully accessible", checks, failures);
+                    Wheel(fitting.Card, -120); await Pump();
+                    Observe(scroll.VerticalOffset == 0, $"{label}: wheel leaves a fitting receiver list at its accessible origin", checks, failures);
                 }
             }
             Observe(store.Saves == savesBefore && Fingerprint(store.Saved) == savedBefore,
@@ -297,7 +407,7 @@ internal static class UiScrolling
             File.WriteAllText(Path.Combine(directory, "ui-panel-scrolling-report.json"), JsonSerializer.Serialize(new
             {
                 ok = failures.Count == 0, failures, measurements,
-                note = "Actual mock ControlPanel geometry, notice/error details, scroll input and keyboard access at 440/520 DIP and synthetic 96/120 DPI with an injected work area. No physical display qualification."
+                note = "Actual mock ControlPanel geometry, notice/error details, scroll input and keyboard access at 400 DIP and synthetic 96/120 DPI with an injected work area. No physical display qualification."
             }, new JsonSerializerOptions { WriteIndented = true }));
             if (failures.Count > 0) throw new InvalidOperationException($"Receiver scrolling regression: {failures.Count} failed checks; first: {failures[0]}. See ui-panel-scrolling-report.json.");
         }
@@ -363,6 +473,26 @@ internal static class UiScrolling
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowRect(IntPtr handle, out NativeRect rectangle);
+
+    private sealed class ScrollApplications : IApplicationCatalog
+    {
+        public bool Supported => true;
+        public Task<IReadOnlyList<CaptureApplication>> RefreshAsync(CancellationToken cancellation = default)
+            => Task.FromResult<IReadOnlyList<CaptureApplication>>(Enumerable.Range(1, 24)
+                .Select(i => new CaptureApplication($"synthetic-{i}.exe", $"Synthetic capture application {i}", (uint)i, 1)).ToArray());
+    }
+
+    private sealed class PanelAudio : IAudioService
+    {
+        public int Mutes { get; private set; }
+        public int Restores { get; private set; }
+        public event Action? EndpointsChanged { add { } remove { } }
+        public IReadOnlyList<AudioEndpoint> Endpoints { get; init; } = [new("panel-endpoint", "Panel endpoint")];
+        public Task<IReadOnlyList<AudioEndpoint>> GetEndpointsAsync() => Task.FromResult(Endpoints);
+        public Task<string?> GetDefaultEndpointIdAsync() => Task.FromResult<string?>("panel-endpoint");
+        public Task MuteAsync(string? endpointId) { Mutes++; return Task.CompletedTask; }
+        public Task RestoreAsync() { Restores++; return Task.CompletedTask; }
+    }
 
     private static Rect Bounds(FrameworkElement element, Visual ancestor)
         => element.TransformToAncestor(ancestor).TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight));

@@ -60,6 +60,22 @@ jobs:
           ./scripts/dotnet.ps1 test AirFlash.Tests/AirFlash.Tests.csproj -c Release --no-build --no-restore --logger 'trx;LogFileName=core.trx' --results-directory "$env:GITHUB_WORKSPACE/artifacts/group-native/core"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           exit $LASTEXITCODE
+      - name: Identify the source-built managed assembly
+        if: inputs.pin_clipboard || inputs.dns_helper
+        shell: pwsh
+        run: |
+          . ./scripts/dotnet-common.ps1
+          $context = Get-AirFlashDotnetContext -RepoRoot $env:GITHUB_WORKSPACE
+          $target = @(Invoke-AirFlashDotnet -Context $context -Arguments @('msbuild', 'AirFlash.App/AirFlash.App.csproj', '-nologo', '-getProperty:TargetPath', '-p:Configuration=Release'))
+          if ($LASTEXITCODE -ne 0 -or $target.Count -ne 1 -or -not [IO.Path]::IsPathFullyQualified($target[0]) -or [IO.Path]::GetExtension($target[0]) -cne '.dll') {
+            throw 'Cannot identify the source-built managed assembly.'
+          }
+          $assembly = [IO.Path]::GetFullPath($target[0])
+          $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE) + [IO.Path]::DirectorySeparatorChar
+          if (-not $assembly.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase)) { throw 'The assembly is outside the source checkout.' }
+          if (-not (Test-Path -LiteralPath $assembly -PathType Leaf)) { throw 'The source-built managed assembly is missing.' }
+          "GROUP_NATIVE_DOTNET=$($context.Path)" >> $env:GITHUB_ENV
+          "GROUP_NATIVE_APP_DLL=$assembly" >> $env:GITHUB_ENV
       - name: Isolated modal PIN paste
         if: inputs.pin_clipboard
         shell: pwsh
@@ -67,7 +83,7 @@ jobs:
         run: |
           $report = [IO.Path]::GetFullPath('artifacts/group-native/pin-ui/report.json')
           if (Test-Path -LiteralPath $report) { Remove-Item -LiteralPath $report -Force }
-          dotnet desktop/AirFlash.App/bin/Release/net10.0-windows/win-x64/AirFlash.dll --ui-smoke --ui-pairing-smoke --ui-pairing-clipboard --ui-language en --ui-culture en-US --output $report
+          & $env:GROUP_NATIVE_DOTNET $env:GROUP_NATIVE_APP_DLL --ui-smoke --ui-pairing-smoke --ui-pairing-clipboard --ui-language en --ui-culture en-US --output $report
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $result = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
           if ($result.ok -ne $true -or $result.mode -cne '--ui-pairing-smoke' -or $result.culture -cne 'en-US' -or $result.ui_culture -cne 'en-US' -or $result.checks -isnot [Array] -or @($result.checks).Count -eq 0 -or $result.checks -cnotcontains 'real PIN paste applies the single-line and sixteen-character editing bounds') { throw 'PIN clipboard report did not prove the requested isolated route and actual paste. Historical sources without that proof cannot qualify this option.' }
@@ -80,7 +96,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $program -PathType Leaf) -or -not (Select-String -LiteralPath $program -SimpleMatch '"--dns-resolve-helper-check"' -Quiet)) { throw 'Historical source lacks the isolated DNS helper dispatch; refusing ordinary application startup.' }
           $report = [IO.Path]::GetFullPath('artifacts/group-native/dns-helper/report.json')
           if (Test-Path -LiteralPath $report) { Remove-Item -LiteralPath $report -Force }
-          dotnet desktop/AirFlash.App/bin/Release/net10.0-windows/win-x64/AirFlash.dll --dns-resolve-helper-check --output $report
+          & $env:GROUP_NATIVE_DOTNET $env:GROUP_NATIVE_APP_DLL --dns-resolve-helper-check --output $report
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $result = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
           if ($result.ok -ne $true -or $result.synthetic -ne $true -or $result.completedHelpers -ne 6 -or $result.parentAdapterSettled -ne $true -or $result.parentNativeOwners -ne 0 -or @($result.startupAndReplyMilliseconds).Count -ne 3 -or @($result.startupAndReplyMilliseconds | Where-Object { $_ -lt 0 }).Count -gt 0 -or $result.watchdogMilliseconds -le 0) { throw 'DNS helper report did not prove all synthetic child exits and settled ownership.' }

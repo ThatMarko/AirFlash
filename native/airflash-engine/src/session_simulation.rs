@@ -9,7 +9,7 @@ use crate::{
 };
 use std::{
     io::Read,
-    net::{TcpListener, UdpSocket},
+    net::{SocketAddr, TcpListener, UdpSocket},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -24,6 +24,11 @@ struct Mock {
     key: Arc<Mutex<Option<[u8; 32]>>>,
     anchor: Arc<Mutex<Option<plist::Value>>>,
     methods: Arc<Mutex<Vec<String>>>,
+    /// `timingProtocol` of every session SETUP, in order.
+    setups: Arc<Mutex<Vec<String>>>,
+    /// Whether that SETUP carried `timingPeerInfo` (i.e. the member joined the
+    /// sender's PTP domain) instead of a `timingPort` (plain NTP).
+    timing_peers: Arc<Mutex<Vec<bool>>>,
     stop: Arc<AtomicBool>,
     worker: thread::JoinHandle<()>,
 }
@@ -32,8 +37,146 @@ fn plist_bytes(value: &plist::Value) -> Vec<u8> {
     value.to_writer_binary(&mut bytes).unwrap();
     bytes
 }
-fn mock(ip: &str, buffered: bool, alac: bool, channel: Channel, offset: i32) -> Mock {
-    mock_with_cancel(ip, buffered, alac, channel, offset, None)
+fn quiet_wav() -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!("airflash-mock-{}.wav", uuid::Uuid::new_v4()));
+    let mut wav = hound::WavWriter::create(
+        &path,
+        hound::WavSpec {
+            channels: 2,
+            sample_rate: 44100,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        },
+    )
+    .unwrap();
+    for _ in 0..704 {
+        wav.write_sample(0i16).unwrap();
+    }
+    wav.finalize().unwrap();
+    path
+}
+
+#[test]
+fn forced_setup_warns_below_the_receiver_minimum_and_still_continues() {
+    for requested in [0, 120, 200, 2000] {
+        let mut receiver = mock_with_model(
+            "127.0.0.2",
+            false,
+            false,
+            Channel::Stereo,
+            0,
+            true,
+            Some("AppleTV6,2"),
+        );
+        receiver.peer.profile.timing = Timing::Ntp;
+        receiver.peer.profile.latency_ms = Some(requested);
+        let path = quiet_wav();
+        let mut options: ProbeOptions = serde_json::from_value(serde_json::json!({
+            "peers":[],"source":"wav","duration_ms":150,"gain":0.05,"latency_ms":requested,
+            "force_latency":true,"wav_path":path,"handshake_only":requested == 0
+        }))
+        .unwrap();
+        options.peers = vec![receiver.peer.clone()];
+        let eq = crate::equalizer::Control::new(options.equalizer, 44100).unwrap();
+        let events = Mutex::new(Vec::new());
+        let outcome = run_session(
+            options,
+            Cancellation::default(),
+            Arc::new(AtomicU32::new(0.05f32.to_bits())),
+            crate::volume::Control::default(),
+            eq,
+            |event| events.lock().unwrap().push(event),
+            (crate::clock::Clock::new(), None),
+        );
+        std::fs::remove_file(path).unwrap();
+        receiver.stop.store(true, Ordering::Relaxed);
+        receiver.worker.join().unwrap();
+        outcome.unwrap();
+        let events = events.lock().unwrap();
+        let negotiated = events
+            .iter()
+            .find(|event| event["event"] == "negotiated")
+            .unwrap();
+        assert_eq!(negotiated["requested_latency_ms"], requested);
+        assert_eq!(negotiated["effective_latency_ms"], f64::from(requested));
+        assert_eq!(negotiated["receiver_latency_min_ms"], 200.0);
+        assert_eq!(
+            events
+                .iter()
+                .any(|event| event["code"] == "forced_latency_below_minimum"),
+            requested < 200
+        );
+        if requested > 0 {
+            assert!(events.iter().any(|event| event["event"] == "streaming"));
+            assert!(!receiver.packets.lock().unwrap().is_empty());
+        }
+    }
+}
+#[test]
+fn adaptive_rebuild_honors_raised_target_above_receiver_minimum() {
+    let mut receiver = mock_with_model(
+        "127.0.0.2",
+        false,
+        false,
+        Channel::Stereo,
+        0,
+        true,
+        Some("AppleTV6,2"),
+    );
+    receiver.peer.profile.timing = Timing::Ntp;
+    receiver.peer.profile.latency_ms = Some(300);
+    let path = quiet_wav();
+    let mut options: ProbeOptions = serde_json::from_value(serde_json::json!({
+        "peers":[],"source":"wav","duration_ms":100,"gain":0.05,"latency_ms":300,
+        "adaptive_latency":true,"adaptive_initial_latency_ms":200,"wav_path":path
+    }))
+    .unwrap();
+    options.peers = vec![receiver.peer.clone()];
+    let events = Mutex::new(Vec::new());
+    let outcome = run_session(
+        options,
+        Cancellation::default(),
+        Arc::new(AtomicU32::new(0.05f32.to_bits())),
+        crate::volume::Control::default(),
+        crate::equalizer::Control::new(crate::equalizer::Settings::default(), 44100).unwrap(),
+        |event| events.lock().unwrap().push(event),
+        (crate::clock::Clock::new(), None),
+    );
+    std::fs::remove_file(path).unwrap();
+    receiver.stop.store(true, Ordering::Relaxed);
+    receiver.worker.join().unwrap();
+    outcome.unwrap();
+    let events = events.lock().unwrap();
+    let negotiated = events
+        .iter()
+        .find(|event| event["event"] == "negotiated")
+        .unwrap();
+    assert_eq!(negotiated["requested_latency_ms"], 300);
+    assert_eq!(negotiated["receiver_latency_min_ms"], 200.0);
+    assert_eq!(negotiated["effective_latency_ms"], 300.0);
+}
+fn mock(ip: &str, buffered: bool, alac: bool, channel: Channel, offset: i32, ap2: bool) -> Mock {
+    mock_with_model(
+        ip,
+        buffered,
+        alac,
+        channel,
+        offset,
+        ap2,
+        Some("AudioAccessory5,1"),
+    )
+}
+/// Same as [`mock`], but `/info` reports the given model (or none).
+fn mock_with_model(
+    ip: &str,
+    buffered: bool,
+    alac: bool,
+    channel: Channel,
+    offset: i32,
+    ap2: bool,
+    model: Option<&'static str>,
+) -> Mock {
+    mock_with_cancel_and_model(ip, buffered, alac, channel, offset, ap2, model, None, true)
 }
 fn mock_with_cancel(
     ip: &str,
@@ -41,7 +184,50 @@ fn mock_with_cancel(
     alac: bool,
     channel: Channel,
     offset: i32,
+    ap2: bool,
     cancel_on_stream: Option<Cancellation>,
+) -> Mock {
+    mock_with_cancel_and_model(
+        ip,
+        buffered,
+        alac,
+        channel,
+        offset,
+        ap2,
+        Some("AudioAccessory5,1"),
+        cancel_on_stream,
+        true,
+    )
+}
+/// A receiver that is only probed with `/info`: the test expects the group to
+/// be refused before pairing or SETUP.
+fn mock_probe_only(ip: &str, alac: bool, channel: Channel, offset: i32, ap2: bool) -> Mock {
+    mock_with_cancel_and_model(
+        ip,
+        false,
+        alac,
+        channel,
+        offset,
+        ap2,
+        Some("AudioAccessory5,1"),
+        None,
+        false,
+    )
+}
+/// `pair` = false models a receiver that is only probed: the session must be
+/// refused between `/info` and pairing, so the worker records any request after
+/// `/info` (there must be none) and then closes.
+#[allow(clippy::too_many_arguments)]
+fn mock_with_cancel_and_model(
+    ip: &str,
+    buffered: bool,
+    alac: bool,
+    channel: Channel,
+    offset: i32,
+    ap2: bool,
+    model: Option<&'static str>,
+    cancel_on_stream: Option<Cancellation>,
+    pair: bool,
 ) -> Mock {
     let control = TcpListener::bind((ip, 0)).unwrap();
     let event = TcpListener::bind((ip, 0)).unwrap();
@@ -78,12 +264,16 @@ fn mock_with_cancel(
     let key = Arc::new(Mutex::new(None));
     let anchor = Arc::new(Mutex::new(None));
     let methods = Arc::new(Mutex::new(Vec::new()));
+    let setups = Arc::new(Mutex::new(Vec::new()));
+    let timing_peers = Arc::new(Mutex::new(Vec::new()));
     let stop = Arc::new(AtomicBool::new(false));
-    let (out, key_out, anchor_out, method_out, done) = (
+    let (out, key_out, anchor_out, method_out, setup_out, timing_peer_out, done) = (
         packets.clone(),
         key.clone(),
         anchor.clone(),
         methods.clone(),
+        setups.clone(),
+        timing_peers.clone(),
         stop.clone(),
     );
     let worker = thread::spawn(move || {
@@ -103,13 +293,47 @@ fn mock_with_cancel(
         info.insert("supportedFormats".into(), plist::Value::Dictionary(formats));
         info.insert(
             "features".into(),
-            plist::Value::Integer((if buffered { 1u64 << 41 } else { 0 }).into()),
+            plist::Value::Integer(
+                (if ap2 {
+                    1u64 << 40
+                } else if buffered {
+                    1u64 << 41
+                } else {
+                    0
+                })
+                .into(),
+            ),
         );
+        if ap2 {
+            // AirPlay 2 needs bit 40 *and* a modern firmware; the model decides
+            // the solo timing answer and can be overridden per mock member.
+            info.insert("sourceVersion".into(), plist::Value::String("366.0".into()));
+            if let Some(model) = model {
+                info.insert("model".into(), plist::Value::String(model.into()));
+            }
+        }
         info.insert("initialVolume".into(), plist::Value::Real(-15.0));
         let info = plist::Value::Dictionary(info);
         let request = c.read().unwrap();
         assert!(request.first.starts_with("GET /info"));
         respond(&mut c, &request, &plist_bytes(&info));
+        if !pair {
+            // The group is refused after the `/info` probes: the client must
+            // close this connection without sending anything else. Record a
+            // stray request (a SETUP here would be the bug this test guards)
+            // and stop instead of answering it.
+            if let Ok(request) = c.read() {
+                method_out.lock().unwrap().push(
+                    request
+                        .first
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("")
+                        .to_owned(),
+                );
+            }
+            return;
+        }
         let secret = server_srp(&mut c, "3939");
         c.encrypt(
             derive(&secret, "Control-Salt", "Control-Read-Encryption-Key"),
@@ -129,6 +353,13 @@ fn mock_with_cancel(
             if method == "SETUP" {
                 let body = request.plist().unwrap();
                 let d = body.as_dictionary().unwrap();
+                if let Some(timing) = d.get("timingProtocol").and_then(plist::Value::as_string) {
+                    setup_out.lock().unwrap().push(timing.to_owned());
+                    timing_peer_out
+                        .lock()
+                        .unwrap()
+                        .push(d.contains_key("timingPeerInfo"));
+                }
                 if let Some(streams) = d.get("streams") {
                     if let Some(cancel) = &cancel_on_stream {
                         cancel.cancel();
@@ -203,15 +434,24 @@ fn mock_with_cancel(
                                 if let Ok((n, _)) = udp.recv_from(&mut buf) {
                                     if buf[1] & 127 == 96 {
                                         out.lock().unwrap().push(buf[..n].to_vec());
-                                    } else if buf[1] & 127 == 0x54 && n >= 20 {
-                                        let sec = u32::from_be_bytes(buf[8..12].try_into().unwrap())
-                                            as u64
-                                            - 2_208_988_800;
-                                        let frac =
-                                            u32::from_be_bytes(buf[12..16].try_into().unwrap())
-                                                as u64;
-                                        let ns = sec * 1_000_000_000
-                                            + ((frac as u128 * 1_000_000_000) >> 32) as u64;
+                                    } else if (buf[1] & 127 == 0x54 || buf[1] & 127 == 0x57)
+                                        && n >= 20
+                                    {
+                                        // 0x54 carries an NTP timestamp; 0x57 carries a
+                                        // big-endian PTP-mapped nanosecond timestamp.
+                                        let ns = if buf[1] & 127 == 0x54 {
+                                            let sec =
+                                                u32::from_be_bytes(buf[8..12].try_into().unwrap())
+                                                    as u64
+                                                    - 2_208_988_800;
+                                            let frac =
+                                                u32::from_be_bytes(buf[12..16].try_into().unwrap())
+                                                    as u64;
+                                            sec * 1_000_000_000
+                                                + ((frac as u128 * 1_000_000_000) >> 32) as u64
+                                        } else {
+                                            u64::from_be_bytes(buf[8..16].try_into().unwrap())
+                                        };
                                         let mut sync = plist::Dictionary::new();
                                         sync.insert(
                                             "network_ns".into(),
@@ -267,6 +507,8 @@ fn mock_with_cancel(
         key,
         anchor,
         methods,
+        setups,
+        timing_peers,
         stop,
         worker,
     }
@@ -274,13 +516,14 @@ fn mock_with_cancel(
 #[test]
 fn cancelling_second_member_stream_setup_tears_down_both_without_sending_audio() {
     let cancel = Cancellation::default();
-    let left = mock("127.0.0.2", false, false, Channel::Left, 0);
+    let left = mock("127.0.0.2", false, false, Channel::Left, 0, false);
     let right = mock_with_cancel(
         "127.0.0.3",
         false,
         false,
         Channel::Right,
         0,
+        false,
         Some(cancel.clone()),
     );
     let path = std::env::temp_dir().join(format!("airflash-cancel-{}.wav", uuid::Uuid::new_v4()));
@@ -325,20 +568,19 @@ fn cancelling_second_member_stream_setup_tears_down_both_without_sending_audio()
     left.worker.join().unwrap();
     right.worker.join().unwrap();
 }
-#[test]
-fn mixed_transports_share_sample_timeline_route_channels_and_close_together() {
-    let left = mock("127.0.0.2", true, true, Channel::Left, -80);
-    let right = mock("127.0.0.3", false, false, Channel::Right, 25);
-    let ptp_event = UdpSocket::bind("127.0.0.2:319").unwrap();
+fn ptp_receiver(
+    ptp_event: UdpSocket,
+    ptp_general: UdpSocket,
+    master_event: SocketAddr,
+    done: Arc<AtomicBool>,
+) -> thread::JoinHandle<()> {
     ptp_event
         .set_read_timeout(Some(Duration::from_millis(10)))
         .unwrap();
-    let ptp_general = UdpSocket::bind("127.0.0.2:320").unwrap();
     ptp_general
         .set_read_timeout(Some(Duration::from_millis(10)))
         .unwrap();
-    let done = left.stop.clone();
-    let ptp_receiver = thread::spawn(move || {
+    thread::spawn(move || {
         let mut seq = 0u16;
         let mut next = Instant::now();
         let mut buffer = [0; 2048];
@@ -351,21 +593,46 @@ fn mixed_transports_share_sample_timeline_route_channels_and_close_together() {
                 request[20..28].copy_from_slice(&42u64.to_be_bytes());
                 request[28..30].copy_from_slice(&1u16.to_be_bytes());
                 request[30..32].copy_from_slice(&seq.to_be_bytes());
-                ptp_event.send_to(&request, "127.0.0.1:319").unwrap();
+                ptp_event.send_to(&request, master_event).unwrap();
                 seq = seq.wrapping_add(1);
                 next = Instant::now() + Duration::from_millis(100);
             }
             let _ = ptp_event.recv_from(&mut buffer);
             let _ = ptp_general.recv_from(&mut buffer);
         }
-    });
+    })
+}
+#[test]
+fn mixed_transports_share_sample_timeline_route_channels_and_close_together() {
+    // PTP receiver ports are protocol-fixed, so each mock gets its own
+    // loopback address; the sender's sockets below take OS-chosen ports.
+    let (left_ip, left_event, left_general) = crate::test_net::ptp_receiver_sockets();
+    let (right_ip, right_event, right_general) = crate::test_net::ptp_receiver_sockets();
+    let left = mock(&left_ip.to_string(), true, true, Channel::Left, -80, true);
+    // One clock domain: the realtime member uses the same PTP timing as the
+    // buffered member; mixed transports are still allowed.
+    let mut right = mock(
+        &right_ip.to_string(),
+        false,
+        false,
+        Channel::Right,
+        25,
+        true,
+    );
+    right.peer.profile.timing = Timing::Ptp;
+    let master_event = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let master_general = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let master_event_addr = master_event.local_addr().unwrap();
+    let done = left.stop.clone();
+    let left_ptp = ptp_receiver(left_event, left_general, master_event_addr, done.clone());
+    let right_ptp = ptp_receiver(right_event, right_general, master_event_addr, done);
     let clock = crate::clock::Clock::new();
     let timer = crate::clock::PtpMaster::from_sockets(
-        vec![left.peer.host],
+        vec![left.peer.host, right.peer.host],
         vec![],
         clock.clone(),
-        UdpSocket::bind("127.0.0.1:319").unwrap(),
-        UdpSocket::bind("127.0.0.1:320").unwrap(),
+        master_event,
+        master_general,
     )
     .unwrap();
     let path = std::env::temp_dir().join(format!("airflash-mixed-{}.wav", uuid::Uuid::new_v4()));
@@ -403,7 +670,8 @@ fn mixed_transports_share_sample_timeline_route_channels_and_close_together() {
     std::fs::remove_file(path).unwrap();
     left.stop.store(true, Ordering::Relaxed);
     right.stop.store(true, Ordering::Relaxed);
-    ptp_receiver.join().unwrap();
+    left_ptp.join().unwrap();
+    right_ptp.join().unwrap();
     left.worker.join().unwrap();
     right.worker.join().unwrap();
     outcome.unwrap();
@@ -447,9 +715,12 @@ fn mixed_transports_share_sample_timeline_route_channels_and_close_together() {
         &["SETUP", "RECORD", "SETPEERS", "SETUP"]
     );
     assert_eq!(
-        &right.methods.lock().unwrap()[..3],
-        &["SETUP", "RECORD", "SETUP"]
+        &right.methods.lock().unwrap()[..4],
+        &["SETUP", "RECORD", "SETPEERS", "SETUP"]
     );
+    // One clock domain even though the transports differ.
+    assert_eq!(*left.setups.lock().unwrap(), ["PTP"]);
+    assert_eq!(*right.setups.lock().unwrap(), ["PTP"]);
     for methods in [&left.methods, &right.methods] {
         let m = methods.lock().unwrap();
         assert_eq!(m.last().unwrap(), "TEARDOWN");
@@ -476,5 +747,263 @@ fn mixed_transports_share_sample_timeline_route_channels_and_close_together() {
             .filter(|e| e["event"] == "negotiated")
             .count(),
         2
+    );
+    let events = events.lock().unwrap();
+    assert!(
+        events
+            .iter()
+            .filter(|e| e["event"] == "negotiated")
+            .all(|e| e["timing"] == "ptp"),
+        "every member must stay on the group's PTP clock"
+    );
+    assert!(
+        !events.iter().any(|e| e["code"] == "group_timing_plan"),
+        "identical fingerprints must not warn"
+    );
+}
+/// All members advertise AirPlay 2: the group keeps today's PTP decision.
+#[test]
+fn an_airplay2_group_keeps_ptp_on_every_member() {
+    let mut left = mock("127.0.0.2", false, false, Channel::Left, 0, true);
+    let mut right = mock("127.0.0.3", false, false, Channel::Right, 0, true);
+    left.peer.receiver_id = "left".into();
+    right.peer.receiver_id = "right".into();
+    left.peer.profile.timing = Timing::Auto;
+    right.peer.profile.timing = Timing::Auto;
+    let path = quiet_wav();
+    let options:ProbeOptions=serde_json::from_value(serde_json::json!({"peers":[],"source":"wav","duration_ms":400,"gain":0.1,"latency_ms":200,"wav_path":path,"group_mode":"software_stereo","handshake_only":true})).unwrap();
+    let options = ProbeOptions {
+        peers: vec![left.peer.clone(), right.peer.clone()],
+        ..options
+    };
+    let clock = crate::clock::Clock::new();
+    let timer = crate::clock::PtpMaster::from_sockets(
+        vec![left.peer.host, right.peer.host],
+        vec![],
+        clock.clone(),
+        UdpSocket::bind("127.0.0.1:0").unwrap(),
+        UdpSocket::bind("127.0.0.1:0").unwrap(),
+    )
+    .unwrap();
+    let events = Mutex::new(Vec::new());
+    let eq = crate::equalizer::Control::new(options.equalizer, 44100).unwrap();
+    let outcome = run_session(
+        options,
+        Cancellation::default(),
+        Arc::new(AtomicU32::new(0.1f32.to_bits())),
+        crate::volume::Control::default(),
+        eq,
+        |event| events.lock().unwrap().push(event),
+        (clock, Some(timer)),
+    );
+    std::fs::remove_file(path).unwrap();
+    left.stop.store(true, Ordering::Relaxed);
+    right.stop.store(true, Ordering::Relaxed);
+    left.worker.join().unwrap();
+    right.worker.join().unwrap();
+    outcome.unwrap();
+    assert_eq!(*left.setups.lock().unwrap(), ["PTP"]);
+    assert_eq!(*right.setups.lock().unwrap(), ["PTP"]);
+    let events = events.lock().unwrap();
+    let negotiated: Vec<_> = events
+        .iter()
+        .filter(|event| event["event"] == "negotiated")
+        .collect();
+    assert_eq!(negotiated.len(), 2);
+    assert!(
+        negotiated.iter().all(|event| event["timing"] == "ptp"),
+        "every member must stay on the group's PTP clock"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| event["code"] == "group_timing_plan")
+    );
+}
+/// Q33: a mixed HomePod + Apple TV group is PTP, and the Apple TV joins the
+/// sender's PTP domain even though its solo answer is NTP.
+#[test]
+fn a_mixed_homepod_and_apple_tv_group_runs_one_ptp_clock_domain() {
+    let mut left = mock("127.0.0.2", false, false, Channel::Left, 0, true);
+    let mut right = mock_with_model(
+        "127.0.0.3",
+        false,
+        false,
+        Channel::Right,
+        0,
+        true,
+        Some("AppleTV6,2"),
+    );
+    left.peer.receiver_id = "homepod".into();
+    right.peer.receiver_id = "appletv".into();
+    left.peer.profile.timing = Timing::Auto;
+    right.peer.profile.timing = Timing::Auto;
+    let path = quiet_wav();
+    let options:ProbeOptions=serde_json::from_value(serde_json::json!({"peers":[],"source":"wav","duration_ms":400,"gain":0.1,"latency_ms":200,"wav_path":path,"group_mode":"software_stereo","handshake_only":true})).unwrap();
+    let options = ProbeOptions {
+        peers: vec![left.peer.clone(), right.peer.clone()],
+        ..options
+    };
+    let clock = crate::clock::Clock::new();
+    let timer = crate::clock::PtpMaster::from_sockets(
+        vec![left.peer.host, right.peer.host],
+        vec![],
+        clock.clone(),
+        UdpSocket::bind("127.0.0.1:0").unwrap(),
+        UdpSocket::bind("127.0.0.1:0").unwrap(),
+    )
+    .unwrap();
+    let events = Mutex::new(Vec::new());
+    let eq = crate::equalizer::Control::new(options.equalizer, 44100).unwrap();
+    let outcome = run_session(
+        options,
+        Cancellation::default(),
+        Arc::new(AtomicU32::new(0.1f32.to_bits())),
+        crate::volume::Control::default(),
+        eq,
+        |event| events.lock().unwrap().push(event),
+        (clock, Some(timer)),
+    );
+    std::fs::remove_file(path).unwrap();
+    left.stop.store(true, Ordering::Relaxed);
+    right.stop.store(true, Ordering::Relaxed);
+    left.worker.join().unwrap();
+    right.worker.join().unwrap();
+    outcome.unwrap();
+    // Both members are configured with the group PTP decision. The Apple TV
+    // also receives timingPeerInfo (the sender's clock), not an NTP port.
+    assert_eq!(*left.setups.lock().unwrap(), ["PTP"]);
+    assert_eq!(*right.setups.lock().unwrap(), ["PTP"]);
+    assert_eq!(*left.timing_peers.lock().unwrap(), [true]);
+    assert_eq!(*right.timing_peers.lock().unwrap(), [true]);
+    let events = events.lock().unwrap();
+    let negotiated: Vec<_> = events
+        .iter()
+        .filter(|event| event["event"] == "negotiated")
+        .collect();
+    assert_eq!(negotiated.len(), 2);
+    assert!(
+        negotiated.iter().all(|event| event["timing"] == "ptp"),
+        "the Apple TV must join the group PTP clock, not stay on NTP"
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| event["event"] == "warning" && event["code"] == "group_timing_plan"),
+        "a uniform group PTP plan must not emit a user-facing warning"
+    );
+}
+/// An all-classic multi-member group still runs NTP on every member.
+#[test]
+fn an_all_classic_group_keeps_ntp_on_every_member() {
+    let mut left = mock("127.0.0.2", false, false, Channel::Left, 0, false);
+    let mut right = mock("127.0.0.3", false, false, Channel::Right, 0, false);
+    left.peer.receiver_id = "left".into();
+    right.peer.receiver_id = "right".into();
+    left.peer.profile.timing = Timing::Auto;
+    right.peer.profile.timing = Timing::Auto;
+    let path = quiet_wav();
+    let options:ProbeOptions=serde_json::from_value(serde_json::json!({"peers":[],"source":"wav","duration_ms":400,"gain":0.1,"latency_ms":200,"wav_path":path,"group_mode":"software_stereo","handshake_only":true})).unwrap();
+    let options = ProbeOptions {
+        peers: vec![left.peer.clone(), right.peer.clone()],
+        ..options
+    };
+    let events = Mutex::new(Vec::new());
+    let eq = crate::equalizer::Control::new(options.equalizer, 44100).unwrap();
+    let outcome = run_session(
+        options,
+        Cancellation::default(),
+        Arc::new(AtomicU32::new(0.1f32.to_bits())),
+        crate::volume::Control::default(),
+        eq,
+        |event| events.lock().unwrap().push(event),
+        (crate::clock::Clock::new(), None),
+    );
+    std::fs::remove_file(path).unwrap();
+    left.stop.store(true, Ordering::Relaxed);
+    right.stop.store(true, Ordering::Relaxed);
+    left.worker.join().unwrap();
+    right.worker.join().unwrap();
+    outcome.unwrap();
+    // Both members are configured with the group decision, not their own.
+    assert_eq!(*left.setups.lock().unwrap(), ["NTP"]);
+    assert_eq!(*right.setups.lock().unwrap(), ["NTP"]);
+    let events = events.lock().unwrap();
+    let negotiated: Vec<_> = events
+        .iter()
+        .filter(|event| event["event"] == "negotiated")
+        .collect();
+    assert_eq!(negotiated.len(), 2);
+    assert!(
+        negotiated.iter().all(|event| event["timing"] == "ntp"),
+        "an all-classic group must stay on NTP"
+    );
+    // The plan is still a valid group decision, not a user-facing warning.
+    assert!(
+        !events
+            .iter()
+            .any(|event| event["event"] == "warning" && event["code"] == "group_timing_plan"),
+        "the group timing diagnostic must not use the user-facing warning channel"
+    );
+}
+
+/// Q39: a group whose members disagree on AirPlay 2 evidence is refused after
+/// the `/info` probes and before any SETUP -- never downgraded to NTP.
+#[test]
+fn a_mixed_group_is_refused_before_any_setup() {
+    let mut left = mock_probe_only("127.0.0.2", false, Channel::Left, 0, true);
+    let mut right = mock_probe_only("127.0.0.3", false, Channel::Right, 0, false);
+    left.peer.receiver_id = "left".into();
+    right.peer.receiver_id = "right".into();
+    left.peer.profile.timing = Timing::Auto;
+    right.peer.profile.timing = Timing::Auto;
+    let path = quiet_wav();
+    let options:ProbeOptions=serde_json::from_value(serde_json::json!({"peers":[],"source":"wav","duration_ms":400,"gain":0.1,"latency_ms":200,"wav_path":path,"group_mode":"software_stereo","handshake_only":true})).unwrap();
+    let options = ProbeOptions {
+        peers: vec![left.peer.clone(), right.peer.clone()],
+        ..options
+    };
+    let events = Mutex::new(Vec::new());
+    let eq = crate::equalizer::Control::new(options.equalizer, 44100).unwrap();
+    let outcome = run_session(
+        options,
+        Cancellation::default(),
+        Arc::new(AtomicU32::new(0.1f32.to_bits())),
+        crate::volume::Control::default(),
+        eq,
+        |event| events.lock().unwrap().push(event),
+        (crate::clock::Clock::new(), None),
+    );
+    std::fs::remove_file(path).unwrap();
+    // The probe-only mocks record every request after `/info`; nothing may have
+    // arrived, and in particular no SETUP was ever sent to either receiver.
+    for (mock, name) in [(&left, "left"), (&right, "right")] {
+        assert!(
+            mock.methods.lock().unwrap().is_empty(),
+            "{name} received a request after /info"
+        );
+        assert!(
+            mock.setups.lock().unwrap().is_empty(),
+            "{name} received a session SETUP"
+        );
+        assert!(mock.packets.lock().unwrap().is_empty());
+    }
+    left.worker.join().unwrap();
+    right.worker.join().unwrap();
+    let fault = outcome
+        .expect_err("a mixed group must not start")
+        .downcast::<crate::transport::Fault>()
+        .expect("the refusal must be a structured engine fault");
+    assert_eq!(fault.code, "mixed_timing_group");
+    assert_eq!(fault.code, crate::profile::MixedTimingGroup::CODE);
+    assert_eq!(fault.channel, "setup");
+    assert!(
+        !fault.retryable,
+        "a mixed group will not become legal on retry"
+    );
+    assert!(
+        fault.message.contains("Please connect them separately."),
+        "{}",
+        fault.message
     );
 }

@@ -9,7 +9,7 @@ namespace AirFlash.App.ViewModels;
 
 public sealed class SettingsViewModel : ObservableObject, IDisposable
 {
-    public const int EqualizerPage = 2, AudioCapturePage = 3, ReceiversPage = 4, MonitorPage = 5, NetworkPage = 6;
+    public const int StreamingPage = 1, EqualizerPage = 2, AudioCapturePage = 3, ReceiversPage = 4, MonitorPage = 5, NetworkPage = 6;
     private readonly Guid _equalizerOwner = Guid.NewGuid();
     public EqualizerEditor Equalizer { get; }
     private string _equalizerError = "";
@@ -89,12 +89,15 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     public RelayCommand RefreshReceiverProfilesCommand { get; }
     public RelayCommand OpenLogsCommand { get; }
     public RelayCommand CopyDiagnosticsCommand { get; }
+    public RelayCommand ExportDiagnosticsCommand { get; }
     public event Action<bool>? CloseRequested;
     public event Action? AddReceiverRequested;
     public event Action<Receiver>? PairRequested;
     public RelayCommand AddReceiverCommand { get; }
     public RelayCommand LicensesCommand { get; }
-    public SettingsViewModel(AppViewModel app, Action<string>? diagnosticsWriter = null)
+    public SettingsViewModel(AppViewModel app) : this(app, null) { }
+
+    internal SettingsViewModel(AppViewModel app, Action<string>? diagnosticsWriter)
     {
         CheckUpdatesCommand = new(Updates.CheckAsync, _ => { });
         OpenDownloadCommand = new(() =>
@@ -124,6 +127,16 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         RefreshAdaptersCommand = new(RefreshAdapters);
         OpenLogsCommand = new(() => { try { AppPaths.OpenLogs(); } catch (Exception error) { ShowError(error); } });
         CopyDiagnosticsCommand = new(() => { try { (diagnosticsWriter ?? Clipboard.SetText)(App.Diagnostics()); } catch (Exception error) { ShowError(error); } });
+        ExportDiagnosticsCommand = new(async () =>
+        {
+            try
+            {
+                var path = await App.ExportDiagnosticsAsync();
+                AppPaths.OpenLogs();
+                Progress = L.Format("Diagnostics saved to {0}", Path.GetFileName(path));
+            }
+            catch (Exception error) { ShowError(error); }
+        });
         AddReceiverCommand = new(() => { if (CanEdit) AddReceiverRequested?.Invoke(); }, () => CanEdit);
         AddGroupCommand = new(AddGroup, () => CanEdit && GroupCandidates.Count >= 2);
         LicensesCommand = new(() => new Ui.LicensesWindow().Show());
@@ -150,20 +163,41 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
     {
         if (!CanEdit) return;
         var used = Draft.SoftwareGroups.SelectMany(g => new[] { g.LeftId, g.RightId }).ToHashSet();
-        var candidates = GroupCandidates.Where(r => !used.Contains(r.Id)).Take(2).ToArray();
-        if (candidates.Length != 2) { Error = L.Get("Stereo groups require two distinct independent receivers."); return; }
-        Draft.SoftwareGroups.Add(new() { Name = L.Get("Software stereo"), LeftId = candidates[0].Id, RightId = candidates[1].Id, SampleRate = "44100" });
+        var candidates = GroupCandidates.Where(r => !used.Contains(r.Id)).ToArray();
+        if (candidates.Length < 2) { Error = L.Get("Stereo groups require two distinct independent receivers."); return; }
+        // Same invariant as the editor (Q41): try pairs through GroupMembership
+        // rather than pre-checking a hand-picked first two, so the button picks a
+        // homogeneous pair when one exists and only reports the refusal when the
+        // available devices cannot form one.
+        string? refusal = null;
+        for (var i = 0; i < candidates.Length; i++)
+            for (var j = i + 1; j < candidates.Length; j++)
+            {
+                var membership = new GroupMembership();
+                membership.TryAdd(candidates[i], out _);
+                if (membership.TryAdd(candidates[j], out var error))
+                {
+                    Draft.SoftwareGroups.Add(new() { Name = L.Get("Software stereo"), LeftId = candidates[i].Id, RightId = candidates[j].Id, SampleRate = "44100" });
+                    return;
+                }
+                refusal ??= error;
+            }
+        Error = refusal ?? L.Get("Stereo groups require two distinct independent receivers.");
     }
     private void RefreshGroups()
     {
         foreach (var row in Groups.Where(r => !Draft.SoftwareGroups.Contains(r.Group)).ToArray()) { row.Dispose(); Groups.Remove(row); }
         foreach (var group in Draft.SoftwareGroups)
-            if (Groups.All(r => r.Group != group)) Groups.Add(new(group, GroupCandidates, () => { if (CanEdit) { Draft.SoftwareGroups.Remove(group); Draft.Receivers.Remove(group.Id); } }, () => { RefreshGroupProfiles(); RefreshValidation(); }, () => CanEdit));
+            if (Groups.All(r => r.Group != group)) Groups.Add(new(group, GroupCandidates, () => { if (CanEdit) SoftwareStereo.Split(Draft, group.Id); }, () => { RefreshGroupProfiles(); RefreshValidation(); }, () => CanEdit));
         RefreshGroupProfiles();
         AddGroupCommand.Refresh();
     }
+    public bool CanForceLatency => Draft.LatencyMode != LatencyPolicy.Mode;
     private void DraftChanged(object? sender, PropertyChangedEventArgs args)
     {
+        Notify(nameof(CanForceLatency));
+        if (sender is AppSettings && args.PropertyName == nameof(AppSettings.LatencyMode))
+            foreach (var row in Receivers) row.RefreshProfiles();
         if (sender is ReceiverOptions) { Equalizer.RefreshHeadroom(); RefreshGroupProfiles(); }
         if (_updating) return;
         if (args.PropertyName == nameof(AppSettings.CaptureMode))
@@ -226,7 +260,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         ApplyCommand.Refresh(); OkCommand.Refresh(); CancelCommand.Refresh(); AddReceiverCommand.Refresh(); RefreshEndpointsCommand.Refresh(); RefreshApplicationsCommand.Refresh();
         AddGroupCommand.Refresh();
         ResetCommand.Refresh(); RefreshReceiverProfilesCommand.Refresh();
-        foreach (var group in Groups) { group.SwapCommand.Refresh(); group.RemoveCommand.Refresh(); }
+        foreach (var group in Groups) { group.SwapCommand.Refresh(); group.RemoveCommand.Refresh(); group.RepairCommand.Refresh(); }
         foreach (var row in Receivers) row.Refresh();
     }
     public async Task<bool> ApplyAsync()
@@ -309,6 +343,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
             {
                 row = new(receiver, options, current => PairRequested?.Invoke(current), () => RemoveManual(receiver.Id), () => CanEdit, () => App.EngineReady && App.MuteReady && !App.IsClosing, App);
                 row.GroupRate = () => Draft.SoftwareGroups.FirstOrDefault(g => g.LeftId == row.Receiver.Id || g.RightId == row.Receiver.Id)?.SampleRate;
+                row.GlobalLatencyMode = () => Draft.LatencyMode;
                 Receivers.Insert(index, row);
             }
             else
@@ -358,6 +393,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
             var right = Receivers.FirstOrDefault(r => r.Receiver.Id == group.Group.RightId);
             var members = (left?.Capabilities.Members ?? []).Concat(right?.Capabilities.Members ?? []).ToArray();
             group.RefreshRates(left is not null && right is not null && members.Length == 2 ? new(members) : ReceiverCapabilitySet.Unknown, Draft);
+            group.RefreshMembership();
         }
     }
     public void AddManual(string name, string host, int port)
@@ -524,6 +560,8 @@ public sealed class ReceiverEditor : ObservableObject, IDisposable
     public ReceiverOptions Options { get; private set; }
     public ReceiverCapabilitySet Capabilities { get; private set; } = ReceiverCapabilitySet.Unknown;
     public Func<string?>? GroupRate { get; set; }
+    public Func<string>? GlobalLatencyMode { get; set; }
+    public bool CanForceLatency => (Options.LatencyMode ?? GlobalLatencyMode?.Invoke() ?? _app?.Settings.LatencyMode ?? LatencyPolicy.Mode) != LatencyPolicy.Mode;
     public bool CanSetSampleRate => GroupRate?.Invoke() is null;
     public string GroupRateHint => CanSetSampleRate ? "" : L.Get("The software stereo group controls this receiver's sample rate.");
     private string _capabilityError = "";
@@ -559,6 +597,7 @@ public sealed class ReceiverEditor : ObservableObject, IDisposable
     private static string Label(string value) => value switch { "auto" => L.Get("Automatic"), "pcm" => "PCM", "alac" => "ALAC", "realtime" => L.Get("Real-time UDP"), "buffered" => L.Get("Buffered TCP"), "ptp" => L.Get("Sender PTP clock"), "ntp" => "NTP", "follow" => L.Get("Follow receiver PTP clock"), "44100" => "44.1 kHz", "48000" => "48 kHz", _ => value };
     public void RefreshProfiles()
     {
+        Notify(nameof(CanForceLatency));
         Choice[] ChoicesFor(string field, IEnumerable<string> values)
         {
             var result = new List<Choice> { new("auto", AutoLabel(field)) };
@@ -641,20 +680,118 @@ public sealed class SoftwareGroupEditor : ObservableObject, IDisposable
     public ObservableCollection<Receiver> Candidates { get; }
     public RelayCommand SwapCommand { get; }
     public RelayCommand RemoveCommand { get; }
+    /// <summary>
+    /// Q45 repair action: the saved pair stays untouched while its members
+    /// contradict, and this explicit command dissolves it into two independent
+    /// receivers (per-device settings are preserved by
+    /// <see cref="SoftwareStereo.Split"/>).
+    /// </summary>
+    public RelayCommand RepairCommand { get; }
     private readonly Action _changed;
     private readonly ObservableCollection<StreamChoice> _rates = [];
+    private bool _rejected, _hasMembershipConflict;
+    private string _membershipError = "", _membershipWarning = "";
     public ObservableCollection<StreamChoice> RateChoices => _rates;
     public bool HasInvalidRate { get; private set; }
     public string RateStatus => HasInvalidRate ? L.Format("Unsupported group sample rate: {0}", Group.SampleRate == "44100" ? "44.1 kHz" : "48 kHz") : _rates.Count == 0 ? L.Format("Group sample rate: {0} (pending verification)", Group.SampleRate == "44100" ? "44.1 kHz" : "48 kHz") : "";
     public StreamChoice? RateChoice { get => _rates.FirstOrDefault(r => Equals(r.Value, Group.SampleRate)); set { if (value is not null) Group.SampleRate = (string)value.Value!; } }
+    /// <summary>
+    /// The combo-box source for the left/right member. Selecting a receiver is
+    /// the Q41/Q45 add path: it goes through <see cref="GroupMembership.TryAdd"/>
+    /// against the other slot, so a <em>proven</em> mixed pair is refused at the
+    /// moment the user picks the second device, while a receiver without
+    /// capability evidence is accepted. On refusal the group is left untouched
+    /// and the two-level message is shown in the card.
+    /// </summary>
+    public string LeftId { get => Group.LeftId; set => SetMember(left: true, value); }
+    public string RightId { get => Group.RightId; set => SetMember(left: false, value); }
+    public string MembershipError { get => _membershipError; private set => Set(ref _membershipError, value); }
+    /// <summary>The saved pair itself is proven heterogeneous (runtime drift, Q45).</summary>
+    public bool HasMembershipConflict { get => _hasMembershipConflict; private set => Set(ref _hasMembershipConflict, value); }
+    /// <summary>Accepted because evidence is missing; not an error.</summary>
+    public string MembershipWarning { get => _membershipWarning; private set => Set(ref _membershipWarning, value); }
     public void RefreshRates(ReceiverCapabilitySet capabilities, AppSettings settings)
     {
         StreamChoice.Update(_rates, AppSettings.SampleRates.Where(r => capabilities.Known && capabilities.Select(settings.ReadOptions, r).Count > 0).Select(r => new Choice(r, r == "44100" ? "44.1 kHz" : "48 kHz")));
         HasInvalidRate = capabilities.Known && capabilities.Select(settings.ReadOptions, Group.SampleRate).Count == 0;
         Notify(nameof(RateChoices)); Notify(nameof(RateChoice)); Notify(nameof(RateStatus));
     }
+    /// <summary>
+    /// Recomputes the saved pair through the three-valued invariant (catalog or
+    /// capability refresh). Unknown evidence is accepted with a warning; only a
+    /// proven contradiction sets <see cref="HasMembershipConflict"/> and the
+    /// two-level error. The saved group is never modified here.
+    /// </summary>
+    public void RefreshMembership()
+    {
+        var ids = new[] { Group.LeftId, Group.RightId }.Where(id => id.Length > 0).ToArray();
+        var resolved = ids.Select(Resolve).ToArray();
+        var membership = new GroupMembership();
+        string? error = null;
+        foreach (var id in ids)
+            if (!membership.TryAdd(Resolve(id), out error)) break;
+        HasMembershipConflict = ids.Length == 2 && error is not null;
+        if (HasMembershipConflict)
+        {
+            MembershipError = error ?? MixedGroupMessage.Action;
+            MembershipWarning = "";
+            return;
+        }
+        if (!_rejected) MembershipError = "";
+        MembershipWarning = ids.Length == 2 && resolved.Any(member => member.Support == AirPlayCapability.Unknown)
+            ? L.Get(MixedGroupMessage.UnknownCapabilityKey) : "";
+    }
+    private Receiver Resolve(string id) => Candidates.FirstOrDefault(candidate => candidate.Id == id) ?? Receiver.Offline(id);
+    private void SetMember(bool left, string? id)
+    {
+        id ??= "";
+        if ((left ? Group.LeftId : Group.RightId) == id) return;
+        if (id.Length == 0)
+        {
+            // The combo has no empty choice; a null value only arrives from a
+            // transient item-source refresh. Keep the saved member instead of
+            // clearing the slot behind the user's back.
+            Notify(nameof(LeftId)); Notify(nameof(RightId));
+            return;
+        }
+        var otherId = left ? Group.RightId : Group.LeftId;
+        var membership = new GroupMembership();
+        if (otherId.Length > 0) membership.TryAdd(Resolve(otherId), out _);
+        if (!membership.TryAdd(Resolve(id), out var error))
+        {
+            // Rejecting the assignment keeps the existing pair representable.
+            // Re-notify so the combo re-reads the unchanged value.
+            _rejected = true; MembershipError = error ?? "";
+            Notify(nameof(LeftId)); Notify(nameof(RightId));
+            return;
+        }
+        _rejected = false; MembershipError = "";
+        if (left) Group.LeftId = id; else Group.RightId = id;
+        Notify(nameof(LeftId)); Notify(nameof(RightId));
+        RefreshMembership();
+    }
     public SoftwareGroupEditor(SoftwareStereoGroup group, ObservableCollection<Receiver> candidates, Action remove, Action changed, Func<bool> canEdit)
-    { Group = group; Candidates = candidates; _changed = changed; SwapCommand = new(() => { if (canEdit()) group.Swap(); }, canEdit); RemoveCommand = new(remove, canEdit); Group.PropertyChanged += Changed; }
-    private void Changed(object? sender, PropertyChangedEventArgs args) => _changed();
+    {
+        Group = group; Candidates = candidates; _changed = changed;
+        SwapCommand = new(() =>
+        {
+            if (!canEdit()) return;
+            group.Swap();
+            _rejected = false; RefreshMembership();
+            Notify(nameof(LeftId)); Notify(nameof(RightId));
+        }, canEdit);
+        RemoveCommand = new(remove, canEdit);
+        RepairCommand = new(remove, canEdit);
+        Group.PropertyChanged += Changed;
+        RefreshMembership();
+    }
+    private void Changed(object? sender, PropertyChangedEventArgs args)
+    {
+        // The wrapper properties own the combo binding, so a change made by
+        // Swap/migration must reach them as well.
+        if (args.PropertyName is nameof(SoftwareStereoGroup.LeftId) or nameof(SoftwareStereoGroup.RightId))
+            Notify(args.PropertyName);
+        _changed();
+    }
     public void Dispose() => Group.PropertyChanged -= Changed;
 }

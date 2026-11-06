@@ -31,7 +31,7 @@ internal static class UiDiagnostics
     {
         var store = new Store(); var audio = new Audio(); var factory = new Factory();
         await using var app = new AppViewModel(store, new UiSmoke.MockDiscovery { Items = [] }, new UiSmoke.MockAutostart(), audio, factory,
-            Application.Current.Dispatcher) { EngineVersion = "synthetic-engine" };
+            Application.Current.Dispatcher, isolatedVerification: true) { EngineVersion = "synthetic-engine" };
         var writer = new Writer(); SettingsWindow? window = null; RestoreGate? cleanupGate = null;
         try
         {
@@ -345,7 +345,7 @@ internal static class UiDiagnostics
                 if (command == "hello")
                 {
                     _session = session;
-                    Emit(new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release" } });
+                    Emit(new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_ownership_guard" } });
                 }
                 if (command == "start") { _session = session; Emit(new { @event = "streaming" }); }
                 if (command == "stop") _events.Writer.TryComplete();

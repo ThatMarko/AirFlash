@@ -96,6 +96,107 @@ public sealed class SoftwareGroupSettingsTests
         Assert.Empty(Directory.GetFiles(fixture.DirectoryPath, "*.tmp"));
     }
 
+    [Theory]
+    [InlineData("utf8-bom")]
+    [InlineData("utf16-le-bom")]
+    public void LegacySoftwareGroupRemainsPendingAcrossLoadsAndSaveUntilMigrationCompletes(string encodingName)
+    {
+        using var fixture = new TemporaryStore();
+        var legacy = JsonSerializer.Deserialize<AppSettings>(
+            Configuration("software:synthetic-group", rate: "48000", schema: 4), AppSettings.JsonOptions)!;
+        legacy.MasterVolume = 37;
+        legacy.LastReceiverId = "software:synthetic-group";
+        legacy.Options("synthetic-left").Volume = 28;
+        legacy.Options("synthetic-left").LatencyMode = "custom";
+        legacy.Options("synthetic-left").CustomBufferMs = 375;
+        legacy.Options("synthetic-right").Volume = 61;
+        legacy.Options("synthetic-right").Codec = "alac";
+        var legacyGroup = Assert.Single(legacy.SoftwareGroups);
+        legacyGroup.LeftOffsetMs = -80;
+        legacyGroup.RightOffsetMs = 25;
+        var original = Encode(JsonSerializer.Serialize(legacy, AppSettings.JsonOptions), encodingName);
+        File.WriteAllBytes(fixture.Path, original);
+        var store = new SettingsStore(fixture.Path);
+
+        var first = store.Load();
+        Assert.True(store.MixedGroupMigrationPending);
+        AssertLegacyValues(first, 37);
+        var second = store.Load();
+        Assert.True(store.MixedGroupMigrationPending);
+        AssertLegacyValues(second, 37);
+        Assert.Null(store.LoadWarning);
+        Assert.Equal(original, File.ReadAllBytes(fixture.Path));
+        Assert.Empty(Directory.GetFiles(fixture.DirectoryPath, "*.bak"));
+
+        second.MasterVolume = 39;
+        store.Save(second);
+        Assert.True(store.MixedGroupMigrationPending);
+        AssertPersistedVersion(fixture.Path, 4, 0);
+        foreach (var suffix in new[] { ".pre-wpf.bak", ".pre-v3.bak", ".pre-v4.bak" })
+            Assert.Equal(original, File.ReadAllBytes(fixture.Path + suffix));
+        Assert.False(File.Exists(fixture.Path + ".pre-v5.bak"));
+        var intermediate = File.ReadAllBytes(fixture.Path);
+
+        // A new store proves that saving before the catalog pass cannot let a
+        // later process skip the still-pending migration.
+        var restarted = new SettingsStore(fixture.Path);
+        AssertLegacyValues(restarted.Load(), 39);
+        Assert.True(restarted.MixedGroupMigrationPending);
+        var pending = restarted.Load();
+        AssertLegacyValues(pending, 39);
+        Assert.True(restarted.MixedGroupMigrationPending);
+        Assert.Null(restarted.LoadWarning);
+        Assert.Equal(intermediate, File.ReadAllBytes(fixture.Path));
+        restarted.CompleteMixedGroupMigration(pending);
+
+        Assert.False(restarted.MixedGroupMigrationPending);
+        AssertPersistedVersion(fixture.Path, AppSettings.CurrentSchemaVersion, AppSettings.CurrentSchemaVersion);
+        // The original recovery/migration backups remain byte-exact. The v5
+        // backup belongs to the intermediate schema-4 revision just reloaded.
+        foreach (var suffix in new[] { ".pre-wpf.bak", ".pre-v3.bak", ".pre-v4.bak" })
+            Assert.Equal(original, File.ReadAllBytes(fixture.Path + suffix));
+        Assert.Equal(intermediate, File.ReadAllBytes(fixture.Path + ".pre-v5.bak"));
+        Assert.Contains(Directory.GetFiles(fixture.DirectoryPath, "*.pre-wpf.*.bak"),
+            path => File.ReadAllBytes(path).AsSpan().SequenceEqual(intermediate));
+        var completedStore = new SettingsStore(fixture.Path);
+        var completed = completedStore.Load();
+        AssertLegacyValues(completed, 39);
+        Assert.False(completedStore.MixedGroupMigrationPending);
+        Assert.Null(completedStore.LoadWarning);
+        Assert.Equal(AppSettings.CurrentSchemaVersion, Assert.Single(completed.SoftwareGroups).MixedInvariantVersion);
+        Assert.Empty(Directory.GetFiles(fixture.DirectoryPath, "*.tmp"));
+    }
+
+    private static void AssertLegacyValues(AppSettings settings, int volume)
+    {
+        Assert.Null(settings.Validate());
+        Assert.Equal(AppSettings.CurrentSchemaVersion, settings.SchemaVersion);
+        Assert.Equal(volume, settings.MasterVolume);
+        Assert.Equal("software:synthetic-group", settings.LastReceiverId);
+        Assert.True(settings.AutoConnectOnDiscover);
+        Assert.True(settings.StartAtLogin);
+        Assert.Equal("retained", settings.Extra!["synthetic_extension"].GetString());
+        var group = Assert.Single(settings.SoftwareGroups);
+        Assert.Equal("software:synthetic-group", group.Id);
+        Assert.Equal("Synthetic group", group.Name);
+        Assert.Equal("synthetic-left", group.LeftId);
+        Assert.Equal("synthetic-right", group.RightId);
+        Assert.Equal("48000", group.SampleRate);
+        Assert.Equal(-80, group.LeftOffsetMs);
+        Assert.Equal(25, group.RightOffsetMs);
+        Assert.Equal(28, settings.ReadOptions("synthetic-left").Volume);
+        Assert.Equal("custom", settings.ReadOptions("synthetic-left").LatencyMode);
+        Assert.Equal(375, settings.ReadOptions("synthetic-left").CustomBufferMs);
+        Assert.Equal(61, settings.ReadOptions("synthetic-right").Volume);
+        Assert.Equal("alac", settings.ReadOptions("synthetic-right").Codec);
+    }
+
+    private static void AssertPersistedVersion(string path, int schema, int invariant)
+    {
+        using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+        Assert.Equal(schema, document.RootElement.GetProperty("schema_version").GetInt32());
+        Assert.Equal(invariant, document.RootElement.GetProperty("software_groups")[0].GetProperty("mixed_invariant_version").GetInt32());
+    }
     [Fact]
     public void NullSoftwareGroupIdentityReturnsAValidationDiagnostic()
     {
@@ -104,9 +205,9 @@ public sealed class SoftwareGroupSettingsTests
     }
 
     private static string Configuration(string? id, string? name = "Synthetic group", string? rate = "44100",
-        string? left = "synthetic-left", string? right = "synthetic-right") => JsonSerializer.Serialize(new
+        string? left = "synthetic-left", string? right = "synthetic-right", int schema = AppSettings.CurrentSchemaVersion) => JsonSerializer.Serialize(new
     {
-        schema_version = 4,
+        schema_version = schema,
         auto_connect_on_discover = true,
         start_at_login = true,
         synthetic_extension = "retained",

@@ -951,11 +951,15 @@ public sealed class DiscoveryLifecycleTests
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var settlements = new List<Task>();
         var caller = Environment.CurrentManagedThreadId;
         var nativeThread = caller;
         dns.OnCreated = operation =>
         {
             if (operation.Name != Airplay) return;
+            // Model native cancellation joining the accepted Start call. The
+            // fixture must join settlement after releasing its native barrier.
+            operation.DuringCancel = () => operation.StartReturned.Task.GetAwaiter().GetResult();
             operation.DuringStart = () =>
             {
                 nativeThread = Environment.CurrentManagedThreadId; entered.Set();
@@ -967,13 +971,26 @@ public sealed class DiscoveryLifecycleTests
         try
         {
             discovery.Start(); // Must return before the native Start barrier releases.
+            // Subscribe after the coordinator so completion also joins its owner removal.
+            foreach (var operation in dns.Operations)
+            {
+                var settled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                operation.Settled += () => settled.TrySetResult();
+                settlements.Add(settled.Task);
+            }
             Assert.True(entered.Wait(TimeSpan.FromSeconds(10)));
             Assert.NotEqual(caller, nativeThread);
             discovery.Stop();
             Assert.Equal(0, discovery.Snapshot.ActiveQueries);
         }
-        finally { release.Set(); }
-        await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        finally
+        {
+            release.Set(); discovery.Dispose();
+            await completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await Task.WhenAll(settlements).WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        Assert.Equal(0, discovery.Snapshot.NativeOwners);
+        Assert.All(dns.Operations, operation => Assert.Equal(1, operation.ReleaseCalls));
     }
 
     private sealed class ThrowingDiscoveryTraceListener(string marker) : TraceListener
@@ -1063,6 +1080,7 @@ public sealed class DiscoveryLifecycleTests
         public int CancelCalls;
         public int StartCalls;
         public int ReleaseCalls;
+        public TaskCompletionSource StartReturned { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Action? DuringStart;
         public Action? DuringCancelRequest;
         public Action? DuringCancel;
@@ -1076,9 +1094,13 @@ public sealed class DiscoveryLifecycleTests
         public uint Start()
         {
             StartCalls++;
-            DuringStart?.Invoke();
-            if (StartStatus != 9506) Settle();
-            return StartStatus;
+            try
+            {
+                DuringStart?.Invoke();
+                if (StartStatus != 9506) Settle();
+                return StartStatus;
+            }
+            finally { StartReturned.TrySetResult(); }
         }
         public uint Cancel()
         {

@@ -28,6 +28,19 @@ Installer lifecycle tests run only in the disposable GitHub runner. First releas
 
 Local agent instructions, worktree hooks and history backups are deliberately not distributed. They live only in the maintainer's Git common directory and ignored files.
 
+## Publishing an already built reserved version
+
+When explicitly publishing an existing successful local build, preserve its version,
+reservation and binary bytes. Update release notes, then create a draft release targeting
+the full commit from `reserved/X.Y.Z` and upload only `AirFlash.exe`, the versioned MSI,
+and `SHA256SUMS.txt`. Dispatch **Verify existing release assets** from `main`, supplying
+that version and the independently checked EXE/MSI SHA-256 digests. It verifies the
+draft's target, asset hashes and versions, then runs the reserved commit's installer
+lifecycle tests in a disposable Windows runner without rebuilding or reserving a version.
+Publish the draft only after that run succeeds and after rechecking the uploaded asset
+digests. Keep the published tag on the reserved source commit. Failed installation
+validation leaves the release in draft. Any replacement build requires a new version.
+
 ## Own-fork preview artifacts
 
 The fork's **Fork integration validation** workflow can build a runnable preview from an exact Main commit without reserving a version, pushing tags or creating a GitHub Release:

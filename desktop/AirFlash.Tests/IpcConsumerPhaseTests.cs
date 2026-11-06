@@ -29,7 +29,7 @@ public sealed class IpcConsumerPhaseTests
         var connection = new PhaseConnection(phase == "playback_capabilities" ? ReplyPhase.RejectCapabilities : ReplyPhase.RejectHello);
         var factory = new Factory(connection);
         var audio = new Audio(originalMute);
-        var controller = new SessionController(factory, audio, timing: Timing);
+        var controller = TestSessionController.Create(factory, audio, timing: Timing);
         var failed = new TaskCompletionSource<SessionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
         var pinCalls = 0;
         controller.Changed += snapshot =>
@@ -178,7 +178,7 @@ public sealed class IpcConsumerPhaseTests
                     if (phase == ReplyPhase.RejectHello) _events.Writer.TryWrite(Rejection);
                     else
                     {
-                        var capabilities = new List<string> { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "member_volume", "receiver_password", "application_capture" };
+                        var capabilities = new List<string> { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_ownership_guard", "member_volume", "receiver_password", "application_capture" };
                         if (phase != ReplyPhase.HealthyLegacy) capabilities.Add("receiver_capabilities");
                         _events.Writer.TryWrite(JsonSerializer.Serialize(new { version = 1, session_id = session, @event = "hello", capabilities }));
                     }

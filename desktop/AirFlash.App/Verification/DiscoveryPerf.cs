@@ -42,12 +42,12 @@ internal static class DiscoveryPerf
             }
             await Sample("hidden", 120);
             string[] errors; lock (failures) errors = failures.ToArray();
-            App.WriteOutput(args, new { ok = stopped && errors.Length == 0, all_queries_stopped = stopped,
+            App.WriteOutput(args, new { ok = stopped && errors.Length == 0, resource_scope = "desktop-parent-only", resolve_helper_resources_included = false, all_queries_stopped = stopped,
                 retained_native_owners = NativeDnsServiceApi.CurrentOwnerCount,
                 resolve_helper_owners = ResolveProcessDnsServiceApi.ProcessOwnerCount,
                 resolve_settlement = "observed-helper-exit", cycles = 25, failures = errors, samples });
             return stopped && errors.Length == 0 ? 0 : 1;
         }
-        catch (Exception error) { App.WriteOutput(args, new { ok = false, error = error.ToString(), samples }); return 1; }
+        catch (Exception error) { App.WriteOutput(args, new { ok = false, resource_scope = "desktop-parent-only", resolve_helper_resources_included = false, error = error.ToString(), samples }); return 1; }
     }
 }
