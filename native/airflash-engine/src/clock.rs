@@ -1,5 +1,14 @@
 //! Monotonic media clock and a bounded unicast PTPv2 probe master.
 //! Implements the AirPlay PTP wire profile; no system clock is changed.
+//!
+//! The clock role per receiver is fixed before SETUP by its profile
+//! (`Profile::follow_receiver_clock`, read back as
+//! `CompatProfile::follows_receiver_clock`) and passed to
+//! [`PtpMaster::start_with_followers`]. The engine never switches roles at
+//! runtime: automatic pre-start BMCA negotiation was retired, so [`decide`],
+//! [`PtpMaster::negotiate`] and [`PtpMaster::yield_to`] have no production
+//! callers. The BMCA dataset in [`PeerSnapshot`] (`bmca_*`, `better_master`)
+//! is parsed only from receivers we follow.
 use crate::rtsp::Cancellation;
 use anyhow::{Context, Result};
 use std::{
@@ -59,8 +68,8 @@ fn tlv(data: &[u8]) -> Vec<u8> {
     out.extend(data);
     out
 }
-/// How a SETUP-time BMCA negotiation ended. Reported to the desktop so a session
-/// that follows the receiver says why.
+/// How a BMCA role decision would end ([`decide`]). Not produced by the engine:
+/// the role comes from the receiver profile, and no IPC event carries this.
 #[derive(Clone, Copy, Debug, serde::Serialize)]
 pub struct Verdict {
     /// True when the receiver outranks us and we become the slave.
@@ -75,6 +84,9 @@ pub struct Verdict {
 /// `priority2` (absent from the binary) or `stepsRemoved` (parsed, never compared),
 /// so neither does this: a lower `priority1` from a peer that announces as master
 /// wins, and anything else — including silence — leaves us as master.
+///
+/// Kept, with its unit tests, as the recovered comparison rule; only the unused
+/// [`PtpMaster::negotiate`] calls it.
 pub fn decide(our_p1: u8, remote: Option<BmcaDataset>, probes: u8) -> Verdict {
     let remote_is_master = remote.is_some_and(|dataset| dataset.grandmaster != 0);
     let remote_p1 = remote.map(|dataset| dataset.priority1);
@@ -86,10 +98,12 @@ pub fn decide(our_p1: u8, remote: Option<BmcaDataset>, probes: u8) -> Verdict {
         probes,
     }
 }
-/// Our advertised priority1. Deliberately lax: preferring the receiver's clock is
-/// the whole point of the negotiation, and a tie keeps us as master.
+/// Our priority1 for [`decide`], matching what [`announce`] advertises.
+/// Deliberately lax so a receiver that announces a better clock would win; a
+/// tie keeps us as master.
 pub const OUR_PRIORITY1: u8 = 96;
-/// Announces asked for before giving up and staying master.
+/// Announce subscriptions sent to an active peer while we are its master. The
+/// role never changes as a result; see the call site in `ptp_loop`.
 const BMCA_PROBE_ATTEMPTS: u8 = 3;
 const BMCA_PROBE_INTERVAL: Duration = Duration::from_millis(300);
 /// The grandfather dataset an Announce carries, in the fields BMCA compares first.
@@ -221,11 +235,11 @@ struct PeerState {
     next_subscription: Option<Instant>,
     exchange_interval: Option<Duration>,
     packets: PacketSnapshot,
-    /// Grandfather dataset from the last Announce this peer sent, plus whether it
-    /// beats our own.
+    /// Grandfather dataset from the last Announce this peer sent while we
+    /// followed it, plus whether it beats our own. Never set in the sender role.
     bmca: Option<BmcaDataset>,
     better_master: bool,
-    /// Announces requested while deciding the clock role at SETUP.
+    /// Announce subscriptions sent while we are this peer's master.
     bmca_probes: u8,
     next_probe: Option<Instant>,
     /// Clock identity from this peer's last Announce, tracked regardless of the
@@ -319,7 +333,8 @@ pub struct PeerSnapshot {
     pub phase: &'static str,
     pub packets: PacketSnapshot,
     pub exchange_timeout_ms: u128,
-    /// The peer's BMCA dataset, when it has sent an Announce.
+    /// The peer's BMCA dataset from its last Announce while we follow it;
+    /// `None` in the sender role, where Announces only feed identity tracking.
     pub bmca_priority1: Option<u8>,
     pub bmca_clock_class: Option<u8>,
     pub bmca_priority2: Option<u8>,
@@ -1006,9 +1021,12 @@ impl PtpMaster {
             peer.next_subscription = None;
         }
     }
-    /// Wait for the receiver's Announce and decide the clock role, once, before
-    /// RECORD. The worker sends the probes; this only waits, so no SETUP traffic
-    /// can be delayed by more than `timeout`.
+    /// Wait for the receiver's Announce and decide the clock role.
+    ///
+    /// Not called by the engine (see the module docs). It could not negotiate
+    /// as written either: `ptp_loop` sends the Announce probes only after
+    /// [`Self::activate`] (post-SETPEERS), and only a followed peer's dataset is
+    /// parsed, so in the sender role this always ends as "stay master".
     pub fn negotiate(&self, host: IpAddr, timeout: Duration) -> Verdict {
         let deadline = Instant::now() + timeout;
         loop {
@@ -1034,7 +1052,8 @@ impl PtpMaster {
         }
     }
     /// Become the slave of `host`: stop announcing and follow its Sync/Follow_Up.
-    /// Only meaningful before RECORD, which is where `negotiate` is called.
+    /// Not called by the engine; followers are chosen by profile at
+    /// [`Self::start_with_followers`].
     pub fn yield_to(&self, host: IpAddr) {
         let mut states = self.states.lock().unwrap();
         if let Some(peer) = states.get_mut(&host) {
@@ -1355,9 +1374,11 @@ fn ptp_loop(
                         "announce",
                     );
                 }
-                // BMCA runs once, before RECORD: ask the receiver to announce so we
-                // can compare priority1, with a bounded number of probes. A peer
-                // that never announces simply leaves us as master.
+                // While we are the configured master, ask the activated receiver
+                // to announce, a bounded number of times. Nothing is compared and
+                // the role never changes: the Announces it elicits only feed
+                // `note_announce_identity` (PTP association restarts) and the
+                // packet counters. BMCA fields are parsed only while following.
                 if s.bmca.is_none()
                     && s.bmca_probes < BMCA_PROBE_ATTEMPTS
                     && s.next_probe.is_none_or(|at| now >= at)

@@ -209,8 +209,14 @@ impl Health {
     pub fn commands(&self) -> Vec<crate::events::ParsedEvent> {
         self.0.lock().unwrap().commands.drain()
     }
+    /// Commands evicted from this member's bounded inbox, cumulative for the
+    /// member's lifetime (event-channel rebuilds share the same `Health`).
     pub fn commands_dropped(&self) -> u64 {
         self.0.lock().unwrap().commands.dropped()
+    }
+    #[cfg(test)]
+    pub(crate) fn push_command_for_test(&self, event: crate::events::ParsedEvent) {
+        self.0.lock().unwrap().commands.push(event);
     }
     fn fail(&self, fault: Fault) {
         let mut state = self.0.lock().unwrap();

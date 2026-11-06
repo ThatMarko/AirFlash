@@ -158,6 +158,10 @@ pub enum TimelineResetReason {
     TrackChange,
     UserSeek,
     ReceiverRejectedFlush,
+    /// A new receiver session replaced the old one inside the same playback
+    /// run. The engine no longer records it: under `receiver_ownership_guard`
+    /// a takeover ends the run instead of reconnecting in-session. The bucket
+    /// stays because the CSV layout is fixed.
     SessionRestart,
     /// The only reliable drift signal: delivery was confirmed to have failed.
     ConfirmedTransportFailure,
@@ -693,11 +697,15 @@ pub struct SessionTelemetry {
     pub underruns_idle: u64,
     /// Capture frames discarded because they were stale (input drops).
     pub input_drops: u64,
-    /// Frames dropped between decode and the sender.
+    /// Reserved, always 0. Kept for name parity with the reference sender's
+    /// snapshot (Q20); AirFlash captures PCM and has no decode stage between
+    /// capture and the sender. Capture-side drops are [`Self::input_drops`].
     pub decode_drops: u64,
     /// WASAPI discontinuity flags that were not ignored as benign wraparound.
     pub capture_glitches: u64,
-    /// Event-channel messages that could not be parsed into a command.
+    /// Receiver event-channel commands (buttons, volume) evicted from a member's
+    /// bounded inbox before the send loop drained them, summed over members.
+    /// Unparseable event bodies are acknowledged and ignored, not counted.
     pub events_dropped: u64,
     pub servo_engagements: u64,
     pub servo_releases: u64,
@@ -721,6 +729,10 @@ pub struct SessionTelemetry {
     pub lateness: Histogram,
     pub lateness_interval: Histogram,
     pub capture_age: Histogram,
+    /// Reserved, always empty (`retransmit_gap`). Kept for name parity with the
+    /// reference sender's `rtx_gap_hist` (Q20), whose definition was not
+    /// recovered; retransmit volume and outcomes are reported by the
+    /// `retransmit*` and `stall_rtx_*` fields instead.
     pub rtx_gap: Histogram,
 }
 impl SessionTelemetry {

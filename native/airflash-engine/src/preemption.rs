@@ -45,6 +45,18 @@
 //! evidence about a receiver: it only chooses between "the devices are gone" and
 //! "our network is gone" (see [`GatewayReachability`]).
 //!
+//! **The session loop does not consult this rule.** Each member's probe runs on
+//! its own background thread and completes on its own loop tick, so there is
+//! no round in which every member's liveness is known at once without holding
+//! one member's verdict back for the other's; and the gateway connect must never
+//! run on the audio thread. Every member is therefore judged on its own liveness
+//! (`local_suspected = false`). Under the ownership guard below, the rounds that
+//! matter most (feedback loss, clock loss, an unexpected `TEARDOWN`) already
+//! evaluate with unhealthy media and yield `ownership_unconfirmed` whether or
+//! not the rule would have suppressed them. The rule and its gateway helpers
+//! remain unit-tested here so it can be wired again with an asynchronous
+//! reference probe.
+//!
 //! The bit values are recovered from the reference implementation (Q31 answer):
 //! `ReceiverStatusFlags.ReceiverSessionActive = 131072 (0x20000, bit 17)`,
 //! `ReceiverStatusFlags.StereoPartnerUnreachable = 16384 (0x4000, bit 14)` and
@@ -66,23 +78,42 @@
 //! every probe reported our own session as somebody else's, and the queue never
 //! ended.
 //!
-//! Two guards make every state reachable from a probe finite:
-//! - a state-changing verdict (`Free` or `BusyElsewhere`) is re-probed once
-//!   after [`CONFIRM_DELAY`]; a disagreement keeps the non-destructive outcome
-//!   (never reclaim);
-//! - a confirmed `BusyElsewhere` is **queueing, not a takeover**: it backs off
-//!   [`REPROBE_BACKOFF`] (3 s → 6 s → 12 s → 24 s → 60 s, capped at 60 s) and
-//!   polls forever. A receiver that stays busy for an hour is polled once a
-//!   minute; it is never reclaimed for being busy (Q34).
+//! A state-changing verdict (`Free` or `BusyElsewhere`) is re-probed once
+//! after [`CONFIRM_DELAY`]; a disagreement keeps the non-destructive outcome
+//! (never reclaim).
 //!
-//! Re-announcing is never enough on its own: a receiver that is serving another
-//! sender still announces. The anti-storm limiter counts **reclaim → takeover
-//! cycles** (Q34), not time spent queueing: a takeover only continues the run
-//! when it follows a successful reclaim inside [`TAKEOVER_WINDOW`]; otherwise it
-//! starts a new run at 1. At [`TAKEOVER_LIMIT`] the sender yields — a terminal
-//! state that schedules no further probe and resumes only on an explicit
-//! external trigger ([`Tracker::trigger`]) or a new playback run that finds the
-//! receiver `Free`.
+//! # What the engine does with a verdict (`receiver_ownership_guard`)
+//!
+//! [`Tracker`] classifies and schedules; the session decides. The engine never
+//! reclaims a receiver inside a session and never waits behind another sender:
+//! every settled destructive action ends the attempt (see
+//! `docs/RECEIVER-OWNERSHIP.md`). `Member::apply_preemption` in `session.rs`
+//! maps the tracker's actions as follows:
+//!
+//! | settled action | session outcome |
+//! | --- | --- |
+//! | [`ProbeAction::Confirm`] | keep streaming until the confirmation probe |
+//! | [`ProbeAction::FallThrough`] | keep streaming; an `Unknown` liveness re-probes after [`LIVENESS_RETRY`] |
+//! | [`ProbeAction::Requeue`] | yield `preempted` (reason `takeover`) when the receiver ended our session and is still busy, otherwise `ownership_unconfirmed` |
+//! | [`ProbeAction::Reclaim`] | yield `peer_closed` only when the confirmation probe itself read `Free`, otherwise `ownership_unconfirmed` |
+//!
+//! Disagreeing confirmation probes, and an ownership check that is still open
+//! 15 s after feedback loss, clock loss or an unexpected `TEARDOWN`, also yield
+//! `ownership_unconfirmed`. Every yield marks the member so that closing it
+//! sends no `TEARDOWN` (a receiver another controller may now be using must
+//! not get one back; a settled `Requeue`/`Reclaim` also poisons the control
+//! connection) and [`Tracker::suspend`]s the tracker for the rest of that
+//! member's life. A yield stops the whole group. `preempted` and
+//! `ownership_unconfirmed` are not retryable; `peer_closed` is, but any
+//! automatic restart (desktop retry, standby or capture-source resume) first
+//! runs the free-receiver preflight: every member must report an inactive
+//! session in two `/info` rounds 500 ms apart before SETUP is sent.
+//!
+//! The tracker still computes a [`REPROBE_BACKOFF`] schedule for a confirmed
+//! `BusyElsewhere`, but the engine suspends it on that same verdict, so no
+//! session waits the backoff out. There is no in-session reclaim loop and no
+//! reclaim → takeover cycle counter: the first confirmed takeover already
+//! yields.
 //!
 //! Real-device values are still unverified: the raw `statusFlags` value is
 //! always logged so it can be mapped from a receiver that owns the session.
@@ -90,8 +121,6 @@ use crate::rtsp::{Cancellation, Connection};
 use anyhow::{Context, Result};
 use plist::Value;
 use std::{
-    collections::HashMap,
-    fmt,
     io::ErrorKind,
     net::{IpAddr, SocketAddr, TcpStream},
     time::{Duration, Instant},
@@ -140,10 +169,9 @@ pub const LIVENESS_PATIENCE_WINDOW: Duration = Duration::from_secs(60);
 /// non-definitive. Q42's timer needs repeated samples: without this, a single
 /// `Unknown` would be the only sample the tracker ever sees (the next probe is
 /// only scheduled by fresh control-plane evidence, and a dead feedback worker
-/// produces no more), so the patience limit could never be reached. It is the
-/// first busy-queue backoff step and it also paces the re-evaluation of Q46's
-/// all-failed suppression; the loop is bounded — the fifth unknown escalates to
-/// `Dead` and reclaims.
+/// produces no more), so the patience limit could never be reached. It equals
+/// the first [`REPROBE_BACKOFF`] step; the loop is bounded — the fifth unknown
+/// escalates to `Dead`, which the session turns into a yield.
 ///
 /// Q46 floats a growing interval (3 → 4 → 6 → 9 → 13 s) as a cheaper way to
 /// spend the same patience. Not taken: it would spread five samples over ~35 s
@@ -151,7 +179,8 @@ pub const LIVENESS_PATIENCE_WINDOW: Duration = Duration::from_secs(60);
 /// already bounded by the sample count, not by the interval.
 pub const LIVENESS_RETRY: Duration = Duration::from_secs(3);
 
-/// The ports Q46's gateway reference probe tries, in order. The reference only
+/// The ports Q46's gateway reference probe tries, in order (the reference is
+/// not consulted by the session loop; see the module docs). The reference only
 /// needs **any** answer — a completed handshake and a returned RST are equally
 /// good proof that the gateway's stack is on our path — so the first common
 /// port with a listener (or a reject) settles it. 443 comes first because a
@@ -171,10 +200,11 @@ pub const GATEWAY_PROBE_TIMEOUT: Duration = Duration::from_millis(1_000);
 /// routing-table hole does not reclaim every receiver.
 pub const GATEWAY_FALLBACK_WINDOW: Duration = Duration::from_secs(60);
 
-/// The queueing backoff for a confirmed `BusyElsewhere` verdict: 3 s, 6 s,
-/// 12 s, 24 s, then 60 s forever. This is a queue, never a failure retry: a
-/// receiver that stays busy for an hour is polled once a minute and is never
-/// reclaimed for being busy (Q34 §四). The growth factor and the cap are our
+/// The tracker's re-probe backoff after a confirmed `BusyElsewhere` verdict:
+/// 3 s, 6 s, 12 s, 24 s, then 60 s. It is a queue, never a failure retry, and
+/// a busy receiver is never reclaimed for being busy (Q34 §四). The engine does
+/// not wait it out: under `receiver_ownership_guard` the member yields on the
+/// same verdict and suspends its tracker, which drops the scheduled probe. The growth factor and the cap are our
 /// choice — WAC only exposed the shape of its takeover limiter, not its re-probe
 /// interval (Q31 suggested 3–5 s for the first interval).
 pub const REPROBE_BACKOFF: [Duration; 5] = [
@@ -186,7 +216,7 @@ pub const REPROBE_BACKOFF: [Duration; 5] = [
 ];
 
 /// The backoff cap: after the fifth confirmed busy verdict the interval stays at
-/// 60 s, forever.
+/// 60 s.
 pub const REPROBE_MAX_DELAY: Duration = Duration::from_secs(60);
 
 /// The delay after `requeues` completed requeues. The first requeue waits 3 s,
@@ -209,16 +239,6 @@ pub const ENDED_TRUST_WINDOW: Duration = Duration::from_secs(2);
 /// failure modes (a false `Free` reclaims; a false `Busy` stalls), but not
 /// WAC's interval.
 pub const CONFIRM_DELAY: Duration = Duration::from_millis(500);
-
-/// A takeover counter reaches this many consecutive reclaim → takeover cycles
-/// and the sender yields. Our choice: Q30 only recovered the *shape* of the
-/// limiter (`taken over <n> times in a row`), not WAC's threshold.
-pub const TAKEOVER_LIMIT: u32 = 3;
-
-/// A takeover counts as another cycle in the same run only when it happens at
-/// most this long after a **successful reclaim**. Our choice: WAC's window was
-/// not recovered either; Q34 calls it "WAC 的量级" and suggests 30 s.
-pub const TAKEOVER_WINDOW: Duration = Duration::from_secs(30);
 
 /// `ReceiverStatusFlags.ReceiverSessionActive` in the reference implementation:
 /// `131072uL`, i.e. bit 17 of a 64-bit `ulong` `statusFlags` field (Q31).
@@ -412,7 +432,8 @@ pub enum LivenessSample {
     Probe(ReceiverLiveness),
     /// Every receiver of the group failed in the same round **and the gateway
     /// reference did not answer**, so the common cause is our own network rather
-    /// than N devices dying at once (Q42 + Q46). This is not evidence about this
+    /// than N devices dying at once (Q42 + Q46). The session loop never sends
+    /// this today (the group-wide rule is not wired; see the module docs). This is not evidence about this
     /// receiver: the verdict is `Unknown`, the escalation counter is neither
     /// advanced nor reset. The caller re-probes after [`LIVENESS_RETRY`] to
     /// re-evaluate the reference — a recovered gateway must end the suppression
@@ -599,6 +620,8 @@ impl AllFailed {
 /// only consulted when no gateway could be discovered; when the gateway answers,
 /// time is irrelevant — the reference is the judgement, the clock is the
 /// fallback.
+///
+/// Not called by the session loop; see the module docs for why.
 pub fn judge_all_failed(
     probes: &[ReceiverLiveness],
     receivers: usize,
@@ -857,12 +880,15 @@ fn report_from_info(info: &Value, we_hold_session: bool) -> ProbeReport {
 /// confirmation probe — has been applied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProbeAction {
-    /// Stop the old session and take the receiver back on a fresh connection.
+    /// The receiver is free, gone, or unreadable (fail-open): our association
+    /// is over. The engine does not reconnect in-session; it yields
+    /// `peer_closed` for a confirmed `Free` and `ownership_unconfirmed`
+    /// otherwise.
     Reclaim,
-    /// Leave the receiver alone for now and ask again after the next backoff
-    /// interval ([`requeue_delay`]). There is no upper bound on queueing: a
-    /// confirmed busy receiver is polled forever, never reclaimed for being
-    /// busy (Q34).
+    /// Another sender's session is active (confirmed `BusyElsewhere`). The
+    /// tracker schedules the next [`requeue_delay`] interval and never turns
+    /// busy into a reclaim (Q34); the engine yields on this verdict instead
+    /// of queueing.
     Requeue,
     /// Not preemption: the receiver's active session is ours. Take no
     /// preemption action, so the control symptom falls through to the existing
@@ -1025,137 +1051,25 @@ pub fn probe_report(
     probe_infos(addr, cancel, timeout, we_hold_session)
 }
 
-/// Why the sender stopped reclaiming.
+/// The `reason` attached to a `preempted` fault.
+///
+/// Only `takeover` is produced: the retired reclaim → takeover cycle limiter
+/// that reported `limit` no longer exists, because the first confirmed takeover
+/// already yields. The desktop still maps `limit` for older engines.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReclaimReason {
-    /// A genuine takeover: the old session ends and the receiver is reclaimed.
+    /// Another controller took the receiver over: the member yields and the
+    /// engine does not reconnect automatically.
     Takeover,
-    /// The consecutive limit was hit: the sender yields and does not reconnect.
-    Limit,
 }
 
 impl ReclaimReason {
     pub fn name(self) -> &'static str {
         match self {
             Self::Takeover => "takeover",
-            Self::Limit => "limit",
         }
     }
 }
-
-/// Result of counting one takeover for one receiver.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TakeoverVerdict {
-    /// Below the limit: reclaim is allowed and `consecutive` is the count.
-    Reclaim { consecutive: u32 },
-    /// At the limit: stop reclaiming and report `PREEMPTED(limit)`.
-    Yield { consecutive: u32 },
-}
-
-/// The "taken over N times in a row, each within N s of a reclaim" counter, one
-/// instance per receiver.
-///
-/// The reference sender's counter measures a **cycle rate** — reclaim a
-/// receiver, get taken over again quickly — not how long a sender queued. Only
-/// a successful reclaim arms the window ([`Self::reclaim_succeeded`]); a
-/// takeover that follows it inside [`TAKEOVER_WINDOW`] continues the run, and
-/// one that does not (or that follows no successful reclaim at all) starts a new
-/// run at 1. Queueing for a busy receiver never touches this counter (Q34 §四).
-#[derive(Clone, Copy, Debug, Default)]
-pub struct TakeoverCounter {
-    consecutive: u32,
-    /// When our last reclaim of this receiver completed (a fresh session is up).
-    /// `None` until the first successful reclaim — the very first takeover of a
-    /// run therefore counts as 1, not as a lost cycle.
-    last_reclaim: Option<Instant>,
-}
-
-impl TakeoverCounter {
-    pub fn consecutive(&self) -> u32 {
-        self.consecutive
-    }
-
-    /// Record a **successful** reclaim: the fresh session is established. Only
-    /// from here can a following takeover continue the same run.
-    pub fn reclaim_succeeded(&mut self, now: Instant) {
-        self.last_reclaim = Some(now);
-    }
-
-    /// Record one genuine takeover of our session.
-    ///
-    /// A takeover inside [`TAKEOVER_WINDOW`] of a successful reclaim is another
-    /// turn of the same reclaim → takeover cycle and increments the count. With
-    /// no such reclaim the count resets to 1 (never 0). Reaching
-    /// [`TAKEOVER_LIMIT`] yields. One takeover consumes the successful-reclaim
-    /// marker, so repeated probes of the same displacement do not count twice.
-    pub fn takeover(&mut self, now: Instant) -> TakeoverVerdict {
-        self.consecutive = match self.last_reclaim {
-            Some(last) if now.saturating_duration_since(last) <= TAKEOVER_WINDOW => {
-                self.consecutive.saturating_add(1)
-            }
-            _ => 1,
-        };
-        self.last_reclaim = None;
-        if self.consecutive >= TAKEOVER_LIMIT {
-            TakeoverVerdict::Yield {
-                consecutive: self.consecutive,
-            }
-        } else {
-            TakeoverVerdict::Reclaim {
-                consecutive: self.consecutive,
-            }
-        }
-    }
-}
-
-/// Per-receiver counters. A stereo pair can be displaced independently, so the
-/// count must not be shared between members.
-#[derive(Default)]
-pub struct TakeoverCounters {
-    counters: HashMap<IpAddr, TakeoverCounter>,
-}
-
-impl TakeoverCounters {
-    /// Record that a reclaim of `host` succeeded (a fresh session is up).
-    pub fn reclaimed(&mut self, host: IpAddr, now: Instant) {
-        self.counters
-            .entry(host)
-            .or_default()
-            .reclaim_succeeded(now);
-    }
-
-    /// Record one genuine takeover of `host`'s session.
-    pub fn takeover(&mut self, host: IpAddr, now: Instant) -> TakeoverVerdict {
-        self.counters.entry(host).or_default().takeover(now)
-    }
-
-    pub fn consecutive(&self, host: IpAddr) -> u32 {
-        self.counters
-            .get(&host)
-            .map_or(0, TakeoverCounter::consecutive)
-    }
-}
-
-/// A reclaim that is not a terminal fault: the live loop must open a fresh
-/// connection and continue. Used as an `anyhow` error so it can travel through
-/// the existing setup/streaming call stack without a second return type.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Reclaim {
-    pub host: IpAddr,
-    pub consecutive: u32,
-}
-
-impl fmt::Display for Reclaim {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "receiver {} reclaimed after takeover {}",
-            self.host, self.consecutive
-        )
-    }
-}
-
-impl std::error::Error for Reclaim {}
 
 /// One state-changing verdict waiting for its confirmation probe.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1176,15 +1090,16 @@ pub struct ProbeNote {
     /// Set when the first and confirmation probes gave different usable
     /// verdicts. The caller logs the disagreement.
     pub disagreement: Option<(ProbeOutcome, ProbeOutcome)>,
-    /// The settled verdict is `Free` and the action is [`ProbeAction::Reclaim`]:
-    /// a genuine takeover cycle, the only event that feeds a
-    /// [`TakeoverCounter`]. Queueing (`Requeue`), a dead receiver (`Gone`) and
-    /// the fail-open paths are never takeovers.
+    /// The settled verdict is a confirmed `Free` and the action is
+    /// [`ProbeAction::Reclaim`]. Queueing (`Requeue`), a dead receiver (`Gone`)
+    /// and the fail-open paths never set it. The engine is stricter still: it
+    /// reports `peer_closed` only when the confirmation probe itself read `Free`.
     pub takeover: bool,
 }
 
-/// Per-member evidence and probe scheduling. Only the session thread probes;
-/// feedback workers merely append [`Signal`]s to `Health`.
+/// Per-member evidence and probe scheduling. Only the session thread drives it
+/// (the probes themselves run on a background worker so the audio loop never
+/// waits for a connect); feedback workers merely append [`Signal`]s to `Health`.
 #[derive(Debug)]
 pub struct Tracker {
     signals: Vec<Signal>,
@@ -1199,8 +1114,9 @@ pub struct Tracker {
     /// Completed confirmed-`BusyElsewhere` requeues in the current run. It
     /// selects the next backoff interval; it is deliberately **not** a limit.
     requeues: u32,
-    /// Terminal `yielding` state (Q34): no automatic probe is scheduled, and
-    /// signals cannot re-arm one. Only an explicit [`Self::trigger`] leaves it.
+    /// Terminal state entered when the member yields: no probe is scheduled
+    /// again and signals cannot re-arm one. Nothing leaves it; a new playback
+    /// run builds a new member and with it a fresh tracker.
     suspended: bool,
     /// Q42's liveness escalation timer: `Unknown` is tolerated only for
     /// [`LIVENESS_PATIENCE`] consecutive samples.
@@ -1255,7 +1171,7 @@ impl Tracker {
         // A new signal asks for a probe now, unless a probe is already queued.
         // Repeated symptoms must not shorten the confirmation or re-probe
         // interval. A suspended (yielded) tracker never re-arms itself: its
-        // evidence stays recorded, but only an explicit trigger resumes it.
+        // evidence stays recorded for the log, nothing resumes it.
         if self.next_probe.is_none() && !self.suspended {
             self.next_probe = Some(at);
         }
@@ -1294,8 +1210,11 @@ impl Tracker {
             )
     }
 
-    /// Signals collected since the last call, for the one evidence log line
-    /// that carries `policy`/`rtp_healthy`/`packets_prepared`/`tcp_reachable`.
+    /// Signals collected since the last call (at most the newest eight), for
+    /// the one evidence log line that carries
+    /// `policy`/`rtp_healthy`/`packets_prepared`/`tcp_reachable`. The session
+    /// drains it when it starts a probe, so signals that arrive while a
+    /// confirmation or retry is pending ride on that probe's evidence line.
     pub fn take_signals(&mut self) -> Vec<Signal> {
         std::mem::take(&mut self.signals)
     }
@@ -1329,10 +1248,9 @@ impl Tracker {
     /// [`LIVENESS_RETRY`]; otherwise a single sample would be the only one this
     /// tracker ever sees (the next probe is otherwise only scheduled by fresh
     /// control-plane evidence, and a dead feedback worker produces no more), so
-    /// the patience limit could never be reached and Q46's gateway reference
-    /// could never be re-evaluated. It never overrides a busy queue or the
-    /// terminal yielded state, and it is bounded: the fifth unknown escalates to
-    /// `Dead`.
+    /// the patience limit could never be reached. It never overrides a busy
+    /// queue or the terminal yielded state, and it is bounded: the fifth
+    /// unknown escalates to `Dead`.
     pub fn await_liveness(&mut self, now: Instant) {
         if self.suspended || self.queueing() {
             return;
@@ -1348,11 +1266,12 @@ impl Tracker {
         self.next_probe
     }
 
-    /// Enter the terminal `yielding` state (Q34 §四): the receiver keeps being
-    /// reclaimed and taken over in cycles too fast to be a legitimate queue.
-    /// Every queued probe is dropped and nothing is scheduled again — the
-    /// caller reports `preempted(reason="limit")` and stops automatic
-    /// reconnection. This is not a timer: [`Self::trigger`] is the only way back.
+    /// Enter the terminal yielded state. The session calls this on every yield
+    /// (`preempted`, `ownership_unconfirmed` or `peer_closed`): every queued
+    /// probe is dropped and nothing is scheduled again for this member. This is
+    /// not a timer and there is no way back; reclaiming the receiver takes a
+    /// new playback run, and an automatic one must first pass the
+    /// free-receiver preflight.
     pub fn suspend(&mut self) {
         self.suspended = true;
         self.pending = None;
@@ -1364,31 +1283,15 @@ impl Tracker {
         self.suspended
     }
 
-    /// Explicit external trigger (the user pressed play): the only way out of
-    /// the yielded state other than a brand-new playback run. It re-arms one
-    /// immediate probe and restarts the queue backoff. The low-frequency
-    /// "is it free again?" poll of a *new* run is the other, slower resume
-    /// path: a fresh run starts a fresh tracker whose first probe observes
-    /// `Free`. Returns whether the trigger did anything.
-    pub fn trigger(&mut self, now: Instant) -> bool {
-        if !self.suspended {
-            return false;
-        }
-        self.suspended = false;
-        self.requeues = 0;
-        self.pending = None;
-        self.next_probe = Some(now);
-        true
-    }
-
     /// Feed one probe result back and apply the confirmation rule plus the
     /// queue backoff.
     ///
     /// A `Free` or `BusyElsewhere` first verdict is not acted on: it schedules
     /// one confirmation probe after [`CONFIRM_DELAY`]. `OursActive` and the
     /// fail-open paths (`Unknown`, `Gone`, error, timeout) are acted on
-    /// immediately. A confirmed `BusyElsewhere` queues another probe after the
-    /// next [`REPROBE_BACKOFF`] interval — forever. It never forces a reclaim.
+    /// immediately. A confirmed `BusyElsewhere` schedules another probe after
+    /// the next [`REPROBE_BACKOFF`] interval and never forces a reclaim; the
+    /// engine yields on that verdict instead of waiting for it.
     pub fn note_result(&mut self, result: &Result<ProbeReport>, now: Instant) -> ProbeNote {
         let log = match result {
             Ok(report) => ProbeLog {
@@ -2337,10 +2240,7 @@ mod tests {
             ProbeAction::Reclaim,
             "two agreeing Free probes reclaim"
         );
-        assert!(
-            second.takeover,
-            "a confirmed Free is the genuine takeover the cycle counter needs"
-        );
+        assert!(second.takeover, "a confirmed Free settles as a takeover");
         assert_eq!(tracker.scheduled(), None);
     }
 
@@ -2592,10 +2492,10 @@ mod tests {
     }
 
     #[test]
-    fn yielding_is_terminal_and_only_an_explicit_trigger_revives_it() {
-        // Q34: `yielding` is not a timer. When the takeover limit is hit the
-        // tracker drops every queued probe; nothing is ever due again until an
-        // explicit external trigger (the user pressing play) asks for one.
+    fn yielding_is_terminal_for_the_tracker() {
+        // A yield is not a timer: the tracker drops every queued probe and
+        // nothing is ever due again. Only a new playback run (a new tracker)
+        // probes the receiver again.
         let base = Instant::now();
         let mut tracker = Tracker::default();
         tracker.observe(Signal::UnexpectedTeardown, at(base, 0));
@@ -2626,19 +2526,7 @@ mod tests {
         );
         assert_eq!(tracker.scheduled(), None);
         assert!(!tracker.due(base + Duration::from_secs(3_601)));
-        // Only the explicit trigger (user pressed play) revives it.
-        let trigger = base + Duration::from_secs(86_400);
-        assert!(tracker.trigger(trigger));
-        assert!(!tracker.suspended());
-        assert_eq!(tracker.scheduled(), Some(trigger));
-        assert!(tracker.due(trigger));
-        // Triggering a live tracker is a no-op, not a second probe.
-        assert!(!tracker.trigger(trigger + Duration::from_secs(1)));
-        assert_eq!(
-            tracker.scheduled(),
-            Some(trigger),
-            "the already scheduled probe is not rescheduled"
-        );
+        assert!(tracker.suspended());
         let _ = confirmation;
     }
 
@@ -2695,148 +2583,6 @@ mod tests {
         assert!(
             tracker.note_result(&free(), at(base, 8_000)).log_changed,
             "a later Free after a busy run is logged"
-        );
-    }
-
-    #[test]
-    fn the_first_takeover_counts_as_one_and_reclaims() {
-        let base = Instant::now();
-        let mut counter = TakeoverCounter::default();
-        // No successful reclaim yet: the first takeover starts a new run at 1.
-        assert_eq!(
-            counter.takeover(at(base, 0)),
-            TakeoverVerdict::Reclaim { consecutive: 1 }
-        );
-        assert_eq!(counter.consecutive(), 1);
-    }
-
-    #[test]
-    fn a_takeover_without_a_successful_reclaim_is_never_a_cycle() {
-        // "each within <n>s of a reclaim": without a reclaim in between, two
-        // quick takeovers are not two turns of the same run. Repeated probes of
-        // one displacement cannot build up to a yield.
-        let base = Instant::now();
-        let mut counter = TakeoverCounter::default();
-        assert_eq!(
-            counter.takeover(at(base, 0)),
-            TakeoverVerdict::Reclaim { consecutive: 1 }
-        );
-        for step in 1..=5 {
-            assert_eq!(
-                counter.takeover(at(base, step * 100)),
-                TakeoverVerdict::Reclaim { consecutive: 1 }
-            );
-        }
-        assert_eq!(counter.consecutive(), 1);
-    }
-
-    #[test]
-    fn takeovers_after_successful_reclaims_increment_in_a_row() {
-        let base = Instant::now();
-        let mut counter = TakeoverCounter::default();
-        assert_eq!(
-            counter.takeover(at(base, 0)),
-            TakeoverVerdict::Reclaim { consecutive: 1 }
-        );
-        counter.reclaim_succeeded(at(base, 1_000));
-        assert_eq!(
-            counter.takeover(at(base, 2_000)),
-            TakeoverVerdict::Reclaim { consecutive: 2 }
-        );
-        // Exactly on the boundary is still "within the window" of the reclaim.
-        counter.reclaim_succeeded(at(base, 3_000));
-        assert_eq!(
-            counter.takeover(at(base, 3_000) + TAKEOVER_WINDOW),
-            TakeoverVerdict::Yield { consecutive: 3 }
-        );
-    }
-
-    #[test]
-    fn a_takeover_after_the_window_resets_the_count_to_one() {
-        let base = Instant::now();
-        let mut counter = TakeoverCounter::default();
-        counter.takeover(at(base, 0));
-        counter.reclaim_succeeded(at(base, 1_000));
-        counter.takeover(at(base, 2_000));
-        assert_eq!(counter.consecutive(), 2);
-        // The next takeover is outside the window of the last successful
-        // reclaim: a new run, not another cycle.
-        counter.reclaim_succeeded(at(base, 3_000));
-        assert_eq!(
-            counter.takeover(at(base, 3_000) + TAKEOVER_WINDOW + Duration::from_millis(1)),
-            TakeoverVerdict::Reclaim { consecutive: 1 }
-        );
-    }
-
-    #[test]
-    fn hitting_the_limit_yields_and_a_later_takeover_starts_over() {
-        let base = Instant::now();
-        let mut counter = TakeoverCounter::default();
-        counter.takeover(at(base, 0));
-        counter.reclaim_succeeded(at(base, 100));
-        counter.takeover(at(base, 200));
-        counter.reclaim_succeeded(at(base, 300));
-        assert_eq!(
-            counter.takeover(at(base, 400)),
-            TakeoverVerdict::Yield {
-                consecutive: TAKEOVER_LIMIT
-            }
-        );
-        // Even after a yield a much later takeover starts a new run at 1 (the
-        // runtime never gets here: `yielding` is terminal for automatic retries).
-        counter.reclaim_succeeded(at(base, 400));
-        assert_eq!(
-            counter.takeover(at(base, 400) + TAKEOVER_WINDOW + Duration::from_millis(1)),
-            TakeoverVerdict::Reclaim { consecutive: 1 }
-        );
-    }
-
-    #[test]
-    fn counters_are_per_receiver_not_per_group() {
-        let base = Instant::now();
-        let mut counters = TakeoverCounters::default();
-        let left: IpAddr = "192.0.2.10".parse().unwrap();
-        let right: IpAddr = "192.0.2.11".parse().unwrap();
-        assert_eq!(
-            counters.takeover(left, at(base, 0)),
-            TakeoverVerdict::Reclaim { consecutive: 1 }
-        );
-        assert_eq!(
-            counters.takeover(right, at(base, 0)),
-            TakeoverVerdict::Reclaim { consecutive: 1 }
-        );
-        counters.reclaimed(left, at(base, 1_000));
-        assert_eq!(
-            counters.takeover(left, at(base, 2_000)),
-            TakeoverVerdict::Reclaim { consecutive: 2 }
-        );
-        assert_eq!(
-            counters.consecutive(right),
-            1,
-            "the other member's count is untouched"
-        );
-    }
-
-    #[test]
-    fn a_reclaim_cycle_only_counts_when_the_reclaim_succeeded() {
-        // Q34's correction: `BUSY_LIMIT` counted how long a sender queued; the
-        // reference counter counts reclaim → takeover cycles. The `busy` path
-        // never feeds a takeover, and a takeover needs an armed successful
-        // reclaim to continue a run.
-        let base = Instant::now();
-        let mut counter = TakeoverCounter::default();
-        counter.reclaim_succeeded(at(base, 0));
-        // Armed by a successful reclaim but no takeover happened: the first
-        // takeover is still 1.
-        assert_eq!(
-            counter.takeover(at(base, 1_000)),
-            TakeoverVerdict::Reclaim { consecutive: 1 }
-        );
-        // The marker is consumed: a second takeover with no new successful
-        // reclaim does not count as another cycle.
-        assert_eq!(
-            counter.takeover(at(base, 2_000)),
-            TakeoverVerdict::Reclaim { consecutive: 1 }
         );
     }
 
