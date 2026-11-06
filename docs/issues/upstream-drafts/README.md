@@ -2,9 +2,9 @@
 
 ## Current prepared package — 2026-11-05
 
-The unsent [umbrella issue](reliability-current-issue.md) and [draft PR](reliability-current-pr.md) target `codex/reliability-refresh-v062` at `be2c98209292ff9e2fe777988ac220f142bea368` on original Main `a52803dac1696a56b7067356e09bd7e7ebb9dab6` after v0.6.2. The current PR keeps eight review sections. The complete diff and all 39 outgoing commits exclude fork-only documentation; the final documentation tree matches current original Main.
+The unsent [umbrella issue](reliability-current-issue.md) and [draft PR](reliability-current-pr.md) target local `codex/reliability-refresh-v062` at `7c07561aac7851cb4394cfd687a7c5393f46b3ca` on original Main `a52803dac1696a56b7067356e09bd7e7ebb9dab6` after v0.6.2. The draft keeps eight review sections. Its exact-head GitHub links will resolve after the implementation branch is pushed. The reviewed 39-commit predecessor and the new cleanup commit exclude fork-only documentation.
 
-The [manual source review](../MANUAL-SOURCE-REVIEW-2026-11-05.md) traces all changed lines through their callers and consumers. Its two cleanup findings are addressed in the current head.
+The [manual source review](../MANUAL-SOURCE-REVIEW-2026-11-05.md) traces the preceding candidate through its callers and consumers. An independently reviewed follow-up makes all Quit stages attempt cleanup, guards late Settings and second-instance activation, fixes the neighboring restore-gate fixture, and corrects two PTP Grant comments. The follow-up has yet to run through build or test checks.
 
 The [November 5 adversarial review](../RELIABILITY-REVIEW-2026-11-05.md) covers all 103 changed paths, direct consumers and regression assertions. It found and corrected a fork-added Grant ordering restriction and a saved gain that could be lost after intent invalidation. Both intended failures are preserved on test-only commits; the report distinguishes the adjacent discovery-save issue already present upstream. Verification isolation, settlement and performance-scope labels were tightened. No further concrete runtime blocker was found in the reviewed diff; that is not proof of field stability or audio quality.
 
