@@ -5,6 +5,72 @@ namespace AirFlash.Tests;
 
 public sealed class RemoteCommandTests
 {
+    [Fact]
+    public async Task An_old_remote_command_cannot_regain_authority_after_standby_resume()
+    {
+        var connection = new SessionTestEngine.Connection();
+        var reported = System.Threading.Channels.Channel.CreateUnbounded<RemoteCommandAuthority>();
+        var limit = SessionTestEngine.Limit;
+        await using var controller = TestSessionController.Create(new SessionTestEngine.Factory(connection), new SessionTestEngine.Audio(), timing: SessionTestEngine.Timing);
+        controller.OwnedRemoteCommandReceived += (_, authority) => reported.Writer.TryWrite(authority);
+        await SessionTestEngine.StreamAsync(controller, connection);
+        connection.Current("remote_command", new { commands = new[] { "mute" } });
+        var original = await reported.Reader.ReadAsync().AsTask().WaitAsync(limit);
+
+        connection.Current("standby");
+        connection.Current("resuming");
+        connection.Current("streaming");
+        connection.Current("remote_command", new { commands = new[] { "mute" } });
+        var resumed = await reported.Reader.ReadAsync().AsTask().WaitAsync(limit);
+
+        Assert.Equal(original.Owner, resumed.Owner);
+        Assert.Equal(original.SessionId, resumed.SessionId);
+        Assert.False(await controller.TryToggleRemoteMuteAsync(original).WaitAsync(limit));
+        Assert.True(await controller.TryToggleRemoteMuteAsync(resumed).WaitAsync(limit));
+        Assert.True(controller.Muted);
+        Assert.Equal(1, connection.Count("set_gain"));
+    }
+
+    [Fact]
+    public async Task A_remote_mute_waiting_for_serialization_loses_authority_on_explicit_intent()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reported = new TaskCompletionSource<RemoteCommandAuthority>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var connection = new SessionTestEngine.Connection
+        {
+            BeforeCommandAsync = command =>
+            {
+                if (command != "set_gain") return Task.CompletedTask;
+                entered.TrySetResult();
+                return release.Task;
+            }
+        };
+        var limit = SessionTestEngine.Limit;
+        await using var controller = TestSessionController.Create(new SessionTestEngine.Factory(connection), new SessionTestEngine.Audio(), timing: SessionTestEngine.Timing);
+        controller.OwnedRemoteCommandReceived += (_, authority) => reported.TrySetResult(authority);
+        await SessionTestEngine.StreamAsync(controller, connection);
+        connection.Current("remote_command", new { commands = new[] { "mute" } });
+        var current = await reported.Task.WaitAsync(limit);
+        var slider = controller.SetMutedAsync(false);
+        try
+        {
+            await entered.Task.WaitAsync(limit);
+            var remote = controller.TryToggleRemoteMuteAsync(current);
+            Assert.False(remote.IsCompleted);
+            controller.BeginExplicitIntent();
+            release.TrySetResult();
+            Assert.False(await remote.WaitAsync(limit));
+            Assert.False(controller.Muted);
+            Assert.Equal(1, connection.Count("set_gain"));
+        }
+        finally
+        {
+            release.TrySetResult();
+            await slider.WaitAsync(limit);
+        }
+    }
+
     private static JsonElement Json(string text) => JsonDocument.Parse(text).RootElement.Clone();
 
     [Fact]

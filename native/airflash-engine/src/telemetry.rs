@@ -714,8 +714,8 @@ pub struct SessionTelemetry {
     pub decode_drops: u64,
     /// WASAPI discontinuity flags that were not ignored as benign wraparound.
     pub capture_glitches: u64,
-    /// Receiver event-channel commands (buttons, volume) evicted from a member's
-    /// bounded inbox before the send loop drained them, summed over members.
+    /// Receiver event messages evicted from member inboxes before the send loop
+    /// drained them. One message can contain several commands or a volume report.
     /// Unparseable event bodies are acknowledged and ignored, not counted.
     pub events_dropped: u64,
     pub servo_engagements: u64,
@@ -740,9 +740,11 @@ pub struct SessionTelemetry {
     pub lateness: Histogram,
     pub lateness_interval: Histogram,
     pub capture_age: Histogram,
-    /// `retransmit_gap`: how far behind the live edge each realtime retransmit
+    /// `retransmit_gap`: how far behind the live edge each nonempty realtime
     /// request reached, in milliseconds of audio (next sequence minus the first
     /// requested sequence, times the packet duration), summed over members.
+    /// Reported percentiles clip at 200 ms. `above_ceiling` counts the clipped
+    /// samples and `max_ms` retains the maximum.
     /// Named after the reference sender's `rtx_gap_hist` (Q20), whose exact
     /// definition was not recovered. Buffered (TCP) streams have no requests.
     pub rtx_gap: Histogram,

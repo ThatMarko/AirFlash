@@ -61,6 +61,13 @@ public sealed class NowPlayingTests
     [Fact]
     public void An_unset_smtc_update_time_is_not_extrapolated()
         => Assert.Equal(10_000, NowPlaying.CurrentPositionMs(10_000, 0, true, default, DateTimeOffset.UtcNow));
+
+    [Fact]
+    public void Smtc_projection_uses_the_reported_playback_rate()
+    {
+        var now = DateTimeOffset.UnixEpoch.AddMinutes(1);
+        Assert.Equal(17_500, NowPlaying.CurrentPositionMs(10_000, 240_000, true, now.AddSeconds(-5), now, 1.5));
+    }
     private sealed class Source : INowPlayingSource
     {
         public NowPlaying? Value;

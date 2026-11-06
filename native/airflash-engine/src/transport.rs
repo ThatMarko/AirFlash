@@ -209,7 +209,7 @@ impl Health {
     pub fn commands(&self) -> Vec<crate::events::ParsedEvent> {
         self.0.lock().unwrap().commands.drain()
     }
-    /// Commands evicted from this member's bounded inbox, cumulative for the
+    /// Event messages evicted from this member's bounded inbox, cumulative for the
     /// member's lifetime (event-channel rebuilds share the same `Health`).
     pub fn commands_dropped(&self) -> u64 {
         self.0.lock().unwrap().commands.dropped()
@@ -676,7 +676,7 @@ pub struct MediaTransport {
     buffered: Option<crate::buffered::Sender>,
     pub packetizer: Packetizer,
     pub metrics: MediaMetrics,
-    /// Age of each accepted retransmit request (see
+    /// Age of each nonempty retransmit request behind the live edge (see
     /// [`crate::telemetry::SessionTelemetry::rtx_gap`]); cumulative.
     pub rtx_gap: crate::telemetry::Histogram,
     audio: UdpSocket,
@@ -892,9 +892,9 @@ impl MediaTransport {
             };
             self.metrics.retransmit_requests += 1;
             self.metrics.retransmit_requested_packets += u64::from(count);
-            // A start at or past the live edge is not a real request; skip it.
+            // Empty requests and requests at or ahead of the live edge have no gap sample.
             let behind = self.packetizer.seq.wrapping_sub(start);
-            if (1..0x8000).contains(&behind) {
+            if count != 0 && (1..0x8000).contains(&behind) {
                 self.rtx_gap.observe(
                     f64::from(behind) * rtp::FRAMES as f64 * 1000.0
                         / f64::from(self.packetizer.rate),

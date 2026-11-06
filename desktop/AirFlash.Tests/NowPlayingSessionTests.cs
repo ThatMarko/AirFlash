@@ -18,6 +18,88 @@ public sealed class NowPlayingSessionTests
         Assert.Equal(["Before"], connection.NowPlayingTitles());
     }
 
+    [Theory]
+    [InlineData(true, 240_000, 95_000)]
+    [InlineData(true, 80_000, 80_000)]
+    [InlineData(false, 240_000, 30_000)]
+    [InlineData(true, 0, 95_000)]
+    public async Task Replay_projects_cached_progress_to_the_new_stream(bool playing, long durationMs, long expectedPosition)
+    {
+        var clock = new AdaptiveLatencyTests.ManualClock();
+        var connection = new SessionTestEngine.Connection();
+        await using var controller = TestSessionController.Create(new SessionTestEngine.Factory(connection), new SessionTestEngine.Audio(), timing: Timing, clock: clock);
+        await controller.PublishNowPlayingAsync(Track("Before") with { Playing = playing, DurationMs = durationMs });
+        clock.Advance(65);
+
+        await SessionTestEngine.StreamAsync(controller, connection);
+
+        Assert.Equal(["Before"], connection.NowPlayingTitles());
+        Assert.Equal(expectedPosition, connection.Last("set_now_playing").GetProperty("position_ms").GetInt64());
+    }
+
+    [Fact]
+    public async Task A_clear_while_resuming_reaches_the_existing_native_session()
+    {
+        var connection = new SessionTestEngine.Connection();
+        await using var controller = TestSessionController.Create(new SessionTestEngine.Factory(connection), new SessionTestEngine.Audio(), timing: Timing);
+        await SessionTestEngine.StreamAsync(controller, connection);
+        await controller.PublishNowPlayingAsync(Track("Old"));
+        var standby = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resuming = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Observe(SessionSnapshot snapshot)
+        {
+            if (snapshot.State == PlaybackState.Standby) standby.TrySetResult();
+            if (snapshot.State == PlaybackState.Connecting) resuming.TrySetResult();
+        }
+
+        controller.Changed += Observe;
+        try
+        {
+            connection.Current("standby", new { reason = "silence" });
+            await standby.Task.WaitAsync(Limit);
+            connection.Current("resuming");
+            await resuming.Task.WaitAsync(Limit);
+
+            await controller.ClearNowPlayingAsync().WaitAsync(Limit);
+
+            Assert.Equal(PlaybackState.Connecting, controller.Snapshot.State);
+            Assert.Equal(1, connection.Count("start"));
+            Assert.Equal(["Old", ""], connection.NowPlayingTitles());
+        }
+        finally { controller.Changed -= Observe; }
+    }
+
+    [Fact]
+    public async Task A_clear_does_not_get_overwritten_by_an_in_flight_streaming_replay()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writes = 0;
+        var connection = new SessionTestEngine.Connection
+        {
+            BeforeCommandAsync = command =>
+            {
+                if (command != "set_now_playing" || Interlocked.Increment(ref writes) != 1) return Task.CompletedTask;
+                entered.TrySetResult();
+                return release.Task;
+            }
+        };
+        await using var controller = TestSessionController.Create(new SessionTestEngine.Factory(connection), new SessionTestEngine.Audio(), timing: Timing);
+        await controller.PublishNowPlayingAsync(Track("Old"));
+        var stream = SessionTestEngine.StreamAsync(controller, connection);
+        try
+        {
+            await entered.Task.WaitAsync(Limit);
+            var clear = controller.ClearNowPlayingAsync();
+            release.TrySetResult();
+
+            await clear.WaitAsync(Limit);
+            await stream.WaitAsync(Limit);
+            Assert.Equal(["Old", ""], connection.NowPlayingTitles());
+        }
+        finally { release.TrySetResult(); }
+    }
+
     [Fact]
     public async Task A_cleared_source_empties_the_live_engine_and_is_not_shown_by_a_later_session()
     {
@@ -36,7 +118,6 @@ public sealed class NowPlayingSessionTests
         await SessionTestEngine.StreamAsync(controller, second);
         Assert.Empty(second.NowPlayingTitles());
     }
-
 
     [Fact]
     public async Task An_engine_without_the_capabilities_gets_neither_command()

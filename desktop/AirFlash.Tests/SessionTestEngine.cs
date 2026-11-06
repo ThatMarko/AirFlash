@@ -49,6 +49,8 @@ internal static class SessionTestEngine
         public JsonElement Last(string command) => _commands.Last(c => c.Command == command).Parameters;
         /// <summary>Extra scripted replies, called after each command is recorded.</summary>
         public Action<Connection, string>? OnCommand { get; init; }
+        /// <summary>Pause a selected command before it reaches the fake engine.</summary>
+        public Func<string, Task>? BeforeCommandAsync { get; init; }
         public async Task WaitForAsync(string command)
         {
             var deadline = DateTime.UtcNow + Limit;
@@ -59,8 +61,10 @@ internal static class SessionTestEngine
             }
         }
         public string[] NowPlayingTitles() => _commands.Where(c => c.Command == "set_now_playing").Select(c => c.Parameters.GetProperty("title").GetString()!).ToArray();
-        public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
+        public async Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
         {
+            cancellation.ThrowIfCancellationRequested();
+            if (BeforeCommandAsync is { } before) await before(command).WaitAsync(cancellation).ConfigureAwait(false);
             cancellation.ThrowIfCancellationRequested();
             _session = session;
             _commands.Enqueue((command, JsonSerializer.SerializeToElement(parameters)));
@@ -71,7 +75,6 @@ internal static class SessionTestEngine
             if (command == "start") Starting.TrySetResult();
             if (command == "stop") _events.Writer.TryComplete();
             OnCommand?.Invoke(this, command);
-            return Task.CompletedTask;
         }
         public void Current(string name, object? fields = null)
         {

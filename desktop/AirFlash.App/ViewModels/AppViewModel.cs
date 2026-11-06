@@ -228,27 +228,23 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         else
         {
             var nowPlayingSource = new AirFlash.App.Metadata.SmtcNowPlayingSource(AppPaths.Log);
-            Session.RemoteCommandReceived += command =>
+            Session.OwnedRemoteCommandReceived += (command, authority) =>
             {
                 switch (command.Target)
                 {
                     case RemoteCommandTarget.MediaSession:
-                        _ = nowPlayingSource.ExecuteAsync(command, _nowPlayingStop.Token);
+                        _ = nowPlayingSource.ExecuteAsync(command, () => CanApplyRemoteCommand(authority), _nowPlayingStop.Token);
                         break;
                     case RemoteCommandTarget.MediaKey when command.VirtualKey is { } key:
-                        _dispatcher.BeginInvoke(() => AirFlash.App.Input.MediaKeys.Press(key, AppPaths.Log));
-                        break;
-                    case RemoteCommandTarget.Mute:
-                        _dispatcher.BeginInvoke(async () =>
+                        _dispatcher.BeginInvoke(() =>
                         {
-                            if (_closing) return;
-                            try { await ToggleMuteAsync(); }
-                            catch (Exception error) { ShowError(error); }
+                            if (CanApplyRemoteCommand(authority))
+                                AirFlash.App.Input.MediaKeys.Press(key, AppPaths.Log);
                         });
                         break;
+                    case RemoteCommandTarget.Mute:
                     case RemoteCommandTarget.MasterVolume:
-                        // The setter clamps, ignores closing/reset and persists like a slider move.
-                        _dispatcher.BeginInvoke(() => MasterVolume += command.VolumeDelta);
+                        _ = QueueRemoteAudioCommandAsync(command, authority);
                         break;
                 }
             };
@@ -298,7 +294,34 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     {
         _startup = StartAsync();
     }
-    private async Task ToggleMuteAsync() { await Session.SetMutedAsync(!Session.Muted); Notify(nameof(Muted)); Notify(nameof(MuteLabel)); }
+    private bool CanApplyRemoteCommand(RemoteCommandAuthority authority)
+        => !_closing && !_resetting && Session.IsRemoteCommandCurrent(authority);
+
+    internal Task QueueRemoteAudioCommandAsync(RemoteCommand command, RemoteCommandAuthority authority)
+    {
+        return _dispatcher.InvokeAsync(ApplyAsync).Task.Unwrap();
+
+        async Task ApplyAsync()
+        {
+            if (!CanApplyRemoteCommand(authority)) return;
+            try
+            {
+                if (command.Target == RemoteCommandTarget.MasterVolume)
+                    MasterVolume += command.VolumeDelta;
+                else if (command.Target == RemoteCommandTarget.Mute && await Session.TryToggleRemoteMuteAsync(authority))
+                    NotifyMuteChanged();
+            }
+            catch (Exception error) { ShowError(error); }
+        }
+    }
+
+    private async Task ToggleMuteAsync()
+    {
+        await Session.SetMutedAsync(!Session.Muted);
+        NotifyMuteChanged();
+    }
+
+    private void NotifyMuteChanged() { Notify(nameof(Muted)); Notify(nameof(MuteLabel)); }
     public Task Startup => _startup;
     private async Task StartAsync()
     {

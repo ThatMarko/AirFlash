@@ -589,17 +589,18 @@ fn retransmit_requests_record_how_far_behind_the_live_edge_they_reach() {
         .unwrap();
     }
     let address = std::net::SocketAddr::from(([127, 0, 0, 1], m.control_port().unwrap()));
-    // One packet behind across the wrap, three behind, and one past the live
-    // edge that must not count.
-    for seq in [0u16, 65534, 1] {
+    // Two requests behind the live edge across the wrap contribute samples.
+    // A request at the live edge and a request for zero packets do not.
+    for (seq, count) in [(0u16, 1u8), (65534, 1), (1, 1), (65535, 0)] {
         let [hi, lo] = seq.to_be_bytes();
-        c.send_to(&[0x80, 0xd5, 0, 1, hi, lo, 0, 1], address)
+        c.send_to(&[0x80, 0xd5, 0, 1, hi, lo, 0, count], address)
             .unwrap();
     }
     until(|| {
         m.service_retransmits();
-        m.metrics.retransmit_requests == 3
+        m.metrics.retransmit_requests == 4
     });
+    assert_eq!(m.metrics.retransmit_requested_packets, 3);
     let packet_ms = 352.0 * 1000.0 / f64::from(RATE);
     assert_eq!(m.rtx_gap.count(), 2);
     assert!((m.rtx_gap.percentile_ms(1.0) - 3.0 * packet_ms).abs() < 1e-9);

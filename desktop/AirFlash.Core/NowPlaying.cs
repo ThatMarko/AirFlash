@@ -6,6 +6,7 @@ namespace AirFlash.Core;
 /// <summary>What the receiver should show right now.</summary>
 public sealed record NowPlaying(string Title, string Artist, string Album, string Genre, bool Playing, long DurationMs, long PositionMs)
 {
+    internal double PlaybackRate { get; init; } = 1;
     /// <summary>Nothing displayable: no title, artist or album. Matches the engine's
     /// <c>metadata::NowPlaying::is_empty</c>, which sends nothing to the receiver for
     /// such a value so its display is kept.</summary>
@@ -19,10 +20,22 @@ public sealed record NowPlaying(string Title, string Artist, string Album, strin
     /// (no upper bound when the duration is unknown). An unset (pre-1970) update
     /// time is not extrapolated.</summary>
     public static long CurrentPositionMs(long positionMs, long durationMs, bool playing, DateTimeOffset lastUpdated, DateTimeOffset now)
+        => CurrentPositionMs(positionMs, durationMs, playing, lastUpdated, now, 1);
+
+    internal static long CurrentPositionMs(long positionMs, long durationMs, bool playing, DateTimeOffset lastUpdated, DateTimeOffset now, double playbackRate)
+        => PositionAfter(positionMs, durationMs, playing, lastUpdated > DateTimeOffset.UnixEpoch ? now - lastUpdated : TimeSpan.Zero, playbackRate);
+
+    internal long PositionAfter(TimeSpan elapsed) => PositionAfter(PositionMs, DurationMs, Playing, elapsed, PlaybackRate);
+
+    private static long PositionAfter(long positionMs, long durationMs, bool playing, TimeSpan elapsed, double playbackRate)
     {
         var position = Math.Max(0, positionMs);
-        if (playing && lastUpdated > DateTimeOffset.UnixEpoch && now > lastUpdated)
-            position += (long)(now - lastUpdated).TotalMilliseconds;
+        if (playing && elapsed > TimeSpan.Zero)
+        {
+            var rate = double.IsFinite(playbackRate) && playbackRate >= 0 ? playbackRate : 1;
+            var advance = elapsed.TotalMilliseconds * rate;
+            position = advance >= long.MaxValue - position ? long.MaxValue : position + (long)advance;
+        }
         return durationMs > 0 ? Math.Min(position, durationMs) : position;
     }
 }
@@ -105,12 +118,12 @@ public sealed class NowPlayingPump(INowPlayingSource source, Func<long>? clock =
     private static bool SameTrackState(NowPlaying left, NowPlaying right)
         => left.Title == right.Title && left.Artist == right.Artist
         && left.Album == right.Album && left.Genre == right.Genre
-        && left.Playing == right.Playing && left.DurationMs == right.DurationMs;
+        && left.Playing == right.Playing && left.DurationMs == right.DurationMs && left.PlaybackRate == right.PlaybackRate;
     private bool ShouldPublish(NowPlaying sample, long now)
     {
         if (_lastPublished is not { } last) return true;
         if (last.Title != sample.Title || last.Artist != sample.Artist || last.Album != sample.Album || last.Genre != sample.Genre) return true;
-        if (last.Playing != sample.Playing) return true;
+        if (last.Playing != sample.Playing || last.PlaybackRate != sample.PlaybackRate) return true;
         if (Math.Abs(last.DurationMs - sample.DurationMs) > 0) return true;
         // Position only counts once the receiver's interpolation would drift visibly.
         var expected = last.PositionMs + (last.Playing ? Math.Max(0, now - _publishedAt) : 0);

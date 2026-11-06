@@ -68,6 +68,11 @@ impl NowPlaying {
         let position = self
             .position_ms
             .saturating_add(if self.playing { elapsed_ms } else { 0 });
+        let position = if self.duration_ms == 0 {
+            position
+        } else {
+            position.min(self.duration_ms)
+        };
         let ticks =
             |ms: u64| ((u128::from(ms) * u128::from(rate) / 1000) & u128::from(u32::MAX)) as u32;
         let start = current.wrapping_sub(ticks(position));
@@ -356,6 +361,17 @@ mod tests {
     }
 
     #[test]
+    fn progress_at_the_end_of_a_cached_track_stops_at_its_duration() {
+        let mut now = sample();
+        now.position_ms = 1_500;
+        now.duration_ms = 2_000;
+        assert_eq!(
+            now.progress_body(96_000, 48_000, 5_000),
+            "progress: 0/96000/96000\r\n"
+        );
+    }
+
+    #[test]
     fn control_keeps_the_newest_sequence() {
         let control = Control::default();
         control.set(2, sample());
@@ -595,27 +611,22 @@ mod tests {
 
     #[test]
     fn a_failed_progress_connection_is_not_tried_again_for_the_tags() {
-        use std::io::Read;
         use std::net::TcpListener;
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let addr = listener.local_addr().unwrap();
-        // Read the progress request, then hang up without answering.
-        let server = std::thread::spawn(move || {
-            let (mut socket, _) = listener.accept().unwrap();
-            let mut pending = Vec::new();
-            let mut buffer = [0; 4096];
-            while find_request_end(&pending).is_none() {
-                let read = socket.read(&mut buffer).unwrap();
-                assert!(read > 0);
-                pending.extend_from_slice(&buffer[..read]);
-            }
-        });
+        let connection = connect(listener.local_addr().unwrap());
+        let (socket, _) = listener.accept().unwrap();
+        let mut receiver = Connection::from_stream(socket, Cancellation::default()).unwrap();
         let control = Control::default();
         control.set(1, sample());
-        let connection = connect(addr);
         let worker = Worker::start(peer(&connection), control, Timeline::new(0, 44100)).unwrap();
-        server.join().unwrap();
+
+        // Read a complete progress request, then hang up before answering, even on timeout.
+        let progress = receiver.read_for(Duration::from_secs(2), None);
+        drop(receiver);
+        let progress = progress.unwrap().expect("progress request before hangup");
+        assert_eq!(progress.method(), Some("SET_PARAMETER"));
+        assert!(progress.body.starts_with(b"progress: "));
         let event = worker.events.recv_timeout(Duration::from_secs(6)).unwrap();
         let message = event["message"].as_str().unwrap();
         assert!(message.contains("progress"), "{message}");

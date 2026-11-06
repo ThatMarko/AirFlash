@@ -1,5 +1,7 @@
 namespace AirFlash.Core;
 
+internal readonly record struct RemoteCommandAuthority(long Owner, long Intent, string SessionId, long Transport);
+
 /// <summary>Where AirFlash sends a <see cref="RemoteCommand"/>.</summary>
 public enum RemoteCommandTarget
 {

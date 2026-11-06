@@ -39,6 +39,7 @@ internal static class UiSessionLifecycle
         await RejectedPlayRetainsPendingGainAsync(checks);
         await OtherSavesRetainPendingGainAsync(checks);
         await VolumeEditsCoalesceAcrossLiveApplicationAsync(checks);
+        await RemoteAudioCommandsRespectStopAsync(checks);
         await StopWaitingForAdmissionAsync(checks);
         await EligibilityArrivalAsync(checks);
         await ManualSelectionAsync(checks);
@@ -97,6 +98,45 @@ internal static class UiSessionLifecycle
         }
         finally { fixture.App.CatalogChanged -= Changed; }
     }
+    private static async Task RemoteAudioCommandsRespectStopAsync(List<string> checks)
+    {
+        var receiver = Pod("remote-audio");
+        var settings = Settings();
+        settings.MasterVolume = 40;
+        await using var fixture = await Fixture.CreateAsync(settings, [receiver]);
+        await fixture.App.ToggleAsync(receiver);
+        await StateAsync(fixture, PlaybackState.Streaming);
+
+        var reported = new TaskCompletionSource<RemoteCommandAuthority>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Capture(RemoteCommand command, RemoteCommandAuthority authority)
+        {
+            if (command.Name == "volume") reported.TrySetResult(authority);
+        }
+
+        RemoteCommandAuthority authority;
+        fixture.App.Session.OwnedRemoteCommandReceived += Capture;
+        try
+        {
+            fixture.Engine.Connections.Single().Emit(new { @event = "remote_command", volume = 0.4 });
+            authority = await reported.Task.WaitAsync(Limit);
+        }
+        finally { fixture.App.Session.OwnedRemoteCommandReceived -= Capture; }
+
+        await fixture.App.QueueRemoteAudioCommandAsync(new("volume_up"), authority).WaitAsync(Limit);
+        await fixture.App.QueueRemoteAudioCommandAsync(new("mute"), authority).WaitAsync(Limit);
+        Check(fixture.App.MasterVolume == 45 && fixture.App.Muted,
+            "Current receiver commands adjust AirFlash volume and mute", checks);
+
+        // Queue both callbacks on the dispatcher, then invalidate ownership in the
+        // synchronous prefix of Stop before either callback can run.
+        var staleVolume = fixture.App.QueueRemoteAudioCommandAsync(new("volume_down"), authority);
+        var staleMute = fixture.App.QueueRemoteAudioCommandAsync(new("mute"), authority);
+        var stop = fixture.App.StopAsync();
+        await Task.WhenAll(staleVolume, staleMute, stop).WaitAsync(Limit);
+        Check(fixture.App.MasterVolume == 45 && fixture.App.Muted,
+            "Queued receiver volume and mute commands have no effect after Stop intent", checks);
+    }
+
     private static async Task IdentityOwnershipAsync(List<string> checks)
     {
         foreach (var scenario in new[] { "absent", "changed", "same id", "save failure" })

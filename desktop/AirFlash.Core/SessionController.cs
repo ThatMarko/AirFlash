@@ -27,6 +27,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private readonly SemaphoreSlim _serial = new(1, 1);
     private readonly SemaphoreSlim _audioWriter = new(1, 1);
     private readonly SemaphoreSlim _diagnosticWriter = new(1, 1);
+    private readonly SemaphoreSlim _nowPlayingWriter = new(1, 1);
     private TaskCompletionSource<JsonElement?>? _diagnosticReply;
     private JsonElement? _lastDiagnostic;
     /// <summary>The live Now Playing source's latest value, sent again when a stream
@@ -35,6 +36,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     /// pump only republishes changes, so a paused player would otherwise show
     /// nothing in the next session.</summary>
     private NowPlaying? _nowPlaying;
+    private long _nowPlayingSampledAt;
+    private bool _nowPlayingMayBeSet;
     // What the current engine's hello advertised; a connection that never said
     // hello (or a pairing connection) gets neither command.
     private bool _nowPlayingSupported, _diagnosticsSupported;
@@ -59,6 +62,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private bool _passiveDisposed;
     private bool _muted;
     private bool _transportStreaming;
+    private long _remoteTransport;
     private bool _manualRecoveryRequired;
     public bool RequiresManualReconnect { get { lock (_sync) return _manualRecoveryRequired; } }
     private readonly SemaphoreSlim _equalizerWriter = new(1, 1);
@@ -67,13 +71,14 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private long _equalizerSequence;
     private CancellationTokenSource? _equalizerEdit;
     private Task? _equalizerEditTask;
-    private bool _equalizerReady, _equalizerDisposed;
+    private bool _startSent, _equalizerDisposed;
     private (bool Enabled, double Seconds)? _sentStandby;
     public event Action<string?>? EqualizerFeedback;
     /// <summary>Raised when a receiver sends a transport command back (its own
     /// buttons, or a remote pointed at it). The engine has already acknowledged it;
     /// acting on it is the desktop's job.</summary>
     public event Action<RemoteCommand>? RemoteCommandReceived;
+    internal event Action<RemoteCommand, RemoteCommandAuthority>? OwnedRemoteCommandReceived;
     public Task PreviewEqualizerAsync(Guid owner, EqualizerSettings equalizer)
     {
         if (equalizer.Validate() is { } error) throw new ArgumentException(error, nameof(equalizer));
@@ -127,14 +132,13 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private EqualizerSettings EffectiveEqualizer() { lock (_sync) return (_equalizerPreview ?? _settings.Equalizer).Clone(); }
     private async Task SendEqualizerAsync(long? expectedSequence = null, CancellationToken cancellation = default)
     {
-        try { await _equalizerWriter.WaitAsync(cancellation).ConfigureAwait(false); }
-        catch (ObjectDisposedException) { return; } // entered after DisposeAsync finished
+        await _equalizerWriter.WaitAsync(cancellation).ConfigureAwait(false);
         try
         {
             IEngineConnection? connection; string? session; EqualizerSettings equalizer; long sequence, epoch;
             lock (_sync)
             {
-                if (_equalizerDisposed || !_equalizerReady || expectedSequence is { } expected && expected != _equalizerSequence) return;
+                if (_equalizerDisposed || !_startSent || expectedSequence is { } expected && expected != _equalizerSequence) return;
                 connection = _connection; session = _sessionId; epoch = _generation;
                 equalizer = (_equalizerPreview ?? _settings.Equalizer).Clone(); sequence = _equalizerSequence;
                 if (sequence == 0) sequence = ++_equalizerSequence;
@@ -686,6 +690,43 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         try { _muted = muted; await SendGainAsync().ConfigureAwait(false); }
         finally { _serial.Release(); }
     }
+    private bool OwnsRemoteCommand(RemoteCommandAuthority authority) =>
+        !_passiveDisposed && _generation == authority.Owner && _automaticIntent == authority.Intent
+        && _sessionId == authority.SessionId && _remoteTransport == authority.Transport
+        && _transportStreaming && _snapshot.State == PlaybackState.Streaming
+        && _lifetime?.IsCancellationRequested == false;
+
+    internal bool IsRemoteCommandCurrent(RemoteCommandAuthority authority)
+    {
+        lock (_sync) return OwnsRemoteCommand(authority);
+    }
+
+    internal async Task<bool> TryToggleRemoteMuteAsync(RemoteCommandAuthority authority)
+    {
+        Task admission;
+        lock (_sync)
+        {
+            if (!OwnsRemoteCommand(authority)) return false;
+            // Register before disposal can close admission and join the serial queue.
+            admission = _serial.WaitAsync();
+        }
+        await admission.ConfigureAwait(false);
+        try
+        {
+            IEngineConnection connection;
+            double gain;
+            lock (_sync)
+            {
+                if (!OwnsRemoteCommand(authority) || _connection is not { } current || _receiver is not { } receiver) return false;
+                connection = current;
+                _muted = !_muted;
+                gain = Gain(receiver);
+            }
+            await SendGainAsync(connection, authority.SessionId, gain).ConfigureAwait(false);
+            return true;
+        }
+        finally { _serial.Release(); }
+    }
     private static object StandbyParameters(AppSettings settings, string receiverId) => new { enabled = settings.StandbyEnabled, silence_seconds = settings.ReadOptions(receiverId).StandbySeconds ?? settings.StandbySilenceSeconds };
     private async Task SendStandbyAsync()
     {
@@ -695,7 +736,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             IEngineConnection? connection; string? session; (bool Enabled, double Seconds) policy;
             lock (_sync)
             {
-                if (!_equalizerReady || _receiver is null) return;
+                if (!_startSent || _receiver is null) return;
                 connection = _connection; session = _sessionId;
                 policy = (_settings.StandbyEnabled, _settings.ReadOptions(_receiver.Id).StandbySeconds ?? _settings.StandbySilenceSeconds);
                 if (_sentStandby == policy) return;
@@ -713,7 +754,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         IEngineConnection? connection; string? session;
         lock (_sync) { connection = _connection; session = _sessionId; }
         if (connection is null || session is null || _receiver is null || Snapshot.State == PlaybackState.Pairing) return;
-        try { await connection.SendAsync(session, "set_gain", new { gain = Gain(_receiver) }, CancellationToken.None).ConfigureAwait(false); }
+        await SendGainAsync(connection, session, Gain(_receiver)).ConfigureAwait(false);
+    }
+    private async Task SendGainAsync(IEngineConnection connection, string session, double gain)
+    {
+        try { await connection.SendAsync(session, "set_gain", new { gain }, CancellationToken.None).ConfigureAwait(false); }
         catch (Exception error) when (error is IOException or ObjectDisposedException or InvalidOperationException) { log?.Invoke(L.Format("Volume command deferred to the next session: {0}", error.Message)); }
     }
     /// <summary>Forward Now Playing to the engine, which turns it into the
@@ -723,8 +768,13 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     public async Task PublishNowPlayingAsync(NowPlaying? now, CancellationToken cancellation = default)
     {
         if (now is null || now.IsEmpty) return;
-        lock (_sync) _nowPlaying = now;
-        await SendNowPlayingAsync(now, cancellation).ConfigureAwait(false);
+        lock (_sync)
+        {
+            if (_passiveDisposed) return;
+            _nowPlaying = now;
+            _nowPlayingSampledAt = _clock.GetTimestamp();
+        }
+        await SendNowPlayingAsync(cancellation).ConfigureAwait(false);
     }
     /// <summary>The Now Playing source went away: forget the cached value so a later
     /// session does not show it, and give a live engine an empty value in place of
@@ -733,37 +783,65 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     /// longer re-sends the old track.</summary>
     public async Task ClearNowPlayingAsync(CancellationToken cancellation = default)
     {
-        lock (_sync) { if (_nowPlaying is null) return; _nowPlaying = null; }
-        await SendNowPlayingAsync(new NowPlaying("", "", "", "", false, 0, 0), cancellation).ConfigureAwait(false);
+        lock (_sync)
+        {
+            if (_passiveDisposed || (_nowPlaying is null && !_nowPlayingMayBeSet)) return;
+            _nowPlaying = null;
+        }
+        await SendNowPlayingAsync(cancellation).ConfigureAwait(false);
     }
     /// <summary>Send to the current engine when its hello advertised <c>now_playing</c>.</summary>
-    private async Task SendNowPlayingAsync(NowPlaying now, CancellationToken cancellation)
+    private async Task SendNowPlayingAsync(CancellationToken cancellation)
     {
-        IEngineConnection? connection; string? session;
-        lock (_sync) { if (!_nowPlayingSupported) return; connection = _connection; session = _sessionId; }
-        if (connection is null || session is null) return;
-        if (Snapshot.State is not (PlaybackState.Streaming or PlaybackState.Standby)) return;
+        lock (_sync) { if (_passiveDisposed || !_nowPlayingSupported || !_startSent) return; }
         try
         {
-            await connection.SendAsync(session, "set_now_playing", new
+            await _nowPlayingWriter.WaitAsync(cancellation).ConfigureAwait(false);
+            try
             {
-                title = now.Title, artist = now.Artist, album = now.Album, genre = now.Genre,
-                duration_ms = now.DurationMs, position_ms = now.PositionMs, playing = now.Playing
-            }, cancellation).ConfigureAwait(false);
+                IEngineConnection connection;
+                string session;
+                NowPlaying? now;
+                long sampledAt;
+                lock (_sync)
+                {
+                    if (_passiveDisposed || !_nowPlayingSupported || !_startSent
+                        || _connection is not { } current || _sessionId is not { } currentSession) return;
+                    now = _nowPlaying;
+                    if (now is null && !_nowPlayingMayBeSet) return;
+                    if (now is not null) _nowPlayingMayBeSet = true;
+                    sampledAt = _nowPlayingSampledAt;
+                    connection = current;
+                    session = currentSession;
+                }
+                // The native mailbox belongs to the started process, including
+                // while it rebuilds its transport and the UI says Connecting.
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+                timeout.CancelAfter(TimeSpan.FromSeconds(2));
+                await connection.SendAsync(session, "set_now_playing", new
+                {
+                    title = now?.Title ?? "", artist = now?.Artist ?? "", album = now?.Album ?? "", genre = now?.Genre ?? "",
+                    duration_ms = now?.DurationMs ?? 0, position_ms = now?.PositionAfter(_clock.GetElapsedTime(sampledAt)) ?? 0,
+                    playing = now?.Playing ?? false
+                }, timeout.Token).ConfigureAwait(false);
+                if (now is null)
+                    lock (_sync) { if (ReferenceEquals(connection, _connection)) _nowPlayingMayBeSet = false; }
+            }
+            finally { _nowPlayingWriter.Release(); }
         }
         catch (Exception error) when (error is IOException or ObjectDisposedException or InvalidOperationException)
         {
             log?.Invoke(L.Format("Now Playing deferred to the next session: {0}", error.Message));
         }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        catch (OperationCanceledException) { }
     }
     /// <summary>The engine's redacted <c>diag_summary</c>, asked of the streaming engine
     /// when its hello advertised <c>diagnostics</c>; otherwise the last summary
     /// received, or null.</summary>
     public async Task<JsonElement?> DiagnosticSnapshotAsync(CancellationToken cancellation = default)
     {
-        try { await _diagnosticWriter.WaitAsync(cancellation).ConfigureAwait(false); }
-        catch (ObjectDisposedException) { lock (_sync) return _lastDiagnostic; } // entered after DisposeAsync finished
+        lock (_sync) { if (_passiveDisposed) return _lastDiagnostic; }
+        await _diagnosticWriter.WaitAsync(cancellation).ConfigureAwait(false);
         TaskCompletionSource<JsonElement?>? reply = null;
         try
         {
@@ -771,7 +849,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             lock (_sync)
             {
                 connection = _connection; session = _sessionId;
-                if (connection is null || session is null || !_transportStreaming || !_diagnosticsSupported) return _lastDiagnostic;
+                if (_passiveDisposed || connection is null || session is null || !_transportStreaming || !_diagnosticsSupported) return _lastDiagnostic;
                 reply = _diagnosticReply = new(TaskCreationOptions.RunContinuationsAsynchronously);
             }
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
@@ -929,7 +1007,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         }
                         await connection.SendAsync(session, "start", startParameters, cancellation).ConfigureAwait(false);
                         lock (_sync) { if (epoch == _generation) _snapshot = _snapshot with { StreamRate = sampleRate }; }
-                        lock (_sync) { if (epoch == _generation && ReferenceEquals(_connection, connection)) _equalizerReady = true; }
+                        lock (_sync) { if (epoch == _generation && ReferenceEquals(_connection, connection)) _startSent = true; }
                     }
                     finally { _equalizerWriter.Release(); }
                     PublishCurrent(epoch);
@@ -1007,13 +1085,17 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                             AcceptLatency(item);
                             startedAt = Stopwatch.GetTimestamp();
                             hasStreamed = true;
-                            lock (_sync) { if (epoch != _generation) continue; _transportStreaming = true; }
+                            lock (_sync)
+                            {
+                                if (epoch != _generation) continue;
+                                // Standby can replace the live transport inside the same IPC session.
+                                if (!_transportStreaming || _snapshot.State != PlaybackState.Streaming) ++_remoteTransport;
+                                _transportStreaming = true;
+                            }
                             await ApplyLocalMuteAsync().ConfigureAwait(false);
                             log?.Invoke($"Streaming started: {receiver.Id}; target latency {_adaptiveBase} ms; reconnect attempts {attempts}");
                             Publish(epoch, PlaybackState.Streaming);
-                            NowPlaying? nowPlaying;
-                            lock (_sync) nowPlaying = _nowPlaying;
-                            if (nowPlaying is not null) await SendNowPlayingAsync(nowPlaying, cancellation).ConfigureAwait(false);
+                            await SendNowPlayingAsync(cancellation).ConfigureAwait(false);
                         }
                         else if (kind == "standby")
                         {
@@ -1059,11 +1141,20 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         }
                         else if (kind == "remote_command" && startedAt != 0)
                         {
-                            lock (_sync) { if (epoch != _generation) continue; }
+                            RemoteCommandAuthority authority;
+                            lock (_sync)
+                            {
+                                if (epoch != _generation || _sessionId != session) continue;
+                                authority = new(epoch, _automaticIntent, session, _remoteTransport);
+                            }
                             foreach (var command in RemoteCommand.Parse(item))
                             {
                                 log?.Invoke($"Remote command from {command.Host ?? "receiver"}: {command.Name}{(command.Volume is { } level ? $" (volume {level:0.###})" : "")}");
-                                try { RemoteCommandReceived?.Invoke(command); }
+                                try
+                                {
+                                    RemoteCommandReceived?.Invoke(command);
+                                    OwnedRemoteCommandReceived?.Invoke(command, authority);
+                                }
                                 catch (Exception error) { log?.Invoke($"Remote command {command.Name} failed: {error.Message}"); }
                             }
                         }
@@ -1313,8 +1404,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         public int Target { get; } = target;
     }
     private static bool IsAuthenticationFailure(string message) => new[] { "pairing", "srp", "verification", "credentials", "signature", "identity", "authentication" }.Any(word => message.Contains(word, StringComparison.OrdinalIgnoreCase));
-    private void SetConnection(IEngineConnection connection, string session) { lock (_sync) { _connection = connection; _sessionId = session; _equalizerReady = false; _sentStandby = null; _nowPlayingSupported = false; _diagnosticsSupported = false; } }
-    private void ClearConnection(IEngineConnection connection) { lock (_sync) if (ReferenceEquals(_connection, connection)) { _connection = null; _sessionId = null; _equalizerReady = false; _sentStandby = null; } }
+    private void SetConnection(IEngineConnection connection, string session) { lock (_sync) { _connection = connection; _sessionId = session; _startSent = false; _sentStandby = null; _nowPlayingSupported = false; _nowPlayingMayBeSet = false; _diagnosticsSupported = false; } }
+    private void ClearConnection(IEngineConnection connection) { lock (_sync) if (ReferenceEquals(_connection, connection)) { _connection = null; _sessionId = null; _startSent = false; _sentStandby = null; } }
     private static async Task RequestStopAsync(IEngineConnection connection, string session)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
@@ -1387,17 +1478,15 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         Task? endpointRecovery;
         lock (_sync) endpointRecovery = _endpointRecoveryTask;
         if (endpointRecovery is not null) await endpointRecovery.ConfigureAwait(false);
-        // StopAsync disposed the lifetime and volume-edit sources; the equalizer edit
-        // source is disposed by its own loop. The equalizer and diagnostic writers can
-        // still be entered by callers that passed their gates before the flags above
-        // were set (the settings window's fire-and-forget preview clear, a diagnostics
-        // export). Wait out the current holder, then dispose; a later entrant gets
-        // ObjectDisposedException from WaitAsync and returns.
+        // Join current writers. These managed gates have no wait handles and
+        // remain usable by callers already queued when admission closed.
         await _equalizerWriter.WaitAsync().ConfigureAwait(false);
+        _equalizerWriter.Release();
         await _diagnosticWriter.WaitAsync().ConfigureAwait(false);
+        _diagnosticWriter.Release();
+        await _nowPlayingWriter.WaitAsync().ConfigureAwait(false);
+        _nowPlayingWriter.Release();
         _serial.Dispose();
         _audioWriter.Dispose();
-        _equalizerWriter.Dispose();
-        _diagnosticWriter.Dispose();
     }
 }
