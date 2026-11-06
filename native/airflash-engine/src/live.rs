@@ -22,7 +22,7 @@ use std::{
 use windows::{
     Win32::{
         Devices::FunctionDiscovery::PKEY_Device_FriendlyName,
-        Foundation::{CloseHandle, WAIT_TIMEOUT},
+        Foundation::{CloseHandle, WAIT_EVENT, WAIT_FAILED, WAIT_TIMEOUT},
         Media::Audio::*,
         System::{
             Com::{StructuredStorage::*, *},
@@ -735,6 +735,22 @@ impl ReadFailure {
     }
 }
 
+fn drain_after_capture_wait(
+    waited: WAIT_EVENT,
+    stop: &AtomicBool,
+    process_exited: bool,
+    drain: impl FnOnce() -> std::result::Result<(), ReadFailure>,
+) -> Result<Option<ReadFailure>> {
+    if stop.load(Ordering::Acquire) || (waited == WAIT_TIMEOUT && process_exited) {
+        return Ok(None);
+    }
+    if waited == WAIT_FAILED {
+        return Err(windows::core::Error::from_win32()).context("waiting for capture events");
+    }
+    // A timed-out event wait can still leave readable packets in the endpoint buffer.
+    Ok(drain().err())
+}
+
 /// Bounded work done without a successful rebind. A successful rebind resets
 /// the failure streak; exhaustion is what finally ends the capture session.
 struct RebindBudget {
@@ -1009,6 +1025,7 @@ fn mark_discontinuity(state: &Arc<Mutex<State>>, seen: &mut bool) {
 #[allow(clippy::too_many_arguments)]
 fn drain_single(
     binding: &mut Binding,
+    stop: &AtomicBool,
     pipeline: &mut Pipeline,
     packets: &mut usize,
     audio: &mut bool,
@@ -1020,7 +1037,9 @@ fn drain_single(
     last_tick: &mut Instant,
     discontinuity_seen: &mut bool,
 ) -> std::result::Result<(), ReadFailure> {
-    while unsafe { binding.reader.GetNextPacketSize() }.map_err(ReadFailure::windows)? > 0 {
+    while !stop.load(Ordering::Acquire)
+        && unsafe { binding.reader.GetNextPacketSize() }.map_err(ReadFailure::windows)? > 0
+    {
         let (mut data, mut frames, mut flags, mut position, mut qpc) =
             (std::ptr::null_mut(), 0, 0, 0, 0);
         unsafe {
@@ -1090,6 +1109,7 @@ fn drain_single(
 #[allow(clippy::too_many_arguments)]
 fn drain_multi(
     bindings: &mut [Binding],
+    stop: &AtomicBool,
     pipeline: &mut Pipeline,
     mixer: &mut Mixer,
     packets: &mut usize,
@@ -1105,7 +1125,9 @@ fn drain_multi(
     let mut round_end: Option<u64> = None;
     for binding in bindings.iter_mut() {
         let mut binding_end = None;
-        while unsafe { binding.reader.GetNextPacketSize() }.map_err(ReadFailure::windows)? > 0 {
+        while !stop.load(Ordering::Acquire)
+            && unsafe { binding.reader.GetNextPacketSize() }.map_err(ReadFailure::windows)? > 0
+        {
             let (mut data, mut frames, mut flags, mut position, mut qpc) =
                 (std::ptr::null_mut(), 0, 0, 0, 0);
             unsafe {
@@ -1241,11 +1263,11 @@ fn capture(
         let mut packets = 0usize;
         let mut audio = false;
         let mut read_message = None;
-        let mut read_failure = None;
-        if waited != WAIT_TIMEOUT {
-            let result = if bindings.len() == 1 {
+        let read_failure = drain_after_capture_wait(waited, &stop, trigger.is_some(), || {
+            if bindings.len() == 1 {
                 drain_single(
                     &mut bindings[0],
+                    &stop,
                     &mut pipeline,
                     &mut packets,
                     &mut audio,
@@ -1260,6 +1282,7 @@ fn capture(
             } else {
                 drain_multi(
                     &mut bindings,
+                    &stop,
                     &mut pipeline,
                     &mut mixer,
                     &mut packets,
@@ -1272,29 +1295,16 @@ fn capture(
                     &mut last_tick,
                     &mut discontinuity_seen,
                 )
-            };
-            if let Err(failure) = result {
-                read_failure = Some(failure);
             }
+        })?;
+        if stop.load(Ordering::Acquire) {
+            break;
         }
         if let Some(failure) = read_failure {
             trigger = Some(failure.reason);
             read_message = Some(failure.message);
         }
         let now = Instant::now();
-        if trigger.is_none()
-            && packets == 0
-            && now.saturating_duration_since(last_packet) > Duration::from_secs(2)
-        {
-            // A silent render endpoint emits no packets. Ask each stream whether
-            // it still exists; a disconnected one is a rebind, not a fatal error.
-            for binding in &bindings {
-                if let Err(error) = unsafe { binding.reader.GetNextPacketSize() } {
-                    trigger = Some(ReadFailure::windows(error).reason);
-                    break;
-                }
-            }
-        }
         if trigger.is_none()
             && budget.can_attempt()
             && probe.observe(now, packets > 0, audio, last_packet, discontinuity_seen)
@@ -1416,6 +1426,72 @@ fn capture(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+
+    #[test]
+    fn capture_wait_drains_queued_audio_after_a_signal_or_timeout() {
+        for (waited, frames, amplitude) in [
+            (WAIT_OBJECT_0, FRAMES, 0.01),
+            (WAIT_TIMEOUT, FRAMES, 0.01),
+            (WAIT_TIMEOUT, FRAMES, 0.0),
+            (WAIT_TIMEOUT, 0, 0.0),
+        ] {
+            let source = source();
+            let stop = AtomicBool::new(false);
+            let mut pending_frames = frames;
+            let mut drains = 0;
+            let failure = drain_after_capture_wait(waited, &stop, false, || {
+                drains += 1;
+                enqueue(&source, std::mem::take(&mut pending_frames), amplitude);
+                Ok(())
+            })
+            .unwrap();
+            assert!(failure.is_none());
+            assert_eq!(drains, 1);
+            assert_eq!(pending_frames, 0);
+            let (_, marker) = source.packet(1.0).unwrap();
+            assert_eq!(marker.is_some(), amplitude > 0.0);
+            assert_eq!(source.metrics().padded_frames, (FRAMES - frames) as u64);
+        }
+    }
+
+    #[test]
+    fn capture_wait_skips_drain_for_stop_or_an_exited_process_on_timeout() {
+        let stop = AtomicBool::new(false);
+        assert!(
+            drain_after_capture_wait(WAIT_TIMEOUT, &stop, true, || panic!("process exited"))
+                .unwrap()
+                .is_none()
+        );
+        stop.store(true, Ordering::Release);
+        assert!(
+            drain_after_capture_wait(WAIT_OBJECT_0, &stop, false, || panic!("capture stopped"))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn capture_wait_distinguishes_wait_failure_from_endpoint_invalidation() {
+        let stop = AtomicBool::new(false);
+        let waited = unsafe { WaitForMultipleObjects(&[HANDLE::default()], false, 0) };
+        assert_eq!(waited, WAIT_FAILED);
+        let failure = drain_after_capture_wait(waited, &stop, false, || panic!("wait failed"))
+            .err()
+            .expect("a failed wait must end capture");
+        assert_eq!(failure.to_string(), "waiting for capture events");
+        let error = failure.downcast_ref::<windows::core::Error>().unwrap();
+        assert_eq!(error.code().0 as u32, 0x8007_0006); // HRESULT_FROM_WIN32(ERROR_INVALID_HANDLE)
+
+        let read_failure = drain_after_capture_wait(WAIT_TIMEOUT, &stop, false, || {
+            Err(ReadFailure::windows(windows::core::Error::from_hresult(
+                AUDCLNT_E_DEVICE_INVALIDATED,
+            )))
+        })
+        .unwrap()
+        .expect("endpoint invalidation must reach the rebind path");
+        assert_eq!(read_failure.reason, "endpoint_lost");
+    }
 
     #[test]
     fn discontinuity_is_only_real_when_the_device_position_jumps() {

@@ -1,10 +1,10 @@
 # Upstream issue drafts and prepared review branches
 
-## Current prepared package — 2026-11-05
+## Current prepared package — 2026-11-06
 
-The unsent [umbrella issue](reliability-current-issue.md) and [draft PR](reliability-current-pr.md) target local `codex/reliability-refresh-v062` at `7c07561aac7851cb4394cfd687a7c5393f46b3ca` on original Main `a52803dac1696a56b7067356e09bd7e7ebb9dab6` after v0.6.2. The draft keeps eight review sections. Its exact-head GitHub links will resolve after the implementation branch is pushed. The reviewed 39-commit predecessor and the new cleanup commit exclude fork-only documentation.
+The unsent [umbrella issue](reliability-current-issue.md) and [draft PR](reliability-current-pr.md) target `codex/reliability-refresh-v062` at `d6de3adade3306f72bb74a369e5eeb4352bf96dd` on original Main `a52803dac1696a56b7067356e09bd7e7ebb9dab6` after v0.6.2. The draft keeps eight review sections and covers the WASAPI missed-wake fix, the squash of fork PR #2, and the follow-up shutdown, remote authority, and metadata fixes. Fork planning stays on fork Main. [Fork audit PR](https://github.com/ThatMarko/AirFlash/pull/2)
 
-The [manual source review](../MANUAL-SOURCE-REVIEW-2026-11-05.md) traces the preceding candidate through its callers and consumers. An independently reviewed follow-up makes all Quit stages attempt cleanup, guards late Settings and second-instance activation, fixes the neighboring restore-gate fixture, and corrects two PTP Grant comments. The follow-up has yet to run through build or test checks.
+The [manual source review](../MANUAL-SOURCE-REVIEW-2026-11-05.md) traces the preceding candidate through its callers and consumers. The later Quit and restore-gate fixes are included in the passing capture preview qualification. The audit follow-up adds targeted regressions for late exports, stale remote authority, and Now Playing replay and clearing. [Capture preview qualification](https://github.com/ThatMarko/AirFlash/actions/runs/42171477388)
 
 The [November 5 adversarial review](../RELIABILITY-REVIEW-2026-11-05.md) covers all 103 changed paths, direct consumers and regression assertions. It found and corrected a fork-added Grant ordering restriction and a saved gain that could be lost after intent invalidation. Both intended failures are preserved on test-only commits; the report distinguishes the adjacent discovery-save issue already present upstream. Verification isolation, settlement and performance-scope labels were tightened. No further concrete runtime blocker was found in the reviewed diff; that is not proof of field stability or audio quality.
 
