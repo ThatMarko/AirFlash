@@ -289,11 +289,11 @@ pub struct PacketSnapshot {
     pdelay_responses: u64,
     subscription_requests_sent: u64,
     subscription_send_errors: u64,
-    // Packet-level framing/target/replay failures precede individual TLV checks.
+    // Packet framing and target checks precede individual Grant TLV checks.
     grant_tlv_checked: u64,
     // Unlike received_grants, this count survives changes of the remote source.
     grant_accepted: u64,
-    // Retained in serialized diagnostics; source sequence is not a request token.
+    // Retained as zero in serialized diagnostics for compatibility.
     grant_rejected_replay: u64,
     grant_rejected_fields: u64,
     grant_rejected_no_pending_or_stale: u64,

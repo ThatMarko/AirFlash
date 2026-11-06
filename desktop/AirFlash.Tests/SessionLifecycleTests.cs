@@ -808,9 +808,11 @@ public sealed class SessionLifecycleTests
             first.Emit(new { @event = "error", message = "scripted terminal failure", retryable = false });
             await gate.Entered.Task.WaitAsync(Deadline);
             // RunStream restores before publishing Error; release that first restore and hold the worker's final restore.
-            var final = audio.PauseNextRestore(); gate.Release.TrySetResult(); await error;
+            var final = audio.PauseNextRestore();
             try
             {
+                gate.Release.TrySetResult();
+                await error;
                 await final.Entered.Task.WaitAsync(Deadline); var captured = controller.Capture(); var restores = audio.RestoreCount;
                 Assert.False(await controller.TryRestoreAudioIfInactiveAsync(captured.Owner, captured.AutomaticIntent));
                 Assert.Equal(restores, audio.RestoreCount); Assert.Equal(PlaybackState.Error, controller.Snapshot.State);

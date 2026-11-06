@@ -112,7 +112,12 @@ public partial class App : Application
             _panel = new(_viewModel); MainWindow = _panel;
             _panel.SettingsRequested += ShowSettings; _panel.LatencySettingsRequested += ShowSettingsPage; _panel.QuitRequested += Quit;
             _tray = new(_panel, _viewModel, ShowSettings, Quit); _panel.Tray = _tray;
-            _instance.Listen(() => Dispatcher.BeginInvoke(() => { if (_settings is not null) _settings.Activate(); else _panel.ShowPanel(); }));
+            _instance.Listen(() => Dispatcher.BeginInvoke(() =>
+            {
+                if (_quitting) return;
+                if (_settings is not null) _settings.Activate();
+                else _panel.ShowPanel();
+            }));
             _viewModel.SettingsChanged += OnSettingsChanged;
             _viewModel.MuteRecoveryRequested += ShowMuteRecovery;
             _viewModel.Start();
@@ -160,7 +165,7 @@ public partial class App : Application
     private void ShowSettingsPage(int page) => ShowSettings(page);
     private void ShowSettings(int? page)
     {
-        if (_viewModel is null) return;
+        if (_quitting || _viewModel is null) return;
         _panel?.Hide();
         if (_settings is not null)
         {
@@ -188,12 +193,14 @@ public partial class App : Application
         {
             await ShellShutdown.RunAsync(() => _viewModel?.BeginShutdown(),
                 () => _settings?.ViewModel.ApplicationCompleted ?? Task.CompletedTask,
-                () => { try { _settings?.Close(); } finally { _muteRecovery?.Close(); } },
+                ShellShutdown.Sync(() => _settings?.Close()),
+                ShellShutdown.Sync(() => _muteRecovery?.Close()),
                 () => _engine?.DisposeAsync() ?? ValueTask.CompletedTask,
-                () => _viewModel?.DisposeAsync() ?? ValueTask.CompletedTask);
-            _tray?.Dispose(); _panel?.ShutdownPanel();
-            if (_instance is not null) await _instance.DisposeAsync();
-            _theme?.Dispose();
+                () => _viewModel?.DisposeAsync() ?? ValueTask.CompletedTask,
+                ShellShutdown.Sync(() => _tray?.Dispose()),
+                ShellShutdown.Sync(() => _panel?.ShutdownPanel()),
+                () => _instance?.DisposeAsync() ?? ValueTask.CompletedTask,
+                ShellShutdown.Sync(() => _theme?.Dispose()));
         }
         catch (Exception error) { AppPaths.Log(error.ToString()); }
         finally { Shutdown(); }

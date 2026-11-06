@@ -12,7 +12,7 @@ public sealed class ShellShutdownTests
         var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var operation = ShellShutdown.RunAsync(() => calls.Add("close admission"),
-            () => { calls.Add("save"); return save.Task; }, () => calls.Add("windows"),
+            () => { calls.Add("save"); return save.Task; }, ShellShutdown.Sync(() => calls.Add("windows")),
             async () => { calls.Add("engine"); entered.SetResult(); await cleanup.Task; },
             () => { calls.Add("view model"); return ValueTask.CompletedTask; });
         try
@@ -35,7 +35,7 @@ public sealed class ShellShutdownTests
         var admissionError = new IOException("synthetic admission notification failure");
         var engineError = new IOException("synthetic engine cleanup failure");
         var operation = ShellShutdown.RunAsync(() => { calls.Add("admission"); throw admissionError; },
-            () => { calls.Add("save"); return Task.CompletedTask; }, () => calls.Add("windows"),
+            () => { calls.Add("save"); return Task.CompletedTask; }, ShellShutdown.Sync(() => calls.Add("windows")),
             () => { calls.Add("engine"); if (engineAlsoFails) throw engineError; return ValueTask.CompletedTask; },
             () => { calls.Add("view model"); return ValueTask.CompletedTask; });
         var error = await Record.ExceptionAsync(() => operation);
@@ -46,19 +46,40 @@ public sealed class ShellShutdownTests
     }
 
     [Theory]
-    [InlineData(0)] [InlineData(1)] [InlineData(2)] [InlineData(3)] [InlineData(15)]
-    public async Task EachCleanupRunsAfterEarlierFailuresAndOriginalErrorsArePreserved(int failures)
+    [InlineData("save")]
+    [InlineData("settings")]
+    [InlineData("recovery")]
+    [InlineData("engine")]
+    [InlineData("view model")]
+    [InlineData("tray")]
+    [InlineData("panel")]
+    [InlineData("instance")]
+    [InlineData("theme")]
+    [InlineData(null)]
+    public async Task EachCleanupRunsAfterEarlierFailuresAndOriginalErrorsArePreserved(string? failure)
     {
-        List<int> calls = [];
-        var errors = Enumerable.Range(0, 4).Select(i => new IOException($"synthetic stage {i}")).ToArray();
-        void Step(int i) { calls.Add(i); if (failures == 15 || failures == i) throw errors[i]; }
-        var operation = ShellShutdown.RunAsync(() => calls.Add(-1),
-            () => { Step(0); return Task.CompletedTask; }, () => Step(1),
-            () => { Step(2); return ValueTask.CompletedTask; },
-            () => { Step(3); return ValueTask.CompletedTask; });
+        string[] stages = ["save", "settings", "recovery", "engine", "view model", "tray", "panel", "instance", "theme"];
+        List<string> calls = [];
+        var errors = stages.ToDictionary(stage => stage, stage => new IOException($"synthetic {stage} failure"));
+        bool Fails(string stage) => failure is null || failure == stage;
+        Func<ValueTask> SyncStep(string stage) => ShellShutdown.Sync(() =>
+        {
+            calls.Add(stage);
+            if (Fails(stage)) throw errors[stage];
+        });
+        ValueTask AsyncStep(string stage)
+        {
+            calls.Add(stage);
+            return Fails(stage) ? ValueTask.FromException(errors[stage]) : ValueTask.CompletedTask;
+        }
+        var operation = ShellShutdown.RunAsync(() => calls.Add("admission"),
+            () => AsyncStep("save").AsTask(), SyncStep("settings"), SyncStep("recovery"),
+            () => AsyncStep("engine"), () => AsyncStep("view model"), SyncStep("tray"),
+            SyncStep("panel"), () => AsyncStep("instance"), SyncStep("theme"));
         var error = await Record.ExceptionAsync(() => operation);
-        Assert.Equal(new[] { -1, 0, 1, 2, 3 }, calls);
-        if (failures == 15) Assert.Equal(errors, Assert.IsType<AggregateException>(error).InnerExceptions);
-        else Assert.Same(errors[failures], error);
+        Assert.Equal(new[] { "admission" }.Concat(stages), calls);
+        if (failure is null)
+            Assert.Equal(stages.Select(stage => errors[stage]), Assert.IsType<AggregateException>(error).InnerExceptions);
+        else Assert.Same(errors[failure], error);
     }
 }

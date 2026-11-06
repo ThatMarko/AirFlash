@@ -1121,7 +1121,7 @@ internal static class UiSessionLifecycle
             }
             shutdown = ShellShutdown.RunAsync(fixture.App.BeginShutdown,
                 () => editor?.ApplicationCompleted ?? Task.CompletedTask,
-                () => { }, () => new ValueTask(engineCleanup.WaitAsync()), fixture.App.DisposeAsync);
+                () => new ValueTask(engineCleanup.WaitAsync()), fixture.App.DisposeAsync);
             Check(fixture.App.IsClosing && !shutdown.IsCompleted
                 && (save is null || !engineCleanup.Entered.Task.IsCompleted),
                 "Quit closes new admission before waiting for settings and engine cleanup", checks);
