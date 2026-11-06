@@ -1049,13 +1049,15 @@ public sealed class SessionLifecycleTests
     {
         await StartStreamingAsync(controller, connection, Pod());
         var first = audio.PauseNextRestore();
+        Gate? final = null;
         try
         {
             connection.Emit(new { @event = "error", message = "synthetic terminal failure", retryable = false });
             await first.Entered.Task.WaitAsync(Deadline);
-            var final = audio.PauseNextRestore(); first.Release.TrySetResult(); await final.Entered.Task.WaitAsync(Deadline);
+            final = audio.PauseNextRestore(); first.Release.TrySetResult(); await final.Entered.Task.WaitAsync(Deadline);
             Assert.Equal(PlaybackState.Error, controller.Snapshot.State); return final;
         }
+        catch { final?.Release.TrySetResult(); throw; }
         finally { first.Release.TrySetResult(); }
     }
     private static Task DeferredRecovery(SessionController controller)

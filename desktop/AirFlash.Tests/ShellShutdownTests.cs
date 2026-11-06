@@ -28,6 +28,24 @@ public sealed class ShellShutdownTests
     }
 
     [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public async Task AdmissionNotificationFailureStillAttemptsEveryCleanup(bool engineAlsoFails)
+    {
+        List<string> calls = [];
+        var admissionError = new IOException("synthetic admission notification failure");
+        var engineError = new IOException("synthetic engine cleanup failure");
+        var operation = ShellShutdown.RunAsync(() => { calls.Add("admission"); throw admissionError; },
+            () => { calls.Add("save"); return Task.CompletedTask; }, () => calls.Add("windows"),
+            () => { calls.Add("engine"); if (engineAlsoFails) throw engineError; return ValueTask.CompletedTask; },
+            () => { calls.Add("view model"); return ValueTask.CompletedTask; });
+        var error = await Record.ExceptionAsync(() => operation);
+        Assert.Equal(new[] { "admission", "save", "windows", "engine", "view model" }, calls);
+        if (engineAlsoFails)
+            Assert.Equal(new[] { admissionError, engineError }, Assert.IsType<AggregateException>(error).InnerExceptions);
+        else Assert.Same(admissionError, error);
+    }
+
+    [Theory]
     [InlineData(0)] [InlineData(1)] [InlineData(2)] [InlineData(3)] [InlineData(15)]
     public async Task EachCleanupRunsAfterEarlierFailuresAndOriginalErrorsArePreserved(int failures)
     {

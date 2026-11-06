@@ -7,8 +7,8 @@ internal static class ShellShutdown
         Action closeWindows, Func<ValueTask> disposeEngine, Func<ValueTask> disposeViewModel)
     {
         // This runs synchronously, before any accepted save or probe cleanup can yield.
-        beginShutdown();
         List<Exception> errors = [];
+        try { beginShutdown(); } catch (Exception error) { errors.Add(error); }
         try { await waitForApply(); } catch (Exception error) { errors.Add(error); }
         try { closeWindows(); } catch (Exception error) { errors.Add(error); }
         try { await disposeEngine(); } catch (Exception error) { errors.Add(error); }
