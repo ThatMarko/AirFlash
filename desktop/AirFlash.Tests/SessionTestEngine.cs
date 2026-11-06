@@ -43,6 +43,8 @@ internal static class SessionTestEngine
         private readonly ConcurrentQueue<(string Command, JsonElement Parameters)> _commands = new();
         public readonly TaskCompletionSource Starting = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private string _session = "";
+        /// <summary>What hello advertises; defaults to what the real engine reports.</summary>
+        public string[] Capabilities { get; init; } = ["receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_ownership_guard", "now_playing", "diagnostics"];
         public int Count(string command) => _commands.Count(c => c.Command == command);
         public JsonElement Last(string command) => _commands.Last(c => c.Command == command).Parameters;
         /// <summary>Extra scripted replies, called after each command is recorded.</summary>
@@ -64,7 +66,7 @@ internal static class SessionTestEngine
             _commands.Enqueue((command, JsonSerializer.SerializeToElement(parameters)));
             if (command == "hello")
             {
-                Current("hello", new { capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_ownership_guard" } });
+                Current("hello", new { capabilities = Capabilities });
             }
             if (command == "start") Starting.TrySetResult();
             if (command == "stop") _events.Writer.TryComplete();

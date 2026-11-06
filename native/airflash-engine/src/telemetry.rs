@@ -71,6 +71,17 @@ impl Histogram {
     pub fn count(&self) -> u64 {
         self.count
     }
+    /// Add every sample of `other`, as if each had been observed here.
+    pub fn merge(&mut self, other: &Self) {
+        for (bucket, hits) in self.buckets.iter_mut().zip(other.buckets) {
+            *bucket = bucket.saturating_add(hits);
+        }
+        self.count += other.count;
+        self.below += other.below;
+        self.above += other.above;
+        self.sum_ms += other.sum_ms;
+        self.max_ms = self.max_ms.max(other.max_ms);
+    }
     pub fn mean_ms(&self) -> f64 {
         if self.count == 0 {
             0.0
@@ -729,10 +740,11 @@ pub struct SessionTelemetry {
     pub lateness: Histogram,
     pub lateness_interval: Histogram,
     pub capture_age: Histogram,
-    /// Reserved, always empty (`retransmit_gap`). Kept for name parity with the
-    /// reference sender's `rtx_gap_hist` (Q20), whose definition was not
-    /// recovered; retransmit volume and outcomes are reported by the
-    /// `retransmit*` and `stall_rtx_*` fields instead.
+    /// `retransmit_gap`: how far behind the live edge each realtime retransmit
+    /// request reached, in milliseconds of audio (next sequence minus the first
+    /// requested sequence, times the packet duration), summed over members.
+    /// Named after the reference sender's `rtx_gap_hist` (Q20), whose exact
+    /// definition was not recovered. Buffered (TCP) streams have no requests.
     pub rtx_gap: Histogram,
 }
 impl SessionTelemetry {

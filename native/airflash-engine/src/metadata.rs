@@ -24,7 +24,7 @@
 //! The session drops it before closing the members, so it never contends for
 //! the connection lock during teardown or writes after `TEARDOWN`.
 
-use crate::rtsp::{Cancellation, Connection};
+use crate::rtsp::{Cancellation, Connection, WireError};
 use anyhow::{Result, ensure};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -220,6 +220,15 @@ impl Worker {
                                 // A complete rejection is persistent for this session. An I/O
                                 // failure must not monopolise the shared control connection.
                                 progress_enabled[index] = false;
+                                if connection.is_poisoned() {
+                                    // No later write on it can succeed.
+                                    tags_enabled[index] = false;
+                                }
+                                if transport_failure(&error) {
+                                    // Do not wait out a second timeout on a connection
+                                    // that just failed; the volume worker shares it.
+                                    continue;
+                                }
                             }
                         }
                         let tags = dmap_tags(&now);
@@ -261,6 +270,13 @@ impl Worker {
             events,
         })
     }
+}
+/// A failure of the connection itself (I/O, timeout, poisoned), as opposed to
+/// the receiver answering with a non-200 status.
+fn transport_failure(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.is::<WireError>() || cause.is::<std::io::Error>())
 }
 impl Drop for Worker {
     fn drop(&mut self) {
@@ -356,6 +372,13 @@ mod tests {
     /// reports each request line block and body. It exits when the sender
     /// closes the connection.
     fn recording_server() -> (std::net::SocketAddr, Requests, JoinHandle<()>) {
+        scripted_server(|_| "200 OK")
+    }
+
+    /// Like [`recording_server`], with the status line chosen per request.
+    fn scripted_server(
+        status: fn(&str) -> &'static str,
+    ) -> (std::net::SocketAddr, Requests, JoinHandle<()>) {
         use std::io::{Read, Write};
         use std::net::TcpListener;
 
@@ -400,8 +423,11 @@ mod tests {
                     });
                     if let Some(cseq) = cseq {
                         let _ = socket.write_all(
-                            format!("RTSP/1.0 200 OK\r\nCSeq: {cseq}\r\nContent-Length: 0\r\n\r\n")
-                                .as_bytes(),
+                            format!(
+                                "RTSP/1.0 {}\r\nCSeq: {cseq}\r\nContent-Length: 0\r\n\r\n",
+                                status(&request)
+                            )
+                            .as_bytes(),
                         );
                     }
                     if requests.send((request, body)).is_err() {
@@ -537,6 +563,68 @@ mod tests {
         drop(connection);
         drop(received);
         let _ = server.join();
+    }
+
+    #[test]
+    fn a_rejected_progress_still_sends_the_tags() {
+        // A non-200 answer is the receiver declining one payload type; the
+        // connection is fine, so the tags still go out.
+        let (addr, received, server) = scripted_server(|request| {
+            if request.to_ascii_lowercase().contains("text/parameters") {
+                "451 Parameter Not Understood"
+            } else {
+                "200 OK"
+            }
+        });
+        let control = Control::default();
+        control.set(1, sample());
+        let connection = connect(addr);
+        let worker = Worker::start(peer(&connection), control, Timeline::new(0, 44100)).unwrap();
+        for payload in ["progress", "tags"] {
+            received
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap_or_else(|_| panic!("{payload} payload"));
+        }
+        let event = worker.events.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(event["tags_updated"], true);
+        drop(worker);
+        drop(connection);
+        drop(received);
+        let _ = server.join();
+    }
+
+    #[test]
+    fn a_failed_progress_connection_is_not_tried_again_for_the_tags() {
+        use std::io::Read;
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        // Read the progress request, then hang up without answering.
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut pending = Vec::new();
+            let mut buffer = [0; 4096];
+            while find_request_end(&pending).is_none() {
+                let read = socket.read(&mut buffer).unwrap();
+                assert!(read > 0);
+                pending.extend_from_slice(&buffer[..read]);
+            }
+        });
+        let control = Control::default();
+        control.set(1, sample());
+        let connection = connect(addr);
+        let worker = Worker::start(peer(&connection), control, Timeline::new(0, 44100)).unwrap();
+        server.join().unwrap();
+        let event = worker.events.recv_timeout(Duration::from_secs(6)).unwrap();
+        let message = event["message"].as_str().unwrap();
+        assert!(message.contains("progress"), "{message}");
+        assert!(
+            !message.contains("tags"),
+            "the tags must not wait out a second failure: {message}"
+        );
+        assert_eq!(event["tags_updated"], false);
+        drop(worker);
     }
 
     /// Index just past the blank line that ends the RTSP header block.

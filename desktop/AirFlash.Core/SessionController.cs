@@ -35,6 +35,9 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     /// pump only republishes changes, so a paused player would otherwise show
     /// nothing in the next session.</summary>
     private NowPlaying? _nowPlaying;
+    // What the current engine's hello advertised; a connection that never said
+    // hello (or a pairing connection) gets neither command.
+    private bool _nowPlayingSupported, _diagnosticsSupported;
     private readonly object _sync = new();
     private readonly SessionTiming _timing = timing ?? SessionTiming.Default;
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
@@ -733,10 +736,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         lock (_sync) { if (_nowPlaying is null) return; _nowPlaying = null; }
         await SendNowPlayingAsync(new NowPlaying("", "", "", "", false, 0, 0), cancellation).ConfigureAwait(false);
     }
+    /// <summary>Send to the current engine when its hello advertised <c>now_playing</c>.</summary>
     private async Task SendNowPlayingAsync(NowPlaying now, CancellationToken cancellation)
     {
         IEngineConnection? connection; string? session;
-        lock (_sync) { connection = _connection; session = _sessionId; }
+        lock (_sync) { if (!_nowPlayingSupported) return; connection = _connection; session = _sessionId; }
         if (connection is null || session is null) return;
         if (Snapshot.State is not (PlaybackState.Streaming or PlaybackState.Standby)) return;
         try
@@ -753,6 +757,9 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
     }
+    /// <summary>The engine's redacted <c>diag_summary</c>, asked of the streaming engine
+    /// when its hello advertised <c>diagnostics</c>; otherwise the last summary
+    /// received, or null.</summary>
     public async Task<JsonElement?> DiagnosticSnapshotAsync(CancellationToken cancellation = default)
     {
         try { await _diagnosticWriter.WaitAsync(cancellation).ConfigureAwait(false); }
@@ -764,7 +771,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             lock (_sync)
             {
                 connection = _connection; session = _sessionId;
-                if (connection is null || session is null || !_transportStreaming) return _lastDiagnostic;
+                if (connection is null || session is null || !_transportStreaming || !_diagnosticsSupported) return _lastDiagnostic;
                 reply = _diagnosticReply = new(TaskCreationOptions.RunContinuationsAsynchronously);
             }
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
@@ -883,6 +890,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     await connection.SendAsync(session, "hello", null, cancellation).ConfigureAwait(false);
                     var hello = await ReadEventAsync(connection, session, _timing.Connect, cancellation).ConfigureAwait(false);
                     _confirmedLeadSupported = EngineHandshake.HasCapability(hello, "adaptive_lead_v2");
+                    lock (_sync)
+                    {
+                        _nowPlayingSupported = EngineHandshake.HasCapability(hello, "now_playing");
+                        _diagnosticsSupported = EngineHandshake.HasCapability(hello, "diagnostics");
+                    }
                     EngineHandshake.RequireStreamingCapabilities(hello);
                     EngineHandshake.RequireCapabilities(hello, "standby_release");
                     if (!EngineHandshake.HasCapability(hello, "receiver_ownership_guard"))
@@ -956,6 +968,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                                 _lastDiagnostic = item.Clone();
                                 _diagnosticReply?.TrySetResult(_lastDiagnostic);
                             }
+                        }
+                        if (kind == "peer_info")
+                        {
+                            // Authoritative `/info` evidence; manual receivers have no mDNS TXT record.
+                            log?.Invoke($"Receiver info: host {item.Text("host")}; model {item.Text("model", "unknown")}; source_version {item.Text("source_version", "unknown")}");
                         }
                         if (kind == "negotiated")
                         {
@@ -1045,7 +1062,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                             lock (_sync) { if (epoch != _generation) continue; }
                             foreach (var command in RemoteCommand.Parse(item))
                             {
-                                log?.Invoke($"Remote command from {command.Host ?? "receiver"}: {command.Name}");
+                                log?.Invoke($"Remote command from {command.Host ?? "receiver"}: {command.Name}{(command.Volume is { } level ? $" (volume {level:0.###})" : "")}");
                                 try { RemoteCommandReceived?.Invoke(command); }
                                 catch (Exception error) { log?.Invoke($"Remote command {command.Name} failed: {error.Message}"); }
                             }
@@ -1296,7 +1313,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         public int Target { get; } = target;
     }
     private static bool IsAuthenticationFailure(string message) => new[] { "pairing", "srp", "verification", "credentials", "signature", "identity", "authentication" }.Any(word => message.Contains(word, StringComparison.OrdinalIgnoreCase));
-    private void SetConnection(IEngineConnection connection, string session) { lock (_sync) { _connection = connection; _sessionId = session; _equalizerReady = false; _sentStandby = null; } }
+    private void SetConnection(IEngineConnection connection, string session) { lock (_sync) { _connection = connection; _sessionId = session; _equalizerReady = false; _sentStandby = null; _nowPlayingSupported = false; _diagnosticsSupported = false; } }
     private void ClearConnection(IEngineConnection connection) { lock (_sync) if (ReferenceEquals(_connection, connection)) { _connection = null; _sessionId = null; _equalizerReady = false; _sentStandby = null; } }
     private static async Task RequestStopAsync(IEngineConnection connection, string session)
     {

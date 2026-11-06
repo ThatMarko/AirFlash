@@ -24,6 +24,21 @@ public sealed class SmtcNowPlayingSource(Action<string>? log = null) : INowPlayi
             if (session is null) return;
             if (command.Name == "play") await session.TryPlayAsync().AsTask(cancellation).ConfigureAwait(false);
             else if (command.Name == "pause") await session.TryPauseAsync().AsTask(cancellation).ConfigureAwait(false);
+            else if (command.Name is "shuffle_next" or "repeat_next")
+            {
+                // Apps that do not expose the control get nothing, rather than a
+                // request SMTC would refuse.
+                var playback = session.GetPlaybackInfo();
+                if (command.Name == "shuffle_next" && playback.Controls.IsShuffleEnabled)
+                    await session.TryChangeShuffleActiveAsync(playback.IsShuffleActive != true).AsTask(cancellation).ConfigureAwait(false);
+                else if (command.Name == "repeat_next" && playback.Controls.IsRepeatEnabled)
+                    await session.TryChangeAutoRepeatModeAsync(playback.AutoRepeatMode switch
+                    {
+                        Windows.Media.MediaPlaybackAutoRepeatMode.List => Windows.Media.MediaPlaybackAutoRepeatMode.Track,
+                        Windows.Media.MediaPlaybackAutoRepeatMode.Track => Windows.Media.MediaPlaybackAutoRepeatMode.None,
+                        _ => Windows.Media.MediaPlaybackAutoRepeatMode.List,
+                    }).AsTask(cancellation).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
         catch (Exception error) { log?.Invoke($"Remote media command failed: {error.Message}"); }
@@ -39,14 +54,19 @@ public sealed class SmtcNowPlayingSource(Action<string>? log = null) : INowPlayi
             var playback = session.GetPlaybackInfo();
             var timeline = session.GetTimelineProperties();
             var playing = playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+            var duration = Math.Max(0, (long)(timeline.EndTime - timeline.StartTime).TotalMilliseconds);
             return new AirFlash.Core.NowPlaying(
                 properties.Title ?? "",
                 properties.Artist ?? "",
                 properties.AlbumTitle ?? "",
                 properties.Genres?.FirstOrDefault() ?? "",
                 playing,
-                Math.Max(0, (long)(timeline.EndTime - timeline.StartTime).TotalMilliseconds),
-                Math.Max(0, (long)(timeline.Position - timeline.StartTime).TotalMilliseconds));
+                duration,
+                // SMTC's position is as of LastUpdatedTime, which many apps only
+                // refresh on play, pause or seek.
+                AirFlash.Core.NowPlaying.CurrentPositionMs(
+                    (long)(timeline.Position - timeline.StartTime).TotalMilliseconds,
+                    duration, playing, timeline.LastUpdatedTime, DateTimeOffset.UtcNow));
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception error)

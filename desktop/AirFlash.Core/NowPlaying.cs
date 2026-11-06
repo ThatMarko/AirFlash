@@ -14,6 +14,17 @@ public sealed record NowPlaying(string Title, string Artist, string Album, strin
     /// track: the receiver's progress bar is driven by interpolating from the last
     /// reported start time, so a tiny position change is not worth a request.</summary>
     public const long ProgressThresholdMs = 1500;
+    /// <summary>A position reported as of <paramref name="lastUpdated"/>, carried forward
+    /// to <paramref name="now"/> while playing and clamped to <c>[0, duration]</c>
+    /// (no upper bound when the duration is unknown). An unset (pre-1970) update
+    /// time is not extrapolated.</summary>
+    public static long CurrentPositionMs(long positionMs, long durationMs, bool playing, DateTimeOffset lastUpdated, DateTimeOffset now)
+    {
+        var position = Math.Max(0, positionMs);
+        if (playing && lastUpdated > DateTimeOffset.UnixEpoch && now > lastUpdated)
+            position += (long)(now - lastUpdated).TotalMilliseconds;
+        return durationMs > 0 ? Math.Min(position, durationMs) : position;
+    }
 }
 
 /// <summary>Where Now Playing comes from. The Windows implementation reads SMTC;
@@ -32,8 +43,10 @@ public interface INowPlayingSource
 /// artist, then artwork), and progress moves every poll even when nothing changed.
 /// The pump therefore polls on a slow cadence, waits out a short settle window, and
 /// only forwards a sample when the tags or the playback state changed, or when the
-/// position moved far enough that the receiver's own interpolation would be visibly
-/// wrong.
+/// position is far enough from where the receiver's own interpolation has it (the
+/// last published position plus the time since, while playing) to be visibly
+/// wrong. Steady playback is therefore not re-sent every poll, even though the
+/// source reports a moving position.
 /// <para>
 /// When the source goes away (no media session, or nothing displayable) nothing is
 /// forwarded, so an active receiver keeps its display. The pump does forget what it
@@ -46,6 +59,7 @@ public sealed class NowPlayingPump(INowPlayingSource source, Func<long>? clock =
 {
     private readonly Func<long> _clock = clock ?? (() => Environment.TickCount64);
     private NowPlaying? _lastPublished;
+    private long _publishedAt;
     private NowPlaying? _pending;
     private long _pendingSince;
     private bool _hasPending;
@@ -83,22 +97,25 @@ public sealed class NowPlayingPump(INowPlayingSource source, Func<long>? clock =
         {
             return null;
         }
-        if (!ShouldPublish(sample)) return null;
+        if (!ShouldPublish(sample, now)) return null;
         _lastPublished = sample;
+        _publishedAt = now;
         return sample;
     }
     private static bool SameTrackState(NowPlaying left, NowPlaying right)
         => left.Title == right.Title && left.Artist == right.Artist
         && left.Album == right.Album && left.Genre == right.Genre
         && left.Playing == right.Playing && left.DurationMs == right.DurationMs;
-    private bool ShouldPublish(NowPlaying sample)
+    private bool ShouldPublish(NowPlaying sample, long now)
     {
         if (_lastPublished is not { } last) return true;
         if (last.Title != sample.Title || last.Artist != sample.Artist || last.Album != sample.Album || last.Genre != sample.Genre) return true;
         if (last.Playing != sample.Playing) return true;
         if (Math.Abs(last.DurationMs - sample.DurationMs) > 0) return true;
         // Position only counts once the receiver's interpolation would drift visibly.
-        return Math.Abs(sample.PositionMs - last.PositionMs) >= NowPlaying.ProgressThresholdMs;
+        var expected = last.PositionMs + (last.Playing ? Math.Max(0, now - _publishedAt) : 0);
+        if (last.DurationMs > 0) expected = Math.Min(expected, last.DurationMs);
+        return Math.Abs(sample.PositionMs - expected) >= NowPlaying.ProgressThresholdMs;
     }
     /// <summary>Production loop; stops on cancellation or when the source throws.</summary>
     public async Task RunAsync(Action<NowPlaying> publish, CancellationToken cancellation)

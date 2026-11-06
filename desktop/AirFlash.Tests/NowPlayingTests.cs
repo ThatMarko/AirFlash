@@ -14,9 +14,53 @@ public sealed class NowPlayingTests
         Assert.Null(await pump.PollAsync(default));
         clock = 2000; source.Value = Track(position: 2000);
         Assert.Equal(2000, (await pump.PollAsync(default))!.PositionMs);
+        // Steady playback is where the receiver's interpolation already has it.
         clock = 4000; source.Value = Track(position: 4000);
-        Assert.Equal(4000, (await pump.PollAsync(default))!.PositionMs);
+        Assert.Null(await pump.PollAsync(default));
+        // A seek is not.
+        clock = 6000; source.Value = Track(position: 30_000);
+        Assert.Equal(30_000, (await pump.PollAsync(default))!.PositionMs);
     }
+
+    [Fact]
+    public async Task Steady_extrapolated_playback_is_not_republished_every_poll()
+    {
+        var source = new Source();
+        long clock = 0;
+        var pump = new NowPlayingPump(source, () => clock);
+        var published = 0;
+        for (var poll = 0; poll <= 30; poll++)
+        {
+            clock = poll * 2_000L;
+            source.Value = Track(position: 10_000 + clock);
+            if (await pump.PollAsync(default) is not null) published++;
+        }
+        Assert.Equal(1, published);
+        // A paused track is expected to stay put.
+        clock += 2_000; source.Value = Track(position: 10_000 + clock - 2_000, playing: false);
+        await pump.PollAsync(default);
+        clock += 400;
+        Assert.NotNull(await pump.PollAsync(default));
+        clock += 2_000;
+        Assert.Null(await pump.PollAsync(default));
+    }
+
+    [Theory]
+    [InlineData(10_000, 240_000, true, 5_000, 15_000)]   // carried forward while playing
+    [InlineData(10_000, 240_000, false, 5_000, 10_000)]  // paused: as reported
+    [InlineData(238_000, 240_000, true, 5_000, 240_000)] // clamped to the duration
+    [InlineData(10_000, 0, true, 5_000, 15_000)]         // unknown duration: no ceiling
+    [InlineData(-50, 240_000, false, 0, 0)]              // never negative
+    [InlineData(10_000, 240_000, true, -5_000, 10_000)]  // a future update time adds nothing
+    public void Smtc_positions_are_carried_to_now(long position, long duration, bool playing, long ageMs, long expected)
+    {
+        var now = new DateTimeOffset(2026, 11, 6, 12, 0, 0, TimeSpan.Zero);
+        Assert.Equal(expected, NowPlaying.CurrentPositionMs(position, duration, playing, now.AddMilliseconds(-ageMs), now));
+    }
+
+    [Fact]
+    public void An_unset_smtc_update_time_is_not_extrapolated()
+        => Assert.Equal(10_000, NowPlaying.CurrentPositionMs(10_000, 0, true, default, DateTimeOffset.UtcNow));
     private sealed class Source : INowPlayingSource
     {
         public NowPlaying? Value;

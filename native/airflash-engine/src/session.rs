@@ -622,7 +622,7 @@ impl Member {
             plan,
             &peer.profile,
             options.sample_rate,
-            options.timing == "ptp",
+            peer.profile.inherits_ptp(&options.timing),
         )?;
         if compat.uses_ptp() && ptp.is_none() {
             let peers = options.peers.iter().map(|p| p.host).collect();
@@ -3163,6 +3163,11 @@ fn sample_capture(
 /// member values are cumulative, so they are assigned rather than added.
 fn record_member_counters(telemetry: &mut crate::telemetry::SessionTelemetry, members: &[Member]) {
     telemetry.events_dropped = members.iter().map(|m| m.health.commands_dropped()).sum();
+    let mut rtx_gap = crate::telemetry::Histogram::default();
+    for member in members {
+        rtx_gap.merge(&member.media.rtx_gap);
+    }
+    telemetry.rtx_gap = rtx_gap;
 }
 
 fn transport_metrics(
@@ -3606,9 +3611,11 @@ mod tests {
         assert_eq!(options.peers[0].profile.latency_ms, Some(120));
     }
     #[test]
-    fn dropped_event_commands_reach_transport_metrics() {
-        let (left, _left_receiver, left_server) = local_member();
-        let (right, _right_receiver, right_server) = local_member();
+    fn member_counters_reach_transport_metrics() {
+        let (mut left, _left_receiver, left_server) = local_member();
+        let (mut right, _right_receiver, right_server) = local_member();
+        left.media.rtx_gap.observe(8.0);
+        right.media.rtx_gap.observe(24.0);
         let command = || crate::events::ParsedEvent {
             commands: vec![crate::events::RemoteCommand::Pause],
             volume: None,
@@ -3636,11 +3643,14 @@ mod tests {
         );
         assert_eq!(snapshot["event"], "transport_metrics");
         assert_eq!(snapshot["events_dropped"], 4);
+        assert_eq!(snapshot["retransmit_gap"]["count"], 2);
+        assert_eq!(snapshot["retransmit_gap"]["max_ms"], 24.0);
         // Draining the inbox does not undo the count, and re-recording does
-        // not double it.
+        // not double either counter.
         let _ = members[0].health.commands();
         record_member_counters(&mut telemetry, &members);
         assert_eq!(telemetry.snapshot()["events_dropped"], 4);
+        assert_eq!(telemetry.snapshot()["retransmit_gap"]["count"], 2);
         drop(members);
         left_server.join().unwrap();
         right_server.join().unwrap();

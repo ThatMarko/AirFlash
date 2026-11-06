@@ -37,4 +37,34 @@ public sealed class NowPlayingSessionTests
         Assert.Empty(second.NowPlayingTitles());
     }
 
+
+    [Fact]
+    public async Task An_engine_without_the_capabilities_gets_neither_command()
+    {
+        var connection = new SessionTestEngine.Connection { Capabilities = ["receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_ownership_guard"] };
+        await using var controller = TestSessionController.Create(new SessionTestEngine.Factory(connection), new SessionTestEngine.Audio(), timing: Timing);
+        await controller.PublishNowPlayingAsync(Track("Before"));
+        await SessionTestEngine.StreamAsync(controller, connection);
+        await controller.PublishNowPlayingAsync(Track("During"));
+        await controller.ClearNowPlayingAsync();
+        Assert.Null(await controller.DiagnosticSnapshotAsync().WaitAsync(Limit));
+        Assert.Equal(0, connection.Count("set_now_playing"));
+        Assert.Equal(0, connection.Count("diag_summary"));
+    }
+
+    [Fact]
+    public async Task Receiver_info_is_logged_with_its_model_and_firmware()
+    {
+        var lines = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var connection = new SessionTestEngine.Connection
+        {
+            OnCommand = (engine, command) =>
+            {
+                if (command == "start") engine.Current("peer_info", new { host = "192.0.2.10", model = "AudioAccessory5,1", source_version = "870.14.1" });
+            }
+        };
+        await using var controller = TestSessionController.Create(new SessionTestEngine.Factory(connection), new SessionTestEngine.Audio(), log: lines.Enqueue, timing: Timing);
+        await SessionTestEngine.StreamAsync(controller, connection);
+        Assert.Contains("Receiver info: host 192.0.2.10; model AudioAccessory5,1; source_version 870.14.1", lines);
+    }
 }

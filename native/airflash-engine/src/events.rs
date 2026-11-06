@@ -9,10 +9,12 @@
 //! of guessing.
 //!
 //! Everything parsed is forwarded as a `remote_command` IPC event, including
-//! volume-only messages. The desktop acts on the transport commands (play, pause,
-//! toggle, stop, next, previous) and deliberately ignores mute, volume up/down,
-//! shuffle, repeat and the absolute volume (Q25): the receiver applies its own
-//! volume buttons, and `volume::Worker` reports the result as `device_volume`.
+//! volume-only messages. The desktop (`RemoteCommand.Target`) sends play, pause,
+//! shuffle and repeat to the Windows media session, toggle/stop/next/previous as
+//! media keys, and treats mute and volume up/down as requests to the sender (its
+//! stream mute and master volume, as in DACP). The absolute volume is logged
+//! only: Q11 found receivers report their level through a separate channel, and
+//! `volume::Worker` already reads it from `/info` as `device_volume`.
 
 use plist::Value;
 use std::collections::VecDeque;

@@ -41,13 +41,47 @@ public sealed class RemoteCommandTests
     }
 
     [Fact]
-    public void A_volume_only_event_yields_no_command()
+    public void A_volume_only_event_yields_one_logged_volume_command()
     {
-        // Event-channel volume is not acted on (Q25); the receiver's volume is
-        // read back separately as `device_volume`.
-        Assert.Empty(RemoteCommand.Parse(Json("""
+        var command = Assert.Single(RemoteCommand.Parse(Json("""
             {"event":"remote_command","host":"192.168.1.20","commands":[],"source":null,"volume":0.5}
             """)));
+        Assert.Equal(new RemoteCommand("volume", 0.5, "192.168.1.20"), command);
+        // Logged only: the receiver's own level is read separately (device_volume).
+        Assert.Equal(RemoteCommandTarget.None, command.Target);
+        Assert.Equal(0, command.VolumeDelta);
+    }
+
+    [Theory]
+    [InlineData("""{"commands":[],"volume":null}""")]
+    [InlineData("""{"commands":[],"volume":1.5}""")]
+    [InlineData("""{"commands":[],"volume":-0.1}""")]
+    [InlineData("""{"commands":[],"volume":"0.5"}""")]
+    [InlineData("""{"commands":[]}""")]
+    public void An_event_without_a_command_or_a_valid_volume_yields_nothing(string body)
+        => Assert.Empty(RemoteCommand.Parse(Json(body)));
+
+    [Theory]
+    [InlineData("play", RemoteCommandTarget.MediaSession, 0)]
+    [InlineData("pause", RemoteCommandTarget.MediaSession, 0)]
+    [InlineData("shuffle_next", RemoteCommandTarget.MediaSession, 0)]
+    [InlineData("repeat_next", RemoteCommandTarget.MediaSession, 0)]
+    [InlineData("toggle", RemoteCommandTarget.MediaKey, 0)]
+    [InlineData("stop", RemoteCommandTarget.MediaKey, 0)]
+    [InlineData("next", RemoteCommandTarget.MediaKey, 0)]
+    [InlineData("previous", RemoteCommandTarget.MediaKey, 0)]
+    [InlineData("mute", RemoteCommandTarget.Mute, 0)]
+    [InlineData("volume_up", RemoteCommandTarget.MasterVolume, RemoteCommand.VolumeStep)]
+    [InlineData("volume_down", RemoteCommandTarget.MasterVolume, -RemoteCommand.VolumeStep)]
+    [InlineData("volume", RemoteCommandTarget.None, 0)]
+    [InlineData("something_new", RemoteCommandTarget.None, 0)]
+    public void Every_engine_command_has_one_destination(string name, RemoteCommandTarget target, int delta)
+    {
+        var command = new RemoteCommand(name);
+        Assert.Equal(target, command.Target);
+        Assert.Equal(delta, command.VolumeDelta);
+        // Exactly the media-key commands carry a key.
+        Assert.Equal(target == RemoteCommandTarget.MediaKey, command.VirtualKey is not null);
     }
 
     [Fact]
