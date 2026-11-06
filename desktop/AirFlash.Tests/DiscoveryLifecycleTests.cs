@@ -216,6 +216,35 @@ public sealed class DiscoveryLifecycleTests
     }
 
     [Fact]
+    public void RefreshTimeoutKeepsTheCachedCatalogAndIgnoresTheLateResult()
+    {
+        List<string> logs = [];
+        using var fixture = new Fixture(logs.Add);
+        fixture.StartAndAnnounce();
+        fixture.Dns.Resolves[0].Resolved(0, Record("192.0.2.1"));
+        var original = Assert.Single(fixture.Catalog);
+        var publications = 0;
+        fixture.Discovery.Changed += _ => publications++;
+
+        fixture.TickAfter(TimeSpan.FromSeconds(20));
+        var refresh = fixture.Dns.Resolves[^1];
+        Assert.Equal(2, fixture.Dns.Resolves.Count);
+        fixture.TickAfter(TimeSpan.FromSeconds(5));
+        Assert.Equal(1, refresh.CancelCalls);
+        Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
+        var warning = Assert.Single(fixture.Failures);
+        Assert.Equal(L.Format("Receiver resolution timed out: {0}. Discovery will retry with backoff.", Name), warning);
+        Assert.Single(logs, message => message == warning);
+
+        refresh.Resolved(0, Record("192.0.2.2"));
+        Assert.Equal(0, publications);
+        Assert.Same(original, Assert.Single(fixture.Catalog));
+        fixture.TickAfter(TimeSpan.FromSeconds(1));
+        Assert.Equal(3, fixture.Dns.Resolves.Count);
+        Assert.Equal(1, fixture.Discovery.Snapshot.PendingResolves);
+    }
+
+    [Fact]
     public void PtrExpiryRemovesCatalogAndCancelsPendingRefresh()
     {
         using var fixture = new Fixture();

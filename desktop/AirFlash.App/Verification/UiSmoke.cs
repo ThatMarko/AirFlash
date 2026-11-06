@@ -346,16 +346,18 @@ internal static class UiSmoke
         Check(!banner.IsVisible && !dismiss.IsEnabled && app.ErrorDetails.Length == 0, "whitespace notification stays hidden", checks);
 
         const string failure = "Synthetic receiver resolution timeout. Discovery will retry.";
+        await app.FlushVolumeAsync();
+        var commands = factory.Commands.Count;
+        var restores = audio.Restores;
+        var owner = app.Session.Capture().Owner;
         discovery.PublishFailure(failure); await Pump();
-        Check(app.HasNotice && banner.IsVisible && app.Snapshot.State == PlaybackState.Streaming,
-            "discovery warning is visible during active playback", checks);
+        Check(app.HasNotice && banner.IsVisible && app.Snapshot.State == PlaybackState.Streaming
+            && factory.Commands.Count == commands && audio.Restores == restores && app.Session.Capture().Owner == owner,
+            "discovery warning is visible without touching active playback", checks);
         Check(ReferenceEquals(dismiss.Command, app.DismissNoticeCommand) && dismiss.IsEnabled
             && System.Windows.Automation.AutomationProperties.GetName(dismiss) == L.Get("Dismiss notification")
             && (string?)dismiss.ToolTip == L.Get("Dismiss notification") && dismiss.Focus() && dismiss.IsKeyboardFocused,
             "notification dismissal is localized and keyboard accessible", checks);
-        var commands = factory.Commands.Count;
-        var restores = audio.Restores;
-        var owner = app.Session.Capture().Owner;
         Invoke(dismiss); await Pump();
         var details = Descendants(panel).OfType<Expander>().Single(e => Equals(e.Header, L.Get("View error details")));
         Check(!app.HasNotice && !banner.IsVisible && app.Notice == failure && app.ErrorDetails == failure

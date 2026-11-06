@@ -264,7 +264,12 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
                 finally { EndEligibilityChange(); }
             });
         };
-        _discovery.Failed += message => _dispatcher.BeginInvoke(() => ShowError(new IOException(message)));
+        // WindowsDiscovery logs failures before publishing them. Present the
+        // notice without repeating the synchronous file append on the dispatcher.
+        _discovery.Failed += message => _dispatcher.BeginInvoke(() =>
+        {
+            if (!_closing) Notice = message;
+        });
         _discovery.RunningChanged += running => _dispatcher.BeginInvoke(() =>
         {
             if (_closing) return;
