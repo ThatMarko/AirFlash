@@ -76,6 +76,53 @@ public sealed class CapturePaddingMetricsTests
                 yield return [field, token];
     }
 
+    [Fact]
+    public async Task CustomPlaybackHistorySurvivesStandbyAndRetryWithoutReplayingCounters()
+    {
+        var first = new Connection(autoStreaming: false);
+        var second = new Connection(autoStreaming: false);
+        var logs = new ConcurrentQueue<string>();
+        await using var controller = TestSessionController.Create(new Factory(first, second), new Audio(), logs.Enqueue, Timing);
+        using var snapshots = new Snapshots(controller);
+        var settings = Settings(reconnect: true);
+        settings.LatencyMode = "custom";
+        await controller.StartAsync(Receiver(), settings);
+
+        await first.Started.Task.WaitAsync(Deadline);
+        first.Emit(new { @event = "streaming", session_epoch = 1 });
+        await snapshots.NextAsync(s => s.State == PlaybackState.Streaming);
+        var logCount = logs.Count;
+        first.Capture(new { padded_frames = 0 });
+        first.Capture(new { padded_frames = 12 });
+        first.Emit(new { @event = "transport_metrics", session_epoch = 1, skipped_packets = 0 });
+        first.Emit(new { @event = "transport_metrics", session_epoch = 1, skipped_packets = 2 });
+        var initial = await snapshots.NextAsync(s => s.Diagnostics?.Transport?.SkippedPackets == 2);
+        Assert.Equal(2, initial.Diagnostics!.CounterDeltaHistory!.Count);
+        Assert.Equal(logCount, logs.Count);
+
+        first.Emit(new { @event = "standby" });
+        first.Capture(new { padded_frames = 400 });
+        first.Emit(new { @event = "resuming" });
+        first.Emit(new { @event = "streaming", session_epoch = 2 });
+        first.Capture(new { padded_frames = 800 });
+        var resumed = await snapshots.NextAsync(s => s.Metrics?.PaddedFrames == 800);
+        Assert.Same(initial.Diagnostics.CounterDeltaHistory, resumed.Diagnostics!.CounterDeltaHistory);
+        first.Fault(retryable: true);
+
+        await second.Started.Task.WaitAsync(Deadline);
+        second.Emit(new { @event = "streaming", session_epoch = 1 });
+        second.Capture(new { padded_frames = 900 }, first.Session);
+        second.Capture(new { padded_frames = 0 });
+        second.Capture(new { padded_frames = 20 });
+        var current = await snapshots.NextAsync(s => s.Metrics?.PaddedFrames == 20);
+        var history = current.Diagnostics!.CounterDeltaHistory!;
+        Assert.Equal(3, history.Count);
+        Assert.Equal([1, 1, 2], history.Select(delta => delta.Attempt));
+        Assert.Equal(20UL, history[^1].Counters!["padded_frames"]);
+        var copied = JsonSerializer.SerializeToElement(current.Diagnostics, AppSettings.JsonOptions);
+        Assert.Equal(3, copied.GetProperty("counter_delta_history").GetArrayLength());
+    }
+
     [Theory]
     [MemberData(nameof(InvalidOptionalCounters))]
     public async Task InvalidOrAbsentCounterIsUnavailableWithoutErasingOtherMetrics(string field, string? token)

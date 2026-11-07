@@ -919,6 +919,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private async Task RunStreamAsync(Receiver receiver, long epoch, SessionStartIntent intent, CancellationToken cancellation)
     {
         var attempts = 0;
+        var diagnosticAttempt = 0;
+        var counterHistory = new PlaybackCounterHistory();
         var recoveryHealth = new RecoveryHealth(_clock);
         // Q43 companion record: how many reconnects this playback run had already
         // done when the next attempt started, and the whole fault story (first,
@@ -956,6 +958,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     peers.Add(new { receiver_id = member.Id, host, port = member.Port, codecs = member.Codecs.Select(x => (int)x).ToArray(), profile = PeerProfile(receiver, member, settings) });
                 }
                 await using var connection = factory.Open();
+                var currentAttempt = ++diagnosticAttempt;
+                counterHistory.End();
                 recoveryHealth.BeginAttempt(hosts.Values);
                 var session = Guid.NewGuid().ToString("N");
                 SetConnection(connection, session);
@@ -1083,6 +1087,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         if (kind == "streaming")
                         {
                             AcceptLatency(item);
+                            counterHistory.Begin(currentAttempt, item.Integer("session_epoch"));
                             startedAt = Stopwatch.GetTimestamp();
                             hasStreamed = true;
                             lock (_sync)
@@ -1099,6 +1104,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         }
                         else if (kind == "standby")
                         {
+                            counterHistory.End();
                             recoveryHealth.ResetStability();
                             lock (_sync) _adaptive.Suspend();
                             startedAt = Stopwatch.GetTimestamp();
@@ -1113,6 +1119,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         }
                         else if (kind == "resuming")
                         {
+                            counterHistory.End();
                             recoveryHealth.BeginAttempt(hosts.Values);
                             lock (_sync) _adaptive.Resume(_adaptiveInitial);
                             startedAt = 0; deadline = DateTime.UtcNow + _timing.Connect;
@@ -1181,6 +1188,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         }
                         else if (kind == "transport_metrics" && startedAt != 0)
                         {
+                            var receivedAt = _clock.GetUtcNow();
                             var metrics = TransportMetrics.Parse(item);
                             if (recoveryHealth.Observe(metrics))
                             {
@@ -1188,7 +1196,12 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                                 log?.Invoke("Session retry budget reset reason=receiver_healthy_60s");
                             }
                             AcceptLatency(item);
-                            lock (_sync) { if (epoch != _generation) continue; _diagnostics = _diagnostics with { Transport = metrics }; }
+                            lock (_sync)
+                            {
+                                if (epoch != _generation) continue;
+                                var history = counterHistory.ObserveTransport(receivedAt, metrics);
+                                _diagnostics = _diagnostics with { Transport = metrics, CounterDeltaHistory = history ?? _diagnostics.CounterDeltaHistory };
+                            }
                             if (AdaptivePlan() is not null)
                             {
                                 bool fresh; lock (_sync) fresh = _adaptive.Observe(metrics);
@@ -1199,8 +1212,15 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         }
                         else if (kind == "capture_metrics" && item.TryGetProperty("metrics", out var metrics))
                         {
+                            var receivedAt = _clock.GetUtcNow();
                             var parsed = new StreamMetrics(metrics.Number("capture_to_send_p95_ms"), metrics.Number("max_queue_age_ms"), metrics.Integer("underrun_packets"), metrics.Integer("dropped_frames"), metrics.Integer("input_rate") is { } rate ? (int)rate : null,
                                 metrics.Unsigned("padded_frames"), metrics.Unsigned("fully_padded_packets"));
+                            lock (_sync)
+                            {
+                                if (epoch != _generation) continue;
+                                if (counterHistory.ObserveCapture(receivedAt, parsed) is { } history)
+                                    _diagnostics = _diagnostics with { CounterDeltaHistory = history };
+                            }
                             var current = Snapshot;
                             Publish(epoch, current.State, current.Message, metrics: parsed, isRetrying: current.IsRetrying);
                         }
