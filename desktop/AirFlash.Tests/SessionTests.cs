@@ -1051,24 +1051,35 @@ public sealed class SessionTests
     public async Task ApplicationCaptureNeverMutesEndpointAndLiveStandbyEditsDoNotRestart()
     {
         var process = new FakeConnection(); var factory = new FakeFactory(process); var audio = new FakeAudio();
-        await using var controller = TestSessionController.Create(factory, audio, timing: Fast);
+        // This fixture scripts every engine event. Watchdog expiry is advanced explicitly in its own test.
+        await using var controller = TestSessionController.Create(factory, audio, timing: Fast, clock: new ManualDeadlineClock());
+        async Task ReachAsync(PlaybackState expected)
+        {
+            var snapshot = await SnapshotAsync(controller, snapshot => snapshot.State == expected || snapshot.State == PlaybackState.Error);
+            Assert.True(snapshot.State == expected, $"Expected {expected}, got {snapshot.State}: {snapshot.Message}; {snapshot.Diagnostics?.LastFault}");
+        }
         var settings = Settings(); settings.CaptureMode = "application"; settings.CaptureApplicationPath = @"C:\Player.exe";
         settings.CaptureApplicationInstance = new(settings.CaptureApplicationPath, "Player", 42, 123);
         settings.StandbyEnabled = true; settings.Options("a").StandbySeconds = 7;
-        await controller.StartAsync(Pod(), settings); await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
-        Assert.False(audio.Muted);
+        await controller.StartAsync(Pod(), settings); await ReachAsync(PlaybackState.Streaming);
+        Assert.False(audio.Muted); Assert.Equal(0, audio.MuteCalls);
         var start = process.Commands.Single(c => c.Command == "start").Parameters;
         Assert.Equal("application", start.Text("source")); Assert.Equal(42, start.Integer("capture_process_id"));
         Assert.Equal(123, start.Integer("capture_process_started_at")); Assert.Equal(JsonValueKind.Null, start.GetProperty("capture_endpoint").ValueKind);
         Assert.Equal(7, start.GetProperty("standby").Number("silence_seconds"));
-        process.EmitData(new { @event = "standby", reason = "silence" }); await Until(() => controller.Snapshot.State == PlaybackState.Standby);
+        var standby = ReachAsync(PlaybackState.Standby);
+        process.EmitData(new { @event = "standby", reason = "silence" }); await standby;
         settings.Options("a").StandbySeconds = 20; await controller.UpdateSettingsAsync(settings);
         Assert.Equal(20, process.Commands.Last(c => c.Command == "set_standby").Parameters.Number("silence_seconds"));
         Assert.Equal(1, factory.OpenCount); Assert.False(audio.Muted);
-        process.Emit("resuming"); await Until(() => controller.Snapshot.State == PlaybackState.Connecting);
-        process.Emit("streaming"); await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
-        Assert.False(audio.Muted); Assert.Equal(1, factory.OpenCount);
+        var resuming = ReachAsync(PlaybackState.Connecting);
+        process.Emit("resuming"); await resuming;
+        var streaming = ReachAsync(PlaybackState.Streaming);
+        process.Emit("streaming"); await streaming;
+        Assert.False(audio.Muted); Assert.Equal(0, audio.MuteCalls); Assert.Equal(1, factory.OpenCount);
+        Assert.Single(process.Commands, command => command.Command == "start");
         await controller.StopAsync(); process.Emit("streaming"); Assert.Equal(PlaybackState.Idle, controller.Snapshot.State);
+        Assert.False(audio.Muted); Assert.Equal(0, audio.MuteCalls);
     }
     [Fact]
     public async Task ApplicationCanWaitBeforeFirstConnectionWithoutFallbackAndStopCancelsWaiting()
