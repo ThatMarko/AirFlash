@@ -264,6 +264,85 @@ public sealed class DiscoveryLifecycleTests
         Assert.Empty(fixture.Catalog);
     }
 
+    [Fact]
+    public void ResolveSuccessRecoversAnUnchangedRecordAndRejectsTheRetiredResult()
+    {
+        using var fixture = new Fixture();
+        var successes = new List<DiscoveryResolveAttempt>();
+        var failures = new List<DiscoveryFailure>();
+        fixture.Discovery.ResolveSucceeded += successes.Add;
+        fixture.Discovery.Failed += failures.Add;
+        fixture.StartAndAnnounce();
+        fixture.Dns.Resolves[0].Resolved(0, Record("192.0.2.1"));
+        Assert.Single(successes);
+        var publications = 0;
+        fixture.Discovery.Changed += _ => publications++;
+
+        fixture.TickAfter(TimeSpan.FromSeconds(20));
+        var retired = fixture.Dns.Resolves[^1];
+        fixture.TickAfter(TimeSpan.FromSeconds(5));
+        var failure = Assert.Single(failures).Attempt!;
+        Assert.Equal(Name, failure.Instance);
+        Assert.Equal(Airplay, failure.ServiceType);
+        retired.Resolved(0, Record("192.0.2.2"));
+        Assert.Single(successes);
+
+        fixture.TickAfter(TimeSpan.FromSeconds(1));
+        fixture.Dns.Resolves[^1].Resolved(0, Record("192.0.2.1"));
+        Assert.Equal(2, successes.Count);
+        var recovery = successes[^1];
+        Assert.Equal(failure.Epoch, recovery.Epoch);
+        Assert.True(recovery.Sequence > failure.Sequence);
+        Assert.True(failure.SameService(recovery));
+        Assert.Equal(0, publications);
+    }
+
+    [Fact]
+    public void SuccessfulResolveAfterBrowseRestartSupersedesTheOldFailure()
+    {
+        using var fixture = new Fixture();
+        var successes = new List<DiscoveryResolveAttempt>();
+        var failures = new List<DiscoveryFailure>();
+        fixture.Discovery.ResolveSucceeded += successes.Add;
+        fixture.Discovery.Failed += failures.Add;
+        fixture.StartAndAnnounce();
+        var retired = fixture.Dns.Resolves[0];
+        fixture.TickAfter(TimeSpan.FromSeconds(5));
+        var failure = Assert.Single(failures).Attempt!;
+
+        fixture.Discovery.Stop();
+        fixture.StartAndAnnounce();
+        retired.Resolved(0, Record("192.0.2.2"));
+        Assert.Empty(successes);
+        fixture.Dns.Resolves[^1].Resolved(0, Record("192.0.2.1"));
+        var recovery = Assert.Single(successes);
+        Assert.True(recovery.Epoch > failure.Epoch);
+        Assert.True(recovery.Sequence > failure.Sequence);
+        Assert.True(failure.SameService(recovery));
+    }
+
+    [Fact]
+    public void ATimeoutLoggerRestartDoesNotPublishAnObsoleteFailure()
+    {
+        WindowsDiscovery? discovery = null;
+        var restarted = false;
+        var timeout = L.Format("Receiver resolution timed out: {0}. Discovery will retry with backoff.", Name);
+        using var fixture = new Fixture(message =>
+        {
+            if (!restarted && message == timeout)
+            {
+                restarted = true;
+                discovery!.Stop();
+                discovery.Start();
+            }
+        });
+        discovery = fixture.Discovery;
+        fixture.StartAndAnnounce();
+        fixture.TickAfter(TimeSpan.FromSeconds(5));
+        Assert.True(restarted);
+        Assert.Empty(fixture.Failures);
+    }
+
     [Theory]
     [InlineData("00:11:22:33:44:55", true)]
     [InlineData("66:77:88:99:AA:BB", false)]

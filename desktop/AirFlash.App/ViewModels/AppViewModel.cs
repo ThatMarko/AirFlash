@@ -57,18 +57,21 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private int _pendingEligibilityChanges;
     private bool _controlledScheduling;
     public bool IsStopping { get; private set; }
+    private DiscoveryFailure? _discoveryNotice;
     public string Notice
     {
         get => _notice;
-        private set
-        {
-            if (_notice == value) return;
-            _notice = value;
-            _noticeDismissed = false;
-            Notify();
-            RefreshNoticeBanner();
-            Notify(nameof(ErrorDetails));
-        }
+        private set => SetNotice(value);
+    }
+    private void SetNotice(string value, DiscoveryFailure? discoveryFailure = null)
+    {
+        _discoveryNotice = discoveryFailure;
+        if (_notice == value) return;
+        _notice = value;
+        _noticeDismissed = false;
+        Notify(nameof(Notice));
+        RefreshNoticeBanner();
+        Notify(nameof(ErrorDetails));
     }
     public bool HasNotice => !_noticeDismissed && !string.IsNullOrWhiteSpace(Notice);
     public RelayCommand DismissNoticeCommand { get; }
@@ -267,6 +270,11 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         // WindowsDiscovery logs failures before publishing them. Present the
         // notice without repeating the synchronous file append on the dispatcher.
         _discovery.Failed += DiscoveryFailed;
+        _discovery.ResolveSucceeded += resolution => _dispatcher.BeginInvoke(() =>
+        {
+            if (!_closing && _discoveryNotice is { Attempt: { } failure } && failure.Epoch <= resolution.Epoch
+                && failure.Sequence < resolution.Sequence && failure.SameService(resolution)) Notice = "";
+        });
         _discovery.RunningChanged += running => _dispatcher.BeginInvoke(() =>
         {
             if (_closing) return;
@@ -366,8 +374,13 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             if (_closing) return;
             if (context is not null && attempt is { } original && Session.CaptureStreamingAttempt() is { } current
                 && current.Attempt == original && DiscoveryFailureAttribution.IsOtherReceiver(context, current.Receiver, _known.Values, _settings.ReceiverAliases)) return;
-            Notice = failure.Message;
+            SetNotice(failure.Message, failure.Reason is DiscoveryFailureReason.ResolveTimeout or DiscoveryFailureReason.ResolveFailed ? failure : null);
         });
+    }
+    private void RefreshDiscoveryNotice()
+    {
+        if (_discoveryNotice?.Resolve is { } context && Session.CaptureStreamingAttempt() is { } current
+            && DiscoveryFailureAttribution.IsOtherReceiver(context, current.Receiver, _known.Values, _settings.ReceiverAliases)) Notice = "";
     }
     private void UpdateDiscoveryDemand()
     {
@@ -630,6 +643,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         if (hint != ActionHint) Notify(nameof(ActionHint));
         if (previous.State != snapshot.State || previous.Receiver?.Id != snapshot.Receiver?.Id || needsCleanup)
         {
+            RefreshDiscoveryNotice();
             RefreshReceivers();
             StopCommand.Refresh();
             Notify(nameof(CanReconnect));
@@ -983,8 +997,13 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     /// <summary>Write the current engine's redacted diagnostic bundle into the log folder.</summary>
     public async Task<string> ExportDiagnosticsAsync()
     {
+        var before = Session.Capture();
+        var attempt = Session.CaptureStreamingAttempt()?.Attempt;
         var snapshot = await DiagnosticExport.SnapshotAsync(Session).ConfigureAwait(false);
-        var bundle = DiagnosticExport.Compose(AppPaths.DisplayVersion, EngineVersion, snapshot);
+        var after = Session.Capture();
+        var history = before.Owner == after.Owner && attempt == Session.CaptureStreamingAttempt()?.Attempt
+            ? after.Snapshot.Diagnostics?.CounterDeltaHistory : null;
+        var bundle = DiagnosticExport.Compose(AppPaths.DisplayVersion, EngineVersion, snapshot, history);
         var path = DiagnosticExport.Write(AppPaths.LogDirectory, bundle);
         AppPaths.Log($"Diagnostics exported to {path}");
         return path;

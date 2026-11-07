@@ -184,6 +184,7 @@ internal static class UiSettingsRecovery
         public string SelectedInterface { get; private set; } = "";
         public event Action<IReadOnlyList<Receiver>>? Changed;
         public event Action<DiscoveryFailure>? Failed { add { } remove { } }
+        public event Action<DiscoveryResolveAttempt>? ResolveSucceeded { add { } remove { } }
         public event Action<bool>? RunningChanged;
         public void SetInterface(string id) => SelectedInterface = id;
         public void Start()

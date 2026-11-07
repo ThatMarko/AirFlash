@@ -22,8 +22,10 @@ public static class DiagnosticExport
         return controller.DiagnosticSnapshotAsync(cancellation);
     }
 
-    /// <summary>Build a bundle from runtime information and a redacted snapshot.</summary>
-    public static string Compose(string appVersion, string engineVersion, JsonElement? snapshot)
+    /// <summary>Build a bundle from runtime information, a redacted snapshot, and
+    /// optional recent numeric counter changes.</summary>
+    public static string Compose(string appVersion, string engineVersion, JsonElement? snapshot,
+        IReadOnlyList<PlaybackCounterDelta>? counterHistory = null)
     {
         using var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
@@ -36,9 +38,39 @@ public static class DiagnosticExport
             writer.WriteBoolean("os_64bit", Environment.Is64BitOperatingSystem);
             writer.WriteNumber("processor_count", Environment.ProcessorCount);
             if (snapshot is { } session) { writer.WritePropertyName("session"); session.WriteTo(writer); }
+            if (counterHistory is not null)
+            {
+                writer.WriteStartArray("counter_delta_history");
+                foreach (var report in counterHistory.TakeLast(PlaybackCounterHistory.Capacity))
+                {
+                    if (report.Source is not ("capture_metrics" or "transport_metrics")) continue;
+                    var counters = SelectCounters(report.Counters, report.Source == "capture_metrics"
+                        ? ["underrun_packets", "padded_frames", "fully_padded_packets", "dropped_frames"]
+                        : ["sender_late_recoveries", "skipped_packets"]);
+                    // A supported playback transport has at most two members. Only
+                    // ordinal numbers and known counters enter the saved history.
+                    var members = report.Source == "transport_metrics" ? report.Members?
+                        .Where(member => member.Member is 1 or 2).Take(2)
+                        .Select(member => new MemberCounterDelta(member.Member, SelectCounters(member.Counters,
+                            ["retransmit_requests", "retransmits_sent", "retransmit_expired", "retransmit_missing",
+                                "retransmit_queue_drops", "media_send_errors", "sync_send_errors"])))
+                        .Where(member => member.Counters.Count > 0).ToArray() : null;
+                    if (counters.Count == 0 && (members is null || members.Length == 0)) continue;
+                    JsonSerializer.Serialize(writer, report with { Counters = counters, Members = members }, AppSettings.JsonOptions);
+                }
+                writer.WriteEndArray();
+            }
             writer.WriteEndObject();
         }
         return System.Text.Encoding.UTF8.GetString(buffer.ToArray());
+    }
+
+    private static IReadOnlyDictionary<string, ulong> SelectCounters(IReadOnlyDictionary<string, ulong>? counters, string[] names)
+    {
+        var selected = new Dictionary<string, ulong>();
+        foreach (var name in names)
+            if (counters?.TryGetValue(name, out var value) == true && value > 0) selected.Add(name, value);
+        return selected;
     }
 
     public static string Write(string directory, string content)

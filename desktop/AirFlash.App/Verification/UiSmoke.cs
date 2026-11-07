@@ -201,6 +201,8 @@ internal static class UiSmoke
             Check(engine.Commands.Any(c => c.Text("command") == "start"), "panel start reaches engine", checks);
             await VerifyNoticeDismissalAsync(panel, app, discovery, engine, audio, checks);
             await VerifyDiscoveryRetryPresentationAsync(panel, app, discovery, checks);
+            await VerifyDiscoveryNoticeRecoveryAsync(panel, app, discovery, checks);
+            await VerifyConnectingDiscoveryNoticeAsync(checks);
             Invoke(playbackButton);
             await Until(() => app.Snapshot.State == PlaybackState.Idle);
             CheckPanelIcons(panel, app, checks);
@@ -414,6 +416,60 @@ internal static class UiSmoke
         Check(banner.IsVisible && app.Notice == actionable && app.Snapshot.State == PlaybackState.Streaming,
             "actionable discovery warning remains visible during playback", checks);
         Invoke(dismiss); await Pump();
+    }
+
+    private static async Task VerifyDiscoveryNoticeRecoveryAsync(ControlPanel panel, AppViewModel app, MockDiscovery discovery, List<string> checks)
+    {
+        var banner = Descendants(panel).OfType<Border>().Single(border => border.Name == "NoticeBanner");
+        var attempt = new DiscoveryResolveAttempt("synthetic._raop._tcp.local", "_raop._tcp.local", 1, 10);
+        const string timeout = "Synthetic initial discovery timeout";
+        discovery.PublishFailure(new DiscoveryFailure(timeout, DiscoveryFailureReason.ResolveTimeout) { Attempt = attempt });
+        await Pump();
+        Check(banner.IsVisible && app.Notice == timeout, "unresolved initial discovery timeout remains visible", checks);
+
+        discovery.PublishResolution(attempt with { Epoch = 0, Sequence = 11 });
+        discovery.PublishResolution(attempt with { Sequence = 9 });
+        discovery.PublishResolution(attempt with { ServiceType = "_airplay._tcp.local", Sequence = 11 });
+        await Pump();
+        Check(banner.IsVisible && app.Notice == timeout, "stale and different-service resolutions preserve the discovery warning", checks);
+
+        discovery.PublishResolution(attempt with { Instance = "SYNTHETIC._RAOP._TCP.LOCAL.", Epoch = 2, Sequence = 12 });
+        await Pump();
+        Check(!banner.IsVisible && app.Notice.Length == 0 && app.ErrorDetails.Length == 0,
+            "exact service recovery after browse restart clears its old discovery warning", checks);
+
+        discovery.PublishFailure(new DiscoveryFailure(timeout, DiscoveryFailureReason.ResolveTimeout) { Attempt = attempt });
+        await Pump();
+        app.ShowError(new IOException(timeout));
+        discovery.PublishResolution(attempt with { Sequence = 13 });
+        await Pump();
+        Check(banner.IsVisible && app.Notice == timeout, "discovery recovery preserves a newer actionable notice with identical text", checks);
+        app.DismissNoticeCommand.Execute(null);
+        await Pump();
+    }
+
+    private static async Task VerifyConnectingDiscoveryNoticeAsync(List<string> checks)
+    {
+        var active = new Receiver("synthetic-active", "Synthetic active", "127.0.0.11") { DeviceId = "001122334455" };
+        var other = new Receiver("synthetic-other", "Synthetic other", "127.0.0.12") { DeviceId = "66778899aabb" };
+        var discovery = new MockDiscovery { Items = [active, other] };
+        var factory = new MockFactory { AutoReady = false };
+        await using var app = new AppViewModel(new MemoryStore(), discovery, new MockAutostart(), new MockAudio(), factory,
+            Application.Current.Dispatcher, isolatedVerification: true);
+        app.Start();
+        await app.Startup;
+        await Pump();
+        await app.ToggleAsync(active);
+        await Until(() => app.Snapshot.State == PlaybackState.Connecting && factory.EmitEvent is not null);
+        discovery.PublishFailure(new DiscoveryFailure("Synthetic timeout while connecting", DiscoveryFailureReason.ResolveTimeout,
+            new(other.DeviceId, other.Address, other.Port, "")));
+        await Pump();
+        Check(app.HasNotice, "discovery retry stays visible while a connection is pending", checks);
+
+        factory.EmitEvent!(new { @event = "streaming" });
+        await Until(() => app.Snapshot.State == PlaybackState.Streaming && app.Notice.Length == 0);
+        Check(!app.HasNotice && factory.Commands.Count(command => command.Text("command") == "start") == 1,
+            "successful playback quiets a connecting-time retry for a confirmed different receiver", checks);
     }
 
     private static async Task VerifyStartupFailureAsync(List<string> checks, string directory)
@@ -703,8 +759,10 @@ internal static class UiSmoke
         public int Stops { get; private set; }
         public event Action<IReadOnlyList<Receiver>>? Changed;
         public event Action<DiscoveryFailure>? Failed;
+        public event Action<DiscoveryResolveAttempt>? ResolveSucceeded;
         public void PublishFailure(string message) => PublishFailure(new DiscoveryFailure(message));
         public void PublishFailure(DiscoveryFailure failure) => Failed?.Invoke(failure);
+        public void PublishResolution(DiscoveryResolveAttempt resolution) => ResolveSucceeded?.Invoke(resolution);
         public void Start() { if (Running) return; Running = true; Starts++; RunningChanged?.Invoke(true); Publish(); }
         public void Stop() { if (!Running) return; Running = false; Stops++; RunningChanged?.Invoke(false); }
         public string SelectedInterface { get; private set; } = "";

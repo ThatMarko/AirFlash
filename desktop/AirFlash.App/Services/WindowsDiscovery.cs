@@ -35,6 +35,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
     private uint? _interfaceIndex;
     private TimeSpan _nextAdapterCheck;
     private long _epoch;
+    private long _resolveSequence;
     private long _restartSequence;
     private bool _started;
     private bool _disposed;
@@ -44,6 +45,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
     private Work? _deferredNativeWork;
     public event Action<IReadOnlyList<Receiver>>? Changed;
     public event Action<DiscoveryFailure>? Failed;
+    public event Action<DiscoveryResolveAttempt>? ResolveSucceeded;
     public event Action<bool>? RunningChanged;
 
     internal WindowsDiscovery(IDnsServiceApi dns, TimeProvider clock,
@@ -239,7 +241,11 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
                 {
                     if (owner is not null && weak.TryGetTarget(out var target)) target.Resolved(owner, status, record);
                 });
-                owner = new(operation, advertisement.Name, advertisement.Type, _epoch, true) { Deadline = now + _policy.ResolveTimeout };
+                owner = new(operation, advertisement.Name, advertisement.Type, _epoch, true)
+                {
+                    Deadline = now + _policy.ResolveTimeout,
+                    ResolveSequence = ++_resolveSequence
+                };
                 RegisterLocked(owner); _pending[advertisement.Name] = owner; work.Starts.Add(owner); _capacityReported = false;
                 advertisement.ConcurrencyDeferredSince = null; _concurrencyReported = false;
             }
@@ -355,7 +361,8 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
                     work.Logs.Add("Discovery resolved: " + Describe(record));
                     work.Publish = true;
                 }
-                _records[owner.Name] = new(record, advertisement.Expires);
+                _records[owner.Name] = new(record, advertisement.Expires, owner.ResolveSequence);
+                work.Resolutions.Add(ResolveAttempt(owner));
             }
         }
         Run(work);
@@ -393,8 +400,10 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         var message = reason == DiscoveryFailureReason.ResolveTimeout
             ? L.Format("Receiver resolution timed out: {0}. Discovery will retry with backoff.", owner.Name)
             : L.Format("Receiver resolution failed: {0}. Discovery will retry with backoff.", owner.Name);
-        return new(message, reason, context);
+        return new(message, reason, context) { Attempt = ResolveAttempt(owner) };
     }
+
+    private static DiscoveryResolveAttempt ResolveAttempt(Owner owner) => new(owner.Name, owner.Type, owner.Epoch, owner.ResolveSequence);
 
     private static bool HasConflictingRaopIdentity(ServiceRecord record, string identity)
     {
@@ -478,6 +487,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         else DispatchNative(work);
         foreach (var message in work.Logs) Log(message);
         foreach (var error in work.Errors) Report(error);
+        foreach (var resolution in work.Resolutions) PublishResolution(resolution);
         if (work.Publish) Publish();
         PublishRunning();
     }
@@ -601,7 +611,34 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
             lock (_publication)
             {
                 lock (_sync) { if (_disposed) return; }
-                Log(failure.Message); InvokeObservers(Failed, failure, "failure");
+                Log(failure.Message);
+                bool superseded;
+                lock (_sync)
+                {
+                    if (_disposed) return;
+                    superseded = failure.Attempt is { } attempt && (attempt.Epoch != _epoch
+                        || _records.TryGetValue(attempt.Instance, out var cached) && cached.ResolveSequence > attempt.Sequence
+                            && cached.Record.ServiceType.Equals(attempt.ServiceType, StringComparison.OrdinalIgnoreCase));
+                }
+                if (!superseded) InvokeObservers(Failed, failure, "failure");
+            }
+        }
+        finally { DrainDeferredNative(); }
+    }
+
+    private void PublishResolution(DiscoveryResolveAttempt resolution)
+    {
+        try
+        {
+            lock (_publication)
+            {
+                lock (_sync)
+                {
+                    if (_disposed || resolution.Epoch != _epoch || !_records.TryGetValue(resolution.Instance, out var cached)
+                        || cached.ResolveSequence != resolution.Sequence || cached.Expires <= Now
+                        || !cached.Record.ServiceType.Equals(resolution.ServiceType, StringComparison.OrdinalIgnoreCase)) return;
+                }
+                InvokeObservers(ResolveSucceeded, resolution, "resolve success");
             }
         }
         finally { DrainDeferredNative(); }
@@ -691,7 +728,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         public TimeSpan? ConcurrencyDeferredSince { get; set; }
         public int Failures { get; set; }
     }
-    private sealed record CachedRecord(ServiceRecord Record, TimeSpan Expires);
+    private sealed record CachedRecord(ServiceRecord Record, TimeSpan Expires, long ResolveSequence);
     private sealed class Browser(string type)
     {
         public string Type { get; } = type;
@@ -707,6 +744,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         public long Epoch { get; } = epoch;
         public bool Resolve { get; } = resolve;
         public TimeSpan Deadline { get; init; }
+        public long ResolveSequence { get; init; }
         public bool Retired { get; set; }
         public bool HasResult { get; set; }
         public bool UnexpectedSettlement { get; set; }
@@ -721,6 +759,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         public List<IDnsServiceOperation> Cancels { get; } = [];
         public List<string> Logs { get; } = [];
         public List<DiscoveryFailure> Errors { get; } = [];
+        public List<DiscoveryResolveAttempt> Resolutions { get; } = [];
         public bool Publish { get; set; }
     }
 }

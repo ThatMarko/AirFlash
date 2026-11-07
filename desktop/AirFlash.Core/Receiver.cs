@@ -172,12 +172,22 @@ public static class DiscoveryInterface
 }
 public enum DiscoveryFailureReason { Other, ResolveTimeout, ResolveFailed }
 public sealed record DiscoveryResolveContext(string DeviceId, string Address, int Port, string StereoId);
-public sealed record DiscoveryFailure(string Message, DiscoveryFailureReason Reason = DiscoveryFailureReason.Other, DiscoveryResolveContext? Resolve = null);
+public sealed record DiscoveryResolveAttempt(string Instance, string ServiceType, long Epoch, long Sequence)
+{
+    public bool SameService(DiscoveryResolveAttempt other) =>
+        Instance.TrimEnd('.').Equals(other.Instance.TrimEnd('.'), StringComparison.OrdinalIgnoreCase)
+        && ServiceType.TrimEnd('.').Equals(other.ServiceType.TrimEnd('.'), StringComparison.OrdinalIgnoreCase);
+}
+public sealed record DiscoveryFailure(string Message, DiscoveryFailureReason Reason = DiscoveryFailureReason.Other, DiscoveryResolveContext? Resolve = null)
+{
+    public DiscoveryResolveAttempt? Attempt { get; init; }
+}
 
 public interface IDiscoveryService : IDisposable
 {
     event Action<IReadOnlyList<Receiver>>? Changed;
     event Action<DiscoveryFailure>? Failed;
+    event Action<DiscoveryResolveAttempt>? ResolveSucceeded;
     event Action<bool>? RunningChanged;
     void Start();
     void Stop();
