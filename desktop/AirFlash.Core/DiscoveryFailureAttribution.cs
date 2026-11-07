@@ -20,7 +20,8 @@ internal static class DiscoveryFailureAttribution
         if (candidates.Length != 1) return false;
         var (other, otherKeys) = candidates[0];
         if (!ReceiverIdentity.IsBroadcast(other.DeviceId) || !otherKeys.Contains(endpoint)
-            || !(otherKeys.Contains(identity) || otherKeys.Contains(canonical))) return false;
+            || !(otherKeys.Contains(identity) || otherKeys.Contains(canonical))
+            || source.StereoId.Length > 0 && other.StereoId.Length > 0 && !SameStereo(source.StereoId, other.StereoId)) return false;
 
         var peers = active.Peers.ToArray();
         if (peers.Length == 0 || SameStereo(source.StereoId, active.StereoId) || SameStereo(other.StereoId, active.StereoId)) return false;

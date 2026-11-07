@@ -387,13 +387,21 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         {
             var record = cached.Record;
             var identity = ReceiverAggregator.Identity(record);
-            if (ReceiverIdentity.IsBroadcast(identity))
+            if (ReceiverIdentity.IsBroadcast(identity) && !HasConflictingRaopIdentity(record, identity))
                 context = new(identity, record.Address, record.Port, record.Txt.GetValueOrDefault("tsid", "").Trim());
         }
         var message = reason == DiscoveryFailureReason.ResolveTimeout
             ? L.Format("Receiver resolution timed out: {0}. Discovery will retry with backoff.", owner.Name)
             : L.Format("Receiver resolution failed: {0}. Discovery will retry with backoff.", owner.Name);
         return new(message, reason, context);
+    }
+
+    private static bool HasConflictingRaopIdentity(ServiceRecord record, string identity)
+    {
+        var separator = record.Instance.IndexOf('@');
+        if (!record.ServiceType.StartsWith("_raop.", StringComparison.OrdinalIgnoreCase) || separator <= 0) return false;
+        var prefix = ReceiverIdentity.Normalize(record.Instance[..separator]);
+        return prefix.Length == 12 && prefix.All(Uri.IsHexDigit) && prefix != ReceiverIdentity.Normalize(identity);
     }
 
     private void FailBrowseLocked(Owner owner, TimeSpan now, Work work)

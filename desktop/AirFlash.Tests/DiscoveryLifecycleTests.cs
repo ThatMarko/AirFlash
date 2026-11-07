@@ -264,6 +264,28 @@ public sealed class DiscoveryLifecycleTests
         Assert.Empty(fixture.Catalog);
     }
 
+    [Theory]
+    [InlineData("00:11:22:33:44:55", true)]
+    [InlineData("66:77:88:99:AA:BB", false)]
+    public void RefreshFailureOnlyAttributesAConsistentRaopIdentity(string txtId, bool attributable)
+    {
+        const string type = "_raop._tcp.local";
+        const string name = "001122334455@Synthetic._raop._tcp.local";
+        using var fixture = new Fixture();
+        var failures = new List<DiscoveryFailure>();
+        fixture.Discovery.Failed += failures.Add;
+        fixture.Discovery.Start();
+        fixture.Dns.Browses.Single(browse => browse.Name == type).Announced(0, new DnsAnnouncement(name, 3600));
+        fixture.Dns.Resolves.Single().Resolved(0, new(name, type, "192.0.2.1", 7000, new Dictionary<string, string> { ["deviceid"] = txtId }));
+        fixture.TickAfter(TimeSpan.FromSeconds(20));
+        fixture.Dns.Resolves[^1].Resolved(13, null);
+
+        var failure = Assert.Single(failures);
+        Assert.Equal(DiscoveryFailureReason.ResolveFailed, failure.Reason);
+        Assert.Equal(attributable ? new DiscoveryResolveContext(txtId, "192.0.2.1", 7000, "") : null, failure.Resolve);
+        Assert.Single(fixture.Catalog);
+    }
+
     [Fact]
     public void PtrExpiryRemovesCatalogAndCancelsPendingRefresh()
     {
