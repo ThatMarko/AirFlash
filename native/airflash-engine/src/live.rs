@@ -396,9 +396,10 @@ impl Loopback {
         (s.frames.len(), s.capacity)
     }
     pub fn metrics(&self) -> Metrics {
-        let s = self.state.lock().unwrap();
-        let mut metrics = s.metrics.clone();
-        let mut ages: Vec<_> = s.ages.iter().copied().collect();
+        let (mut metrics, mut ages) = {
+            let s = self.state.lock().unwrap();
+            (s.metrics.clone(), s.ages.iter().copied().collect::<Vec<_>>())
+        };
         ages.sort_by(f64::total_cmp);
         metrics.capture_to_send_p95_ms = ages.get(ages.len() * 95 / 100).copied();
         metrics

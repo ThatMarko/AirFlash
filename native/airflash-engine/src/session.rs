@@ -2554,8 +2554,8 @@ fn send_packets(
                     emit(clock_status(timer, &hosts, "streaming"));
                 }
                 if let Some(source) = &live {
-                    sample_capture(source, &mut capture_baseline, &mut telemetry);
-                    emit(json!({"event":"capture_metrics","metrics":source.metrics()}));
+                    let metrics = sample_capture(source, &mut capture_baseline, &mut telemetry);
+                    emit(json!({"event":"capture_metrics","metrics":metrics}));
                 }
                 record_member_counters(&mut telemetry, members);
                 let snapshot = transport_metrics(
@@ -2704,8 +2704,8 @@ fn send_packets(
         Ok(())
     };
     if let Some(source) = &live {
-        sample_capture(source, &mut capture_baseline, &mut telemetry);
-        emit(json!({"event":"capture_metrics","metrics":source.metrics()}));
+        let metrics = sample_capture(source, &mut capture_baseline, &mut telemetry);
+        emit(json!({"event":"capture_metrics","metrics":metrics}));
     }
     for member in members.iter() {
         for notice in member.health.notices() {
@@ -3122,7 +3122,7 @@ fn sample_capture(
     source: &crate::live::Loopback,
     baseline: &mut Option<crate::live::Metrics>,
     telemetry: &mut crate::telemetry::SessionTelemetry,
-) {
+) -> crate::live::Metrics {
     let metrics = source.metrics();
     if let Some(previous) = baseline {
         telemetry.input_drops += metrics
@@ -3156,7 +3156,8 @@ fn sample_capture(
             }
         }
     }
-    *baseline = Some(metrics);
+    *baseline = Some(metrics.clone());
+    metrics
 }
 
 /// Copy per-member counters into the session block before a snapshot. The
