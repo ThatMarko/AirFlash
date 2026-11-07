@@ -225,6 +225,8 @@ public sealed class DiscoveryLifecycleTests
         var original = Assert.Single(fixture.Catalog);
         var publications = 0;
         fixture.Discovery.Changed += _ => publications++;
+        var failures = new List<DiscoveryFailure>();
+        fixture.Discovery.Failed += failures.Add;
 
         fixture.TickAfter(TimeSpan.FromSeconds(20));
         var refresh = fixture.Dns.Resolves[^1];
@@ -235,6 +237,9 @@ public sealed class DiscoveryLifecycleTests
         var warning = Assert.Single(fixture.Failures);
         Assert.Equal(L.Format("Receiver resolution timed out: {0}. Discovery will retry with backoff.", Name), warning);
         Assert.Single(logs, message => message == warning);
+        var failure = Assert.Single(failures);
+        Assert.Equal(DiscoveryFailureReason.ResolveTimeout, failure.Reason);
+        Assert.Equal(new DiscoveryResolveContext("AA:BB:CC:DD:EE:FF", "192.0.2.1", 7000, ""), failure.Resolve);
 
         refresh.Resolved(0, Record("192.0.2.2"));
         Assert.Equal(0, publications);
@@ -242,6 +247,21 @@ public sealed class DiscoveryLifecycleTests
         fixture.TickAfter(TimeSpan.FromSeconds(1));
         Assert.Equal(3, fixture.Dns.Resolves.Count);
         Assert.Equal(1, fixture.Discovery.Snapshot.PendingResolves);
+    }
+
+    [Fact]
+    public void InitialResolveFailureHasNoConfirmedIdentity()
+    {
+        using var fixture = new Fixture();
+        var failures = new List<DiscoveryFailure>();
+        fixture.Discovery.Failed += failures.Add;
+        fixture.StartAndAnnounce();
+        fixture.Dns.Resolves[0].Resolved(13, null);
+
+        var failure = Assert.Single(failures);
+        Assert.Equal(DiscoveryFailureReason.ResolveFailed, failure.Reason);
+        Assert.Null(failure.Resolve);
+        Assert.Empty(fixture.Catalog);
     }
 
     [Fact]
@@ -1049,7 +1069,7 @@ public sealed class DiscoveryLifecycleTests
         {
             Discovery = new(Dns, Clock, () => Adapters, log ?? (_ => { }));
             Discovery.Changed += receivers => { Catalog = receivers; EventCount++; };
-            Discovery.Failed += message => { Failures.Add(message); EventCount++; };
+            Discovery.Failed += failure => { Failures.Add(failure.Message); EventCount++; };
         }
         public void StartAndAnnounce(uint ttl = 3600) { Discovery.Start(); Announce(ttl); }
         public void Announce(uint ttl = 3600) => Dns.Browses.Last(operation => operation.Name == Airplay && !operation.CancelRequested).Announced(0, new DnsAnnouncement(Name, ttl));

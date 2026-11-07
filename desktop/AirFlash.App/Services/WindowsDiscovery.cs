@@ -43,7 +43,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
     private bool _running;
     private Work? _deferredNativeWork;
     public event Action<IReadOnlyList<Receiver>>? Changed;
-    public event Action<string>? Failed;
+    public event Action<DiscoveryFailure>? Failed;
     public event Action<bool>? RunningChanged;
 
     internal WindowsDiscovery(IDnsServiceApi dns, TimeProvider clock,
@@ -155,8 +155,8 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
             {
                 browser.Owner = null; browser.Failures = 0; browser.NextAttempt = Now;
             }
-            if (error is not null) work.Errors.Add(error);
-            if (index is null) work.Errors.Add(L.Get("The selected network interface is unavailable. Discovery is paused."));
+            if (error is not null) work.Errors.Add(new(error));
+            if (index is null) work.Errors.Add(new(L.Get("The selected network interface is unavailable. Discovery is paused.")));
             else ScheduleLocked(Now, work);
         }
         Run(work);
@@ -202,7 +202,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
             foreach (var owner in _pending.Values.Where(owner => !owner.HasResult && owner.Deadline <= now).ToArray())
             {
                 FailResolveLocked(owner, now, work);
-                work.Errors.Add(L.Format("Receiver resolution timed out: {0}. Discovery will retry with backoff.", owner.Name));
+                work.Errors.Add(ResolveFailureLocked(owner, now, DiscoveryFailureReason.ResolveTimeout));
             }
             ScheduleLocked(now, work);
         }
@@ -251,7 +251,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
                 if (!_concurrencyReported && now - advertisement.ConcurrencyDeferredSince.Value >= _policy.ResolveTimeout)
                 {
                     _concurrencyReported = true;
-                    work.Errors.Add(L.Get("Receiver discovery is waiting for earlier DNS queries to finish. It will retry automatically; restart AirFlash if it remains paused."));
+                    work.Errors.Add(new(L.Get("Receiver discovery is waiting for earlier DNS queries to finish. It will retry automatically; restart AirFlash if it remains paused.")));
                 }
             }
             catch (DnsServiceCapacityException) { CapacityLocked(work); }
@@ -269,7 +269,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
     {
         if (_capacityReported) return;
         _capacityReported = true;
-        work.Errors.Add(L.Get("Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery."));
+        work.Errors.Add(new(L.Get("Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.")));
     }
 
     private void RegisterLocked(Owner owner)
@@ -301,7 +301,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
             if (status != 0)
             {
                 FailBrowseLocked(owner, now, work);
-                work.Errors.Add(L.Format("Receiver discovery failed: {0}. You can add a receiver manually.", new Win32Exception((int)status).Message));
+                work.Errors.Add(new(L.Format("Receiver discovery failed: {0}. You can add a receiver manually.", new Win32Exception((int)status).Message)));
             }
             else
             {
@@ -335,14 +335,14 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
             else if (!owner.HasResult && owner.Deadline <= now)
             {
                 FailResolveLocked(owner, now, work);
-                work.Errors.Add(L.Format("Receiver resolution timed out: {0}. Discovery will retry with backoff.", owner.Name));
+                work.Errors.Add(ResolveFailureLocked(owner, now, DiscoveryFailureReason.ResolveTimeout));
             }
             else if (status != 0 || record is null || record.Port is <= 0 or > 65535
                 || string.IsNullOrWhiteSpace(record.Address) || !record.Instance.Equals(owner.Name, StringComparison.OrdinalIgnoreCase)
                 || !record.ServiceType.Equals(owner.Type, StringComparison.OrdinalIgnoreCase))
             {
                 FailResolveLocked(owner, now, work);
-                work.Errors.Add(L.Format("Receiver resolution failed: {0}. Discovery will retry with backoff.", owner.Name));
+                work.Errors.Add(ResolveFailureLocked(owner, now, DiscoveryFailureReason.ResolveFailed));
             }
             else
             {
@@ -377,6 +377,23 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
                 advertisement.NextAttempt = now + Backoff(++advertisement.Failures);
         }
         RetireLocked(owner, work);
+    }
+
+    private DiscoveryFailure ResolveFailureLocked(Owner owner, TimeSpan now, DiscoveryFailureReason reason)
+    {
+        DiscoveryResolveContext? context = null;
+        if (_records.TryGetValue(owner.Name, out var cached) && cached.Expires > now
+            && cached.Record.ServiceType.Equals(owner.Type, StringComparison.OrdinalIgnoreCase))
+        {
+            var record = cached.Record;
+            var identity = ReceiverAggregator.Identity(record);
+            if (ReceiverIdentity.IsBroadcast(identity))
+                context = new(identity, record.Address, record.Port, record.Txt.GetValueOrDefault("tsid", "").Trim());
+        }
+        var message = reason == DiscoveryFailureReason.ResolveTimeout
+            ? L.Format("Receiver resolution timed out: {0}. Discovery will retry with backoff.", owner.Name)
+            : L.Format("Receiver resolution failed: {0}. Discovery will retry with backoff.", owner.Name);
+        return new(message, reason, context);
     }
 
     private void FailBrowseLocked(Owner owner, TimeSpan now, Work work)
@@ -539,13 +556,13 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
                 {
                     RetireLocked(owner, followup);
                     if (status != PendingStatus && owner.UnexpectedSettlement && !_disposed && owner.Epoch == _epoch)
-                        followup.Errors.Add(L.Format("DNS request did not remain pending: {0}. Discovery will retry with backoff.", status));
+                        followup.Errors.Add(new(L.Format("DNS request did not remain pending: {0}. Discovery will retry with backoff.", status)));
                 }
                 else if (status != PendingStatus)
                 {
                     if (owner.Resolve) FailResolveLocked(owner, Now, followup);
                     else FailBrowseLocked(owner, Now, followup);
-                    followup.Errors.Add(L.Format("DNS request did not remain pending: {0}. Discovery will retry with backoff.", status));
+                    followup.Errors.Add(new(L.Format("DNS request did not remain pending: {0}. Discovery will retry with backoff.", status)));
                 }
             }
             Run(followup);
@@ -567,14 +584,16 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
     private static bool IsOperationFailure(Exception error) => error is Win32Exception or InvalidOperationException
         or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException;
 
-    private void Report(string message)
+    private void Report(string message) => Report(new DiscoveryFailure(message));
+
+    private void Report(DiscoveryFailure failure)
     {
         try
         {
             lock (_publication)
             {
                 lock (_sync) { if (_disposed) return; }
-                Log(message); InvokeObservers(Failed, message, "failure");
+                Log(failure.Message); InvokeObservers(Failed, failure, "failure");
             }
         }
         finally { DrainDeferredNative(); }
@@ -693,7 +712,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService
         public List<Owner> Starts { get; } = [];
         public List<IDnsServiceOperation> Cancels { get; } = [];
         public List<string> Logs { get; } = [];
-        public List<string> Errors { get; } = [];
+        public List<DiscoveryFailure> Errors { get; } = [];
         public bool Publish { get; set; }
     }
 }

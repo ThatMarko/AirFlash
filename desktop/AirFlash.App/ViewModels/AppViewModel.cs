@@ -266,10 +266,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         };
         // WindowsDiscovery logs failures before publishing them. Present the
         // notice without repeating the synchronous file append on the dispatcher.
-        _discovery.Failed += message => _dispatcher.BeginInvoke(() =>
-        {
-            if (!_closing) Notice = message;
-        });
+        _discovery.Failed += DiscoveryFailed;
         _discovery.RunningChanged += running => _dispatcher.BeginInvoke(() =>
         {
             if (_closing) return;
@@ -360,6 +357,18 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     }
     public void SetPanelVisible(bool visible) { _panelVisible = visible; UpdateDiscoveryDemand(); }
     public void SetReceiversPageVisible(bool visible) { _receiversPageVisible = visible; UpdateDiscoveryDemand(); }
+    private void DiscoveryFailed(DiscoveryFailure failure)
+    {
+        var context = failure.Reason is DiscoveryFailureReason.ResolveTimeout or DiscoveryFailureReason.ResolveFailed ? failure.Resolve : null;
+        var attempt = context is not null ? Session.CaptureStreamingAttempt()?.Attempt : null;
+        _dispatcher.BeginInvoke(() =>
+        {
+            if (_closing) return;
+            if (context is not null && attempt is { } original && Session.CaptureStreamingAttempt() is { } current
+                && current.Attempt == original && DiscoveryFailureAttribution.IsOtherReceiver(context, current.Receiver, _known.Values, _settings.ReceiverAliases)) return;
+            Notice = failure.Message;
+        });
+    }
     private void UpdateDiscoveryDemand()
     {
         if (!_started || _closing || _resetting) return;

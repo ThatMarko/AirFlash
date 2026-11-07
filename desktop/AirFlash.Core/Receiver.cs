@@ -115,7 +115,7 @@ public static class ReceiverAggregator
             return leader with { Id = $"stereo:{group.Key}", Name = leader.GroupName.Length > 0 ? leader.GroupName : leader.Name, Members = members, Aliases = [] };
         })).OrderBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
     }
-    private static string Identity(ServiceRecord service)
+    internal static string Identity(ServiceRecord service)
     {
         if (service.Txt.TryGetValue("deviceid", out var id) && !string.IsNullOrWhiteSpace(id)) return id.Trim();
         var at = service.Instance.IndexOf('@');
@@ -170,10 +170,14 @@ public static class DiscoveryInterface
         return adapter is { Available: true } ? adapter.InterfaceIndex : null;
     }
 }
+public enum DiscoveryFailureReason { Other, ResolveTimeout, ResolveFailed }
+public sealed record DiscoveryResolveContext(string DeviceId, string Address, int Port, string StereoId);
+public sealed record DiscoveryFailure(string Message, DiscoveryFailureReason Reason = DiscoveryFailureReason.Other, DiscoveryResolveContext? Resolve = null);
+
 public interface IDiscoveryService : IDisposable
 {
     event Action<IReadOnlyList<Receiver>>? Changed;
-    event Action<string>? Failed;
+    event Action<DiscoveryFailure>? Failed;
     event Action<bool>? RunningChanged;
     void Start();
     void Stop();

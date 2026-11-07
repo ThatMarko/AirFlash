@@ -260,7 +260,7 @@ public partial class App : Application
         using var discovery = new WindowsDiscovery();
         IReadOnlyList<Receiver> receivers = []; var errors = new List<string>();
         discovery.Changed += value => receivers = value;
-        discovery.Failed += error => { lock (errors) errors.Add(error); };
+        discovery.Failed += error => { lock (errors) errors.Add(error.Message); };
         discovery.Start(); await Task.Delay(TimeSpan.FromSeconds(8));
         WriteOutput(args, new { ok = errors.Count == 0, receivers, errors }); return errors.Count == 0 ? 0 : 1;
     }

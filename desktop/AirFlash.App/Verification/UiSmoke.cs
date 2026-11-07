@@ -118,6 +118,11 @@ internal static class UiSmoke
         var pageEndLayouts = new List<object>();
         var store = new MemoryStore(); var engine = new MockFactory();
         var discovery = new MockDiscovery(); var audio = new MockAudio();
+        discovery.Items = discovery.Items.Select(row => row with
+        {
+            DeviceId = row.Id,
+            Members = row.Members.Select(member => member with { DeviceId = member.Id }).ToArray()
+        }).ToArray();
         await using var app = new AppViewModel(store, discovery, new MockAutostart(), audio, engine, Application.Current.Dispatcher, isolatedVerification: true) { EngineVersion = "0.1.0（模拟）" };
         var panel = new ControlPanel(app); SettingsWindow? settings = null;
         // Verification must never bind the production GUID to a test executable path.
@@ -190,6 +195,7 @@ internal static class UiSmoke
             CheckPanelIcons(panel, app, checks);
             Check(engine.Commands.Any(c => c.Text("command") == "start"), "panel start reaches engine", checks);
             await VerifyNoticeDismissalAsync(panel, app, discovery, engine, audio, checks);
+            await VerifyDiscoveryRetryPresentationAsync(panel, app, discovery, checks);
             Invoke(playbackButton);
             await Until(() => app.Snapshot.State == PlaybackState.Idle);
             CheckPanelIcons(panel, app, checks);
@@ -371,6 +377,40 @@ internal static class UiSmoke
             "a different notification becomes visible after dismissal", checks);
         Invoke(dismiss); await Pump();
     }
+    private static async Task VerifyDiscoveryRetryPresentationAsync(ControlPanel panel, AppViewModel app, MockDiscovery discovery, List<string> checks)
+    {
+        var banner = Descendants(panel).OfType<Border>().Single(border => border.Name == "NoticeBanner");
+        var dismiss = Descendants(panel).OfType<Button>().Single(button => button.Name == "DismissNoticeButton");
+        var active = app.Snapshot.Receiver!;
+        var activePeer = active.Peers.Last();
+        var other = discovery.Items.Single(receiver => receiver.Online && receiver.Id != active.Id).Peers.First();
+        DiscoveryResolveContext Context(Receiver peer) => new(peer.DeviceId, peer.Address, peer.Port, peer.StereoId);
+        var priorNotice = app.Notice;
+        var priorDetails = app.ErrorDetails;
+
+        discovery.PublishFailure(new DiscoveryFailure("Synthetic other receiver timeout", DiscoveryFailureReason.ResolveTimeout, Context(other)));
+        await Pump();
+        Check(!banner.IsVisible && app.Notice == priorNotice && app.ErrorDetails == priorDetails,
+            "attributed background resolve retry preserves the previous notice during playback", checks);
+
+        const string ambiguous = "Synthetic ambiguous receiver timeout";
+        discovery.PublishFailure(new DiscoveryFailure(ambiguous, DiscoveryFailureReason.ResolveTimeout, Context(other) with { DeviceId = "unknown" }));
+        await Pump();
+        Check(banner.IsVisible && app.Notice == ambiguous, "ambiguous resolve retry remains visible during playback", checks);
+
+        const string relevant = "Synthetic active member resolve failure";
+        discovery.PublishFailure(new DiscoveryFailure(relevant, DiscoveryFailureReason.ResolveFailed, Context(activePeer)));
+        await Pump();
+        Check(banner.IsVisible && app.Notice == relevant, "active receiver or member resolve retry remains visible during playback", checks);
+
+        const string actionable = "Synthetic unavailable adapter warning";
+        discovery.PublishFailure(new DiscoveryFailure(actionable, DiscoveryFailureReason.Other, Context(other)));
+        await Pump();
+        Check(banner.IsVisible && app.Notice == actionable && app.Snapshot.State == PlaybackState.Streaming,
+            "actionable discovery warning remains visible during playback", checks);
+        Invoke(dismiss); await Pump();
+    }
+
     private static async Task VerifyStartupFailureAsync(List<string> checks, string directory)
     {
         var attempts = 0;
@@ -393,7 +433,7 @@ internal static class UiSmoke
             Check(app.EngineFailed && !receiver.ToggleCommand.CanExecute(null) && !row.PairCommand.CanExecute(null), "failed engine disables playback and pairing", checks);
             Check(app.RetryEngineCommand.CanExecute(null) && settings.CancelCommand.CanExecute(null), "failed engine preserves retry and settings", checks);
             using var missingDns = new WindowsDiscovery(dnsAvailable: () => false);
-            string? failure = null; missingDns.Failed += value => failure = value; missingDns.Start();
+            string? failure = null; missingDns.Failed += value => failure = value.Message; missingDns.Start();
             Check(failure is not null, "missing DNS-SD produces a recoverable diagnostic", checks);
             app.ShowError(new IOException("simulated discovery failure")); await Pump();
             Render(panel, Path.Combine(directory, "startup-failure.png"), 1);
@@ -657,8 +697,9 @@ internal static class UiSmoke
         public int Starts { get; private set; }
         public int Stops { get; private set; }
         public event Action<IReadOnlyList<Receiver>>? Changed;
-        public event Action<string>? Failed;
-        public void PublishFailure(string message) => Failed?.Invoke(message);
+        public event Action<DiscoveryFailure>? Failed;
+        public void PublishFailure(string message) => PublishFailure(new DiscoveryFailure(message));
+        public void PublishFailure(DiscoveryFailure failure) => Failed?.Invoke(failure);
         public void Start() { if (Running) return; Running = true; Starts++; RunningChanged?.Invoke(true); Publish(); }
         public void Stop() { if (!Running) return; Running = false; Stops++; RunningChanged?.Invoke(false); }
         public string SelectedInterface { get; private set; } = "";

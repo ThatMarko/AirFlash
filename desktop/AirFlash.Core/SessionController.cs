@@ -21,6 +21,7 @@ public sealed record SessionTiming(TimeSpan Connect, TimeSpan Read, TimeSpan Pin
     public static SessionTiming Default { get; } = new(TimeSpan.FromSeconds(40), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(120), TimeSpan.FromSeconds(1));
 }
 public sealed record SessionCapture(SessionSnapshot Snapshot, long Owner, long AutomaticIntent);
+internal readonly record struct StreamingAttempt(long Owner, long Intent, long Transport);
 
 public sealed class SessionController(IEngineFactory factory, IAudioService audio, Action<string>? log = null, SessionTiming? timing = null, Action<DesktopSessionRecord>? sessionRecords = null, TimeProvider? clock = null) : IAsyncDisposable
 {
@@ -245,6 +246,15 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private SessionSnapshot _snapshot = new(PlaybackState.Idle);
     public SessionSnapshot Snapshot { get { lock (_sync) return _snapshot; } }
     public SessionCapture Capture() { lock (_sync) return new(_snapshot, _generation, _automaticIntent); }
+    internal (StreamingAttempt Attempt, Receiver Receiver)? CaptureStreamingAttempt()
+    {
+        lock (_sync)
+        {
+            if (!_transportStreaming || _snapshot.State != PlaybackState.Streaming || _snapshot.IsRetrying
+                || _receiver is not { } receiver || _lifetime?.IsCancellationRequested != false || _passiveDisposed) return null;
+            return (new(_generation, _automaticIntent, _remoteTransport), receiver);
+        }
+    }
     public void InvalidateAutomaticIntent() => BeginExplicitIntent();
     public long BeginExplicitIntent() { lock (_sync) return ++_automaticIntent; }
     public bool IsIntentCurrent(long intent) { lock (_sync) return !_passiveDisposed && intent == _automaticIntent; }
