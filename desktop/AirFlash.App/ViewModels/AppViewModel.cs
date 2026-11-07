@@ -385,7 +385,12 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private void UpdateDiscoveryDemand()
     {
         if (!_started || _closing || _resetting) return;
-        var requested = _panelVisible || _receiversPageVisible || _startupDiscovery || _snapshot.IsActive && _snapshot.Receiver?.IsSoftwareGroup == true;
+        var demand = (_panelVisible ? DiscoveryDemand.Panel : DiscoveryDemand.None)
+            | (_receiversPageVisible ? DiscoveryDemand.Receivers : DiscoveryDemand.None)
+            | (_startupDiscovery ? DiscoveryDemand.Startup : DiscoveryDemand.None)
+            | (_snapshot.IsActive && _snapshot.Receiver?.IsSoftwareGroup == true ? DiscoveryDemand.SoftwareStereo : DiscoveryDemand.None);
+        if (_discovery is IDiscoveryDiagnostics diagnostics) diagnostics.RecordDemand(demand);
+        var requested = demand != DiscoveryDemand.None;
         if (requested == _discoveryRequested) return;
         _discoveryRequested = requested;
         if (requested)
@@ -1003,7 +1008,8 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         var after = Session.Capture();
         var history = before.Owner == after.Owner && attempt == Session.CaptureStreamingAttempt()?.Attempt
             ? after.Snapshot.Diagnostics?.CounterDeltaHistory : null;
-        var bundle = DiagnosticExport.Compose(AppPaths.DisplayVersion, EngineVersion, snapshot, history);
+        var discovery = (_discovery as IDiscoveryDiagnostics)?.SnapshotDiagnostics();
+        var bundle = DiagnosticExport.Compose(AppPaths.DisplayVersion, EngineVersion, snapshot, history, discovery);
         var path = DiagnosticExport.Write(AppPaths.LogDirectory, bundle);
         AppPaths.Log($"Diagnostics exported to {path}");
         return path;

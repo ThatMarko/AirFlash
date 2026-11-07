@@ -202,6 +202,7 @@ internal static class UiSmoke
             await VerifyNoticeDismissalAsync(panel, app, discovery, engine, audio, checks);
             await VerifyDiscoveryRetryPresentationAsync(panel, app, discovery, checks);
             await VerifyDiscoveryNoticeRecoveryAsync(panel, app, discovery, checks);
+            await VerifyDiscoveryExportAsync(app, discovery, checks);
             await VerifyConnectingDiscoveryNoticeAsync(checks);
             Invoke(playbackButton);
             await Until(() => app.Snapshot.State == PlaybackState.Idle);
@@ -446,6 +447,28 @@ internal static class UiSmoke
         Check(banner.IsVisible && app.Notice == timeout, "discovery recovery preserves a newer actionable notice with identical text", checks);
         app.DismissNoticeCommand.Execute(null);
         await Pump();
+    }
+
+    private static async Task VerifyDiscoveryExportAsync(AppViewModel app, MockDiscovery discovery, List<string> checks)
+    {
+        app.SetPanelVisible(true); app.SetReceiversPageVisible(false);
+        var starts = discovery.Starts;
+        app.SetReceiversPageVisible(true);
+        var demand = discovery.SnapshotDiagnostics().Demand;
+        Check((demand & (DiscoveryDemand.Panel | DiscoveryDemand.Receivers)) == (DiscoveryDemand.Panel | DiscoveryDemand.Receivers)
+            && discovery.Starts == starts, "discovery diagnostics observe changed demand without restarting an already requested browse", checks);
+        app.SetReceiversPageVisible(false);
+        const string name = "NeverExportFixture._airplay._tcp.local", address = "192.0.2.211";
+        discovery.RecordResolutionForDiagnostics(new(name, "_airplay._tcp.local", address, 7000,
+            new Dictionary<string, string> { ["deviceid"] = "AA:BB:CC:DD:EE:77", ["tsid"] = "NeverExportStereo" }));
+        var path = await app.ExportDiagnosticsAsync();
+        using var bundle = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        var history = bundle.RootElement.GetProperty("discovery").GetProperty("history");
+        Check(history.EnumerateArray().Any(entry => entry.Text("event") == "ResolveSucceeded" && entry.Text("service_token").Length == 64),
+            "saved diagnostics include the optional discovery provider's history", checks);
+        var text = bundle.RootElement.ToString();
+        Check(!text.Contains(name, StringComparison.Ordinal) && !text.Contains(address, StringComparison.Ordinal)
+            && !text.Contains("NeverExportStereo", StringComparison.Ordinal), "saved discovery diagnostics redact service, endpoint and stereo identities", checks);
     }
 
     private static async Task VerifyConnectingDiscoveryNoticeAsync(List<string> checks)
@@ -752,8 +775,31 @@ internal static class UiSmoke
         public Task MuteAsync(string? endpointId) => FailMute ? Task.FromException(new IOException("mock mute failed")) : Task.CompletedTask;
         public Task RestoreAsync() { Restores++; return Task.CompletedTask; }
     }
-    internal sealed class MockDiscovery : IDiscoveryService
+    internal sealed class MockDiscovery : IDiscoveryService, IDiscoveryDiagnostics
     {
+        private readonly object _diagnosticLock = new();
+        private readonly DiscoveryHistory _history = new();
+        private DiscoveryDemand _demand;
+        public void RecordDemand(DiscoveryDemand demand)
+        {
+            lock (_diagnosticLock)
+            {
+                if (_demand == demand) return;
+                _demand = demand;
+                _history.Record(DateTimeOffset.UtcNow, TimeSpan.Zero, Starts + Stops, DiscoveryTraceEvent.DemandChanged,
+                    DiscoveryTraceReason.None, demand, Items.Count);
+            }
+        }
+        public void RecordResolutionForDiagnostics(ServiceRecord record)
+        {
+            lock (_diagnosticLock) _history.Record(DateTimeOffset.UtcNow, TimeSpan.Zero, Starts + Stops,
+                DiscoveryTraceEvent.ResolveSucceeded, DiscoveryTraceReason.None, _demand, Items.Count, record: record);
+        }
+        public DiscoveryDiagnosticsSnapshot SnapshotDiagnostics()
+        {
+            lock (_diagnosticLock) return new(Starts + Stops, _demand, Running, Running, true, Items.Count, Items.Count,
+                0, 0, _history.Recorded, _history.Overwritten, _history.Snapshot());
+        }
         public event Action<bool>? RunningChanged;
         public bool Running { get; private set; }
         public int Starts { get; private set; }

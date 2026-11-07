@@ -18,6 +18,7 @@ public sealed class DiagnosticExportTests
         Assert.False(bundle.RootElement.TryGetProperty("log_tail", out _));
         Assert.False(string.IsNullOrWhiteSpace(bundle.RootElement.Text("generated_at")));
         Assert.False(bundle.RootElement.TryGetProperty("counter_delta_history", out _));
+        Assert.False(bundle.RootElement.TryGetProperty("discovery", out _));
     }
 
     [Fact]

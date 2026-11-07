@@ -25,7 +25,7 @@ public static class DiagnosticExport
     /// <summary>Build a bundle from runtime information, a redacted snapshot, and
     /// optional recent numeric counter changes.</summary>
     public static string Compose(string appVersion, string engineVersion, JsonElement? snapshot,
-        IReadOnlyList<PlaybackCounterDelta>? counterHistory = null)
+        IReadOnlyList<PlaybackCounterDelta>? counterHistory = null, DiscoveryDiagnosticsSnapshot? discovery = null)
     {
         using var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
@@ -60,10 +60,28 @@ public static class DiagnosticExport
                 }
                 writer.WriteEndArray();
             }
+            if (discovery is not null)
+            {
+                const DiscoveryDemand allowed = DiscoveryDemand.Panel | DiscoveryDemand.Receivers | DiscoveryDemand.Startup | DiscoveryDemand.SoftwareStereo;
+                // Treat optional providers as an input boundary. Only typed state
+                // and fixed-format pseudonyms enter this shareable export.
+                var history = (discovery.History ?? []).TakeLast(DiscoveryDiagnosticsSnapshot.HistoryCapacity)
+                    .Where(entry => Enum.IsDefined(entry.Event) && Enum.IsDefined(entry.Reason) && Enum.IsDefined(entry.ServiceType))
+                    .Select(entry => entry with
+                    {
+                        Demand = entry.Demand & allowed,
+                        ServiceToken = SafeToken(entry.ServiceToken), DeviceToken = SafeToken(entry.DeviceToken),
+                        StereoToken = SafeToken(entry.StereoToken), EndpointToken = SafeToken(entry.EndpointToken)
+                    }).ToArray();
+                writer.WritePropertyName("discovery");
+                JsonSerializer.Serialize(writer, discovery with { Demand = discovery.Demand & allowed, History = history }, AppSettings.JsonOptions);
+            }
             writer.WriteEndObject();
         }
         return System.Text.Encoding.UTF8.GetString(buffer.ToArray());
     }
+
+    private static string? SafeToken(string? token) => token is { Length: 64 } && token.All(char.IsAsciiHexDigit) ? token : null;
 
     private static IReadOnlyDictionary<string, ulong> SelectCounters(IReadOnlyDictionary<string, ulong>? counters, string[] names)
     {
