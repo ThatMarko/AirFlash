@@ -456,9 +456,10 @@ internal static class UiSmoke
         var factory = new MockFactory { AutoReady = false };
         await using var app = new AppViewModel(new MemoryStore(), discovery, new MockAutostart(), new MockAudio(), factory,
             Application.Current.Dispatcher, isolatedVerification: true);
+        app.SetPanelVisible(true);
         app.Start();
         await app.Startup;
-        await Pump();
+        await Until(() => app.AllReceivers.Count == 2);
         await app.ToggleAsync(active);
         await Until(() => app.Snapshot.State == PlaybackState.Connecting && factory.EmitEvent is not null);
         discovery.PublishFailure(new DiscoveryFailure("Synthetic timeout while connecting", DiscoveryFailureReason.ResolveTimeout,
