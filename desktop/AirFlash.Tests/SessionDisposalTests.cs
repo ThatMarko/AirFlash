@@ -41,6 +41,7 @@ public sealed class SessionDisposalTests
         };
         var controller = TestSessionController.Create(new SessionTestEngine.Factory(connection), new SessionTestEngine.Audio(), timing: SessionTestEngine.Timing);
         Task? first = null;
+        Task? queued = null;
         Task? disposal = null;
         try
         {
@@ -48,7 +49,12 @@ public sealed class SessionDisposalTests
             var snapshot = controller.DiagnosticSnapshotAsync();
             first = snapshot;
             await entered.Task.WaitAsync(Limit);
+            var waiting = controller.DiagnosticSnapshotAsync();
+            queued = waiting;
+            Assert.False(waiting.IsCompleted);
             disposal = controller.DisposeAsync().AsTask();
+            Assert.Same(disposal, controller.DisposeAsync().AsTask());
+            Assert.False(disposal.IsCompleted);
 
             var late = controller.DiagnosticSnapshotAsync();
 
@@ -58,6 +64,7 @@ public sealed class SessionDisposalTests
 
             release.TrySetResult();
             Assert.Null(await snapshot.WaitAsync(Limit));
+            Assert.Null(await waiting.WaitAsync(Limit));
             Assert.Equal(1, connection.Count("diag_summary"));
         }
         finally
@@ -65,6 +72,101 @@ public sealed class SessionDisposalTests
             release.TrySetResult();
             await (disposal ?? controller.DisposeAsync().AsTask()).WaitAsync(Limit);
             if (first is not null) await first.WaitAsync(Limit);
+            if (queued is not null) await queued.WaitAsync(Limit);
+        }
+    }
+
+    [Fact]
+    public async Task Disposal_drains_equalizer_writes_already_waiting_and_rejects_late_preview()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var block = 0;
+        var connection = new SessionTestEngine.Connection
+        {
+            BeforeCommandAsync = command =>
+            {
+                if (command != "set_equalizer" || Volatile.Read(ref block) == 0) return Task.CompletedTask;
+                entered.TrySetResult();
+                return release.Task;
+            }
+        };
+        var controller = TestSessionController.Create(new SessionTestEngine.Factory(connection), new SessionTestEngine.Audio(), timing: SessionTestEngine.Timing);
+        Task? disposal = null;
+        Task? holder = null;
+        Task? waiting = null;
+        Task? preview = null;
+        try
+        {
+            await SessionTestEngine.StreamAsync(controller, connection);
+            var owner = Guid.NewGuid();
+            await controller.PreviewEqualizerAsync(owner, new()).WaitAsync(Limit);
+            var writes = connection.Count("set_equalizer");
+            Volatile.Write(ref block, 1);
+            holder = controller.ClearEqualizerPreviewAsync(owner);
+            await entered.Task.WaitAsync(Limit);
+
+            var second = Guid.NewGuid();
+            preview = controller.PreviewEqualizerAsync(second, new());
+            waiting = controller.ClearEqualizerPreviewAsync(second);
+            Assert.False(waiting.IsCompleted);
+            disposal = controller.DisposeAsync().AsTask();
+            Assert.False(disposal.IsCompleted);
+            Assert.True(controller.PreviewEqualizerAsync(Guid.NewGuid(), new()).IsCompletedSuccessfully);
+
+            release.TrySetResult();
+            await disposal.WaitAsync(Limit);
+            Assert.Equal(writes + 1, connection.Count("set_equalizer"));
+        }
+        finally
+        {
+            release.TrySetResult();
+            await (disposal ?? controller.DisposeAsync().AsTask()).WaitAsync(Limit);
+            if (holder is not null) await holder.WaitAsync(Limit);
+            if (waiting is not null) await waiting.WaitAsync(Limit);
+            if (preview is not null) await preview.WaitAsync(Limit);
+        }
+    }
+
+    [Fact]
+    public async Task Disposal_cancels_and_joins_a_device_volume_edit()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var volumeReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var connection = new SessionTestEngine.Connection
+        {
+            BeforeCommandAsync = command =>
+            {
+                if (command != "set_device_volume") return Task.CompletedTask;
+                entered.TrySetResult();
+                return release.Task;
+            }
+        };
+        var controller = TestSessionController.Create(new SessionTestEngine.Factory(connection), new SessionTestEngine.Audio(), timing: SessionTestEngine.Timing);
+        controller.Changed += snapshot => { if (snapshot.DeviceVolume?.Available == true) volumeReady.TrySetResult(); };
+        Task? disposal = null;
+        Task? edit = null;
+        try
+        {
+            await SessionTestEngine.StreamAsync(controller, connection);
+            var receiver = SessionTestEngine.Receiver();
+            connection.Current("device_volume", new { host = receiver.Address, available = true, status = "confirmed", volume = 30, sequence = 0 });
+            await volumeReady.Task.WaitAsync(Limit);
+            edit = controller.SetDeviceVolumeAsync(receiver.Id, 55);
+            await entered.Task.WaitAsync(Limit);
+
+            disposal = controller.DisposeAsync().AsTask();
+            await disposal.WaitAsync(Limit);
+            await edit.WaitAsync(Limit);
+            await controller.SetDeviceVolumeAsync(receiver.Id, 65).WaitAsync(Limit);
+            Assert.Equal(0, connection.Count("set_device_volume"));
+        }
+        finally
+        {
+            release.TrySetResult();
+            await (disposal ?? controller.DisposeAsync().AsTask()).WaitAsync(Limit);
+            if (edit is not null) await edit.WaitAsync(Limit);
         }
     }
 }

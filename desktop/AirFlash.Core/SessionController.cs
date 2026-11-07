@@ -61,6 +61,9 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private long _generation;
     private long _automaticIntent;
     private bool _passiveDisposed;
+    private int _passiveOperations;
+    private TaskCompletionSource? _passiveDrained;
+    private Task? _disposeTask;
     private bool _muted;
     private bool _transportStreaming;
     private long _remoteTransport;
@@ -95,9 +98,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     }
     private async Task PreviewEqualizerLoopAsync(CancellationTokenSource edit)
     {
+        using var operation = TryAdmitPassiveOperation();
         var token = edit.Token;
         try
         {
+            if (operation is null) return;
             while (true)
             {
                 await Task.Delay(50, token).ConfigureAwait(false);
@@ -133,6 +138,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private EqualizerSettings EffectiveEqualizer() { lock (_sync) return (_equalizerPreview ?? _settings.Equalizer).Clone(); }
     private async Task SendEqualizerAsync(long? expectedSequence = null, CancellationToken cancellation = default)
     {
+        using var operation = TryAdmitPassiveOperation();
+        if (operation is null) return;
         await _equalizerWriter.WaitAsync(cancellation).ConfigureAwait(false);
         try
         {
@@ -161,20 +168,24 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private CancellationTokenSource? _volumeEdit;
     public async Task SetDeviceVolumeAsync(string receiverId, int value)
     {
+        using var operation = TryAdmitPassiveOperation();
+        if (operation is null) return;
         if (Snapshot.Receiver?.IsSoftwareGroup == true) { await SetMemberVolumeAsync(receiverId, value).ConfigureAwait(false); return; }
+        CancellationTokenSource edit;
         CancellationToken token;
         long sequence, epoch;
         lock (_sync)
         {
-            if (_receiver?.Id != receiverId || !_deviceVolume.Available || _snapshot.State is not (PlaybackState.Streaming or PlaybackState.Standby)) return;
-            _volumeEdit?.Cancel(); _volumeEdit?.Dispose();
-            _volumeEdit = CancellationTokenSource.CreateLinkedTokenSource(_lifetime!.Token);
-            token = _volumeEdit.Token; sequence = ++_volumeSequence; epoch = _generation;
+            if (_passiveDisposed || _lifetime is null || _receiver?.Id != receiverId || !_deviceVolume.Available
+                || _snapshot.State is not (PlaybackState.Streaming or PlaybackState.Standby)) return;
+            _volumeEdit?.Cancel();
+            _volumeEdit = edit = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+            token = edit.Token; sequence = ++_volumeSequence; epoch = _generation;
             _deviceVolume = _deviceVolume.Begin(Math.Clamp(value, 0, 100), sequence);
         }
-        PublishCurrent(epoch);
         try
         {
+            PublishCurrent(epoch);
             await Task.Delay(200, token).ConfigureAwait(false);
             await _serial.WaitAsync(token).ConfigureAwait(false);
             try
@@ -208,6 +219,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             log?.Invoke($"Device volume command failed: {error.Message}");
             PublishCurrent(epoch);
         }
+        finally
+        {
+            lock (_sync) { if (ReferenceEquals(_volumeEdit, edit)) _volumeEdit = null; }
+            edit.Dispose();
+        }
     }
     private void PublishCurrent(long epoch)
     {
@@ -220,8 +236,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         long epoch, sequence; string host, session; IEngineConnection connection; CancellationToken token;
         lock (_sync)
         {
-            if (_receiver?.IsSoftwareGroup != true || _snapshot.State is not (PlaybackState.Streaming or PlaybackState.Standby) || !_memberVolumes.TryGetValue(memberId, out var state) || !state.Available || !_memberHosts.TryGetValue(memberId, out host!) || _connection is null || _sessionId is null) return;
-            epoch = _generation; sequence = ++_volumeSequence; connection = _connection; session = _sessionId; token = _lifetime!.Token;
+            if (_passiveDisposed || _lifetime is null || _receiver?.IsSoftwareGroup != true || _snapshot.State is not (PlaybackState.Streaming or PlaybackState.Standby) || !_memberVolumes.TryGetValue(memberId, out var state) || !state.Available || !_memberHosts.TryGetValue(memberId, out host!) || _connection is null || _sessionId is null) return;
+            epoch = _generation; sequence = ++_volumeSequence; connection = _connection; session = _sessionId; token = _lifetime.Token;
             _memberVolumes[memberId] = state.Begin(Math.Clamp(value, 0, 100), sequence);
         }
         PublishCurrent(epoch);
@@ -525,7 +541,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private async Task StopLockedAsync(bool retryCleanup = false)
     {
         if (!retryCleanup && Volatile.Read(ref _cleanupFailure) is { } pending) throw pending;
-        lock (_sync) { ++_generation; _discoveredReceiver = null; _volumeEdit?.Cancel(); _volumeEdit?.Dispose(); _volumeEdit = null; _deviceVolume = new(); _memberVolumes.Clear(); _memberHosts.Clear(); }
+        lock (_sync) { ++_generation; _discoveredReceiver = null; _volumeEdit?.Cancel(); _volumeEdit = null; _deviceVolume = new(); _memberVolumes.Clear(); _memberHosts.Clear(); }
         if (_lifetime is not null) await _lifetime.CancelAsync().ConfigureAwait(false);
         var cleanup = retryCleanup ? Volatile.Read(ref _cleanupFailure) : null;
         if (_work is not null)
@@ -740,13 +756,15 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private static object StandbyParameters(AppSettings settings, string receiverId) => new { enabled = settings.StandbyEnabled, silence_seconds = settings.ReadOptions(receiverId).StandbySeconds ?? settings.StandbySilenceSeconds };
     private async Task SendStandbyAsync()
     {
+        using var operation = TryAdmitPassiveOperation();
+        if (operation is null) return;
         await _equalizerWriter.WaitAsync().ConfigureAwait(false);
         try
         {
             IEngineConnection? connection; string? session; (bool Enabled, double Seconds) policy;
             lock (_sync)
             {
-                if (!_startSent || _receiver is null) return;
+                if (_passiveDisposed || !_startSent || _receiver is null) return;
                 connection = _connection; session = _sessionId;
                 policy = (_settings.StandbyEnabled, _settings.ReadOptions(_receiver.Id).StandbySeconds ?? _settings.StandbySilenceSeconds);
                 if (_sentStandby == policy) return;
@@ -803,7 +821,9 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     /// <summary>Send to the current engine when its hello advertised <c>now_playing</c>.</summary>
     private async Task SendNowPlayingAsync(CancellationToken cancellation)
     {
-        lock (_sync) { if (_passiveDisposed || !_nowPlayingSupported || !_startSent) return; }
+        lock (_sync) { if (!_nowPlayingSupported || !_startSent) return; }
+        using var operation = TryAdmitPassiveOperation();
+        if (operation is null) return;
         try
         {
             await _nowPlayingWriter.WaitAsync(cancellation).ConfigureAwait(false);
@@ -850,7 +870,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     /// received, or null.</summary>
     public async Task<JsonElement?> DiagnosticSnapshotAsync(CancellationToken cancellation = default)
     {
-        lock (_sync) { if (_passiveDisposed) return _lastDiagnostic; }
+        using var operation = TryAdmitPassiveOperation();
+        if (operation is null) { lock (_sync) return _lastDiagnostic; }
         await _diagnosticWriter.WaitAsync(cancellation).ConfigureAwait(false);
         TaskCompletionSource<JsonElement?>? reply = null;
         try
@@ -1501,22 +1522,62 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         }
         Changed?.Invoke(snapshot);
     }
-    public async ValueTask DisposeAsync()
+    private PassiveOperation? TryAdmitPassiveOperation()
     {
-        lock (_sync) { _passiveDisposed = true; ++_automaticIntent; _equalizerDisposed = true; _equalizerEdit?.Cancel(); _equalizerEdit = null; _equalizerEditTask = null; }
-        await StopAsync().ConfigureAwait(false);
-        Task? endpointRecovery;
-        lock (_sync) endpointRecovery = _endpointRecoveryTask;
-        if (endpointRecovery is not null) await endpointRecovery.ConfigureAwait(false);
-        // Join current writers. These managed gates have no wait handles and
-        // remain usable by callers already queued when admission closed.
-        await _equalizerWriter.WaitAsync().ConfigureAwait(false);
-        _equalizerWriter.Release();
-        await _diagnosticWriter.WaitAsync().ConfigureAwait(false);
-        _diagnosticWriter.Release();
-        await _nowPlayingWriter.WaitAsync().ConfigureAwait(false);
-        _nowPlayingWriter.Release();
-        _serial.Dispose();
-        _audioWriter.Dispose();
+        lock (_sync)
+        {
+            if (_passiveDisposed) return null;
+            ++_passiveOperations;
+            return new(this);
+        }
+    }
+
+    private sealed class PassiveOperation(SessionController owner) : IDisposable
+    {
+        public void Dispose()
+        {
+            lock (owner._sync)
+                if (--owner._passiveOperations == 0) owner._passiveDrained?.TrySetResult();
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        TaskCompletionSource completion;
+        Task drained;
+        lock (_sync)
+        {
+            if (_disposeTask is { IsCompleted: false } or { IsCompletedSuccessfully: true }) return new(_disposeTask);
+            completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            _disposeTask = completion.Task;
+            _passiveDisposed = true; ++_automaticIntent; _equalizerDisposed = true;
+            drained = _passiveOperations == 0 ? Task.CompletedTask
+                : (_passiveDrained ??= new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+        }
+        _ = FinishDisposalAsync(completion, drained);
+        return new(completion.Task);
+    }
+
+    private async Task FinishDisposalAsync(TaskCompletionSource completion, Task drained)
+    {
+        try
+        {
+            lock (_sync) { _equalizerEdit?.Cancel(); _equalizerEdit = null; _equalizerEditTask = null; }
+            // Stop joins the stream worker, including its direct use of the EQ gate
+            // at startup. The admission drain joins callers waiting on the writers.
+            await StopAsync().ConfigureAwait(false);
+            Task? endpointRecovery;
+            lock (_sync) endpointRecovery = _endpointRecoveryTask;
+            if (endpointRecovery is not null) await endpointRecovery.ConfigureAwait(false);
+            await drained.ConfigureAwait(false);
+            _equalizerWriter.Dispose();
+            _diagnosticWriter.Dispose();
+            _nowPlayingWriter.Dispose();
+            _serial.Dispose();
+            _audioWriter.Dispose();
+            completion.SetResult();
+        }
+        catch (OperationCanceledException error) { completion.SetCanceled(error.CancellationToken); }
+        catch (Exception error) { completion.SetException(error); }
     }
 }
