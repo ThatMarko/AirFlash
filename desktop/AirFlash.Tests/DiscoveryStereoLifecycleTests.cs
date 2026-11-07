@@ -320,7 +320,7 @@ public sealed class DiscoveryStereoLifecycleTests
             cancellation.Cancel();
             // Cancel releases either barrier wait; join both workers before
             // disposing the barrier or discovery, without masking the first fault.
-            await Task.WhenAll(reader, writer).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            await Task.WhenAll(reader, writer).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing | ConfigureAwaitOptions.ContinueOnCapturedContext);
         }
 
         Assert.Equal(128, concurrent.Count);
