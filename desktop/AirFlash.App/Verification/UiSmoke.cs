@@ -41,6 +41,11 @@ internal static class UiSmoke
         Check(startupText.Contains("Startup stage=platform", StringComparison.Ordinal)
             && startupText.Contains("Startup stage=wpf-resources ready", StringComparison.Ordinal),
             "both startup stages are recorded in isolated smoke logs", checks);
+        Check(!Metadata.SmtcNowPlayingSource.HasMetadata(Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus.Stopped)
+            && !Metadata.SmtcNowPlayingSource.HasMetadata(Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed)
+            && Metadata.SmtcNowPlayingSource.HasMetadata(Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
+            && Metadata.SmtcNowPlayingSource.HasMetadata(Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing),
+            "stopped and closed media clear the source while paused and playing media keep metadata", checks);
         foreach (var arguments in new string[][]
         {
             ["--ui-pairing-smoke"], ["--ui-pairing-smoek"], ["--receiver-settings-regression"],

@@ -55,6 +55,8 @@ public sealed class SmtcNowPlayingSource(Action<string>? log = null) : INowPlayi
             if (session is null) return null;
             var properties = await session.TryGetMediaPropertiesAsync().AsTask(cancellation).ConfigureAwait(false);
             var playback = session.GetPlaybackInfo();
+            // Some players retain the last track properties after stopping.
+            if (!HasMetadata(playback.PlaybackStatus)) return null;
             var timeline = session.GetTimelineProperties();
             var playing = playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
             var rate = playback.PlaybackRate is double reportedRate && double.IsFinite(reportedRate) && reportedRate >= 0 ? reportedRate : 1d;
@@ -83,4 +85,7 @@ public sealed class SmtcNowPlayingSource(Action<string>? log = null) : INowPlayi
             return null;
         }
     }
+
+    internal static bool HasMetadata(GlobalSystemMediaTransportControlsSessionPlaybackStatus status) =>
+        status is not (GlobalSystemMediaTransportControlsSessionPlaybackStatus.Stopped or GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed);
 }
