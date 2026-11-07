@@ -2067,6 +2067,15 @@ fn rtp_queue_state(members: &[Member]) -> (usize, u64) {
         })
 }
 
+fn group_ownership_uncertain(members: &[Member]) -> bool {
+    members.iter().any(|member| {
+        member.preempted
+            || member.ownership_uncertain
+            || member.preemption.session_ended()
+            || member.health.ownership_uncertain()
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn send_packets(
     options: &ProbeOptions,
@@ -2624,18 +2633,6 @@ fn send_packets(
         }
         Ok(StreamEnd::Finished)
     })();
-    // A single uncertain member makes group-wide cleanup unsafe. Never send an
-    // old association's TEARDOWN to the other half of a taken-over stereo pair.
-    if members.iter().any(|m| {
-        m.preempted
-            || m.ownership_uncertain
-            || m.preemption.session_ended()
-            || m.health.ownership_uncertain()
-    }) {
-        for member in members.iter_mut() {
-            member.preempted = true;
-        }
-    }
     // A stall in the last 250 ms of the session never reaches its own deadline.
     // Report what the window saw rather than dropping the stall from the summary.
     if let Some(window) = stall_drain.take() {
@@ -2648,15 +2645,22 @@ fn send_packets(
     // The drain is fallible (the final packet still goes through the packetizer),
     // but its error must not skip the end-of-session record below. Keep it and
     // return it after the summary has been emitted.
-    // A local stop, source end or silence can win while the ownership probe
-    // is pending. Close normally, but do not write media on that association.
-    let drained = if outcome.is_ok() && pending_clock_fault.is_none() {
+    // Stop, source end or silence can win before a pending ownership signal is
+    // polled. One uncertain member rules out a final write for the whole group.
+    let drained = if outcome.is_ok()
+        && pending_clock_fault.is_none()
+        && !group_ownership_uncertain(members)
+    {
         (|| -> Result<()> {
             if let Some(source) = &live {
                 let render = offset_deadline(schedule.playout_deadline(), common_latency, 0)?;
                 let (fade, _) = source.silence_packet(0.0)?;
                 let mut sent = true;
-                for member in members.iter_mut() {
+                for index in 0..members.len() {
+                    if group_ownership_uncertain(members) {
+                        return Ok(());
+                    }
+                    let member = &mut members[index];
                     sent &= member
                         .media
                         .send(
@@ -2682,7 +2686,7 @@ fn send_packets(
                                 .max()
                                 .unwrap_or(0),
                         );
-                    while Instant::now() < until {
+                    while Instant::now() < until && !group_ownership_uncertain(members) {
                         if members
                             .iter_mut()
                             .any(|m| m.media.service_buffered(Instant::now()).is_err())
@@ -2696,7 +2700,9 @@ fn send_packets(
                 // is a deliberate end of the timeline, not a `flush` reset: the
                 // receiver is never asked to discard queued audio, so a normal
                 // stop keeps every reset bucket at zero.
-                emit(json!({"event":"timeline_drained","faded":sent}));
+                if !group_ownership_uncertain(members) {
+                    emit(json!({"event":"timeline_drained","faded":sent}));
+                }
             }
             Ok(())
         })()
@@ -2767,8 +2773,15 @@ fn send_packets(
     // TEARDOWN so neither contends for the lock nor writes after it.
     drop(volume_workers);
     drop(metadata_worker);
-    for m in members.iter_mut() {
-        m.close();
+    // Feedback workers can latch an ownership signal as they stop. Join them
+    // all before deciding whether any member may send TEARDOWN.
+    for member in members.iter_mut() {
+        member.feedback.take();
+    }
+    let uncertain = group_ownership_uncertain(members);
+    for member in members.iter_mut() {
+        member.preempted |= uncertain;
+        member.close();
     }
     drained?;
     outcome
@@ -4321,6 +4334,75 @@ mod tests {
         worker.join().unwrap();
         assert!(!methods.lock().unwrap().iter().any(|m| m == "TEARDOWN"));
     }
+
+    #[test]
+    fn stop_checks_group_ownership_before_the_fade_and_again_before_teardown() {
+        for (signal_at, expect_fade) in [("streaming", false), ("transport_metrics", true)] {
+            let (mut members, receivers): (Vec<_>, Vec<_>) = (0..2)
+                .map(|_| {
+                    let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+                    receiver
+                        .set_read_timeout(Some(Duration::from_millis(30)))
+                        .unwrap();
+                    let address = receiver.local_addr().unwrap();
+                    let (mut member, server, methods) = local_member_with(address, None);
+                    member.media.connect_audio(address).unwrap();
+                    (member, (receiver, server, methods))
+                })
+                .unzip();
+            let health = members[0].health.clone();
+            let cancel = Cancellation::default();
+            let source = crate::live::tests::source();
+            let saw_drain = std::sync::atomic::AtomicBool::new(false);
+            let ended = send_packets(
+                &summary_options("", "native_stereo", 0),
+                &cancel,
+                &std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0.0f32.to_bits())),
+                crate::volume::Control::default(),
+                Some(&source),
+                &crate::standby::Control::default(),
+                &Clock::new(),
+                None,
+                &mut members,
+                None,
+                &[],
+                None,
+                &|event| {
+                    if event["event"] == signal_at {
+                        health.preemption_signal(preemption::Signal::FeedbackLost);
+                    }
+                    if event["event"] == "streaming" {
+                        cancel.cancel();
+                    }
+                    if event["event"] == "timeline_drained" {
+                        saw_drain.store(true, Ordering::Relaxed);
+                    }
+                },
+            )
+            .unwrap();
+            assert!(matches!(ended, StreamEnd::Finished));
+            assert!(health.ownership_uncertain());
+            drop(members);
+            for (receiver, server, methods) in receivers {
+                server.join().unwrap();
+                assert_eq!(
+                    receiver.recv(&mut [0; 2048]).is_ok(),
+                    expect_fade,
+                    "signal during {signal_at}"
+                );
+                assert!(
+                    !methods
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .any(|method| method == "TEARDOWN"),
+                    "signal during {signal_at} must suppress TEARDOWN for both members"
+                );
+            }
+            assert_eq!(saw_drain.load(Ordering::Relaxed), expect_fade);
+        }
+    }
+
     #[test]
     fn a_normal_member_close_still_sends_teardown() {
         let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
