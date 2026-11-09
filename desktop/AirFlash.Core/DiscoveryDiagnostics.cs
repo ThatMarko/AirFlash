@@ -8,9 +8,9 @@ namespace AirFlash.Core;
 [JsonConverter(typeof(JsonStringEnumConverter<DiscoveryDemand>))]
 public enum DiscoveryDemand { None = 0, Panel = 1, Receivers = 2, Startup = 4, SoftwareStereo = 8 }
 [JsonConverter(typeof(JsonStringEnumConverter<DiscoveryTraceEvent>))]
-public enum DiscoveryTraceEvent { DemandChanged, Started, Stopped, Restarted, AdvertisementAdded, AdvertisementRemoved, CacheRevalidated, ResolveSucceeded, ResolveFailed, RecordRemoved, BrowseFailed, Unavailable, Disposed }
+public enum DiscoveryTraceEvent { DemandChanged, Started, Stopped, Restarted, AdvertisementAdded, AdvertisementRemoved, CachedRecordTtlRefreshed, ResolveSucceeded, ResolveFailed, RecordRemoved, BrowseFailed, Unavailable, Disposed }
 [JsonConverter(typeof(JsonStringEnumConverter<DiscoveryTraceReason>))]
-public enum DiscoveryTraceReason { None, Requested, InterfaceChanged, NetworkAddressChanged, NetworkAvailabilityChanged, AdapterChanged, AdapterLookupFailed, PtrGoodbye, PtrExpired, ResumeGraceExpired, CacheExpired, ResolveTimeout, ResolveFailed, DnsUnavailable }
+public enum DiscoveryTraceReason { None, Requested, InterfaceChanged, NetworkAddressChanged, NetworkAvailabilityChanged, AdapterChanged, AdapterLookupFailed, PtrGoodbye, PtrExpired, ResumeGraceExpired, CacheExpired, ResolveTimeout, ResolveFailed, DnsUnavailable, QueryStartFailed, QueryEndedUnexpectedly }
 [JsonConverter(typeof(JsonStringEnumConverter<DiscoveryServiceType>))]
 public enum DiscoveryServiceType { Unknown, Airplay, Raop }
 
@@ -21,7 +21,7 @@ public sealed record DiscoveryTraceEntry(long Sequence, DateTimeOffset ReceivedA
     string? EndpointToken, bool? StereoMetadataPresent, uint? TtlSeconds);
 
 public sealed record DiscoveryDiagnosticsSnapshot(long Epoch, DiscoveryDemand Demand, bool Started, bool Running,
-    bool InterfaceAvailable, int AdvertisedNames, int CachedRecords, int PendingResolves, int NativeOwners,
+    bool? InterfaceAvailable, int AdvertisedNames, int CachedRecords, int PendingResolves, int NativeOwners,
     long RecordedEvents, long OverwrittenEvents, IReadOnlyList<DiscoveryTraceEntry> History)
 {
     public const int HistoryCapacity = 128;

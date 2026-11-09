@@ -240,6 +240,8 @@ public sealed class DiscoveryLifecycleTests
         var failure = Assert.Single(failures);
         Assert.Equal(DiscoveryFailureReason.ResolveTimeout, failure.Reason);
         Assert.Equal(new DiscoveryResolveContext("AA:BB:CC:DD:EE:FF", "192.0.2.1", 7000, ""), failure.Resolve);
+        var trace = Assert.Single(fixture.Traces(DiscoveryTraceEvent.ResolveFailed));
+        Assert.Equal(DiscoveryTraceReason.ResolveTimeout, trace.Reason);
 
         refresh.Resolved(0, Record("192.0.2.2"));
         Assert.Equal(0, publications);
@@ -247,6 +249,8 @@ public sealed class DiscoveryLifecycleTests
         fixture.TickAfter(TimeSpan.FromSeconds(1));
         Assert.Equal(3, fixture.Dns.Resolves.Count);
         Assert.Equal(1, fixture.Discovery.Snapshot.PendingResolves);
+        refresh.Resolved(5, null);
+        Assert.Equal(trace, Assert.Single(fixture.Traces(DiscoveryTraceEvent.ResolveFailed)));
     }
 
     [Fact]
@@ -262,6 +266,7 @@ public sealed class DiscoveryLifecycleTests
         Assert.Equal(DiscoveryFailureReason.ResolveFailed, failure.Reason);
         Assert.Null(failure.Resolve);
         Assert.Empty(fixture.Catalog);
+        Assert.Equal(DiscoveryTraceReason.ResolveFailed, Assert.Single(fixture.Traces(DiscoveryTraceEvent.ResolveFailed)).Reason);
     }
 
     [Fact]
@@ -528,17 +533,32 @@ public sealed class DiscoveryLifecycleTests
     }
 
     [Theory]
-    [InlineData(0u)]
-    [InlineData(5u)]
-    public void StartWithoutCallbackDoesNotLeaveResolvePendingUnlessDnsReportsPending(uint status)
+    [InlineData(0u, true)]
+    [InlineData(5u, true)]
+    [InlineData(5u, false)]
+    public void StartWithoutCallbackDoesNotLeaveResolvePendingUnlessDnsReportsPending(uint status, bool settleBeforeReturn)
     {
         using var fixture = new Fixture();
-        fixture.Dns.OnCreated = operation => { if (operation.IsResolve) operation.StartStatus = status; };
+        fixture.Dns.OnCreated = operation =>
+        {
+            if (!operation.IsResolve) return;
+            operation.StartStatus = status;
+            operation.SettleOnNonPendingStart = settleBeforeReturn;
+        };
         fixture.StartAndAnnounce();
+        var failed = Assert.Single(fixture.Dns.Resolves);
         Assert.Equal(0, fixture.Discovery.Snapshot.PendingResolves);
-        Assert.NotEmpty(fixture.Failures);
+        Assert.Single(fixture.Failures);
+        var reason = settleBeforeReturn ? DiscoveryTraceReason.QueryEndedUnexpectedly : DiscoveryTraceReason.QueryStartFailed;
+        Assert.Equal(reason, Assert.Single(fixture.Traces(DiscoveryTraceEvent.ResolveFailed)).Reason);
+        Assert.Equal(1, failed.ReleaseCalls);
+
+        fixture.Dns.OnCreated = null;
         fixture.TickAfter(TimeSpan.FromSeconds(1));
         Assert.Equal(2, fixture.Dns.Resolves.Count);
+        Assert.Equal(1, fixture.Discovery.Snapshot.PendingResolves);
+        failed.Resolved(5, null);
+        Assert.Equal(reason, Assert.Single(fixture.Traces(DiscoveryTraceEvent.ResolveFailed)).Reason);
     }
 
     [Theory]
@@ -1055,9 +1075,15 @@ public sealed class DiscoveryLifecycleTests
         fixture.Discovery.Start();
         Assert.Equal(2, fixture.Failures.Count);
         Assert.Equal(0, fixture.Discovery.Snapshot.NativeOwners);
+        var traces = fixture.Traces(DiscoveryTraceEvent.BrowseFailed);
+        Assert.Equal(2, traces.Length);
+        Assert.All(traces, trace => Assert.Equal(DiscoveryTraceReason.QueryEndedUnexpectedly, trace.Reason));
         fixture.TickAfter(TimeSpan.FromSeconds(1));
         Assert.Equal(4, fixture.Failures.Count);
         Assert.Equal(4, fixture.Dns.Browses.Count);
+        traces = fixture.Traces(DiscoveryTraceEvent.BrowseFailed);
+        Assert.Equal(4, traces.Length);
+        Assert.All(traces, trace => Assert.Equal(DiscoveryTraceReason.QueryEndedUnexpectedly, trace.Reason));
         fixture.Dns.OnCreated = null;
         fixture.TickAfter(TimeSpan.FromSeconds(2) - TimeSpan.FromTicks(1));
         Assert.Equal(4, fixture.Dns.Browses.Count);
@@ -1068,8 +1094,10 @@ public sealed class DiscoveryLifecycleTests
         Assert.Single(fixture.Catalog);
     }
 
-    [Fact]
-    public void LoaderFailureDoesNotEscapeOrPreventStartingTheOtherBrowser()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void LoaderFailureDoesNotEscapeOrPreventStartingTheOtherBrowser(bool settleBeforeThrow)
     {
         using var fixture = new Fixture();
         fixture.Dns.OnCreated = operation =>
@@ -1077,18 +1105,24 @@ public sealed class DiscoveryLifecycleTests
             if (operation.Name != Airplay) return;
             operation.DuringStart = () =>
             {
-                operation.Settle(); // Native adapter has already proved non-admission.
+                if (settleBeforeThrow) operation.Settle();
                 throw new DllNotFoundException("Fixture DNS loader failure.");
             };
         };
         fixture.Discovery.Start();
         Assert.Equal(2, fixture.Dns.Browses.Count);
         Assert.Equal(1, fixture.Discovery.Snapshot.NativeOwners);
-        Assert.NotEmpty(fixture.Failures);
+        Assert.Single(fixture.Failures);
+        var failed = fixture.Dns.Browses.Single(operation => operation.Name == Airplay);
+        var trace = Assert.Single(fixture.Traces(DiscoveryTraceEvent.BrowseFailed));
+        Assert.Equal(settleBeforeThrow ? DiscoveryTraceReason.QueryEndedUnexpectedly : DiscoveryTraceReason.QueryStartFailed, trace.Reason);
+        Assert.Equal(DiscoveryServiceType.Airplay, trace.ServiceType);
         fixture.Dns.OnCreated = null;
         fixture.TickAfter(TimeSpan.FromSeconds(1));
         Assert.Equal(3, fixture.Dns.Browses.Count);
         Assert.Equal(2, fixture.Discovery.Snapshot.NativeOwners);
+        failed.Announced(5);
+        Assert.Equal(trace, Assert.Single(fixture.Traces(DiscoveryTraceEvent.BrowseFailed)));
     }
 
     private static ServiceRecord Record(string address) => new(Name, Airplay, address, 7000, new Dictionary<string, string> { ["deviceid"] = "AA:BB:CC:DD:EE:FF" });
@@ -1175,6 +1209,7 @@ public sealed class DiscoveryLifecycleTests
         public void StartAndAnnounce(uint ttl = 3600) { Discovery.Start(); Announce(ttl); }
         public void Announce(uint ttl = 3600) => Dns.Browses.Last(operation => operation.Name == Airplay && !operation.CancelRequested).Announced(0, new DnsAnnouncement(Name, ttl));
         public void TickAfter(TimeSpan duration) { Clock.Advance(duration); Discovery.Tick(); }
+        public DiscoveryTraceEntry[] Traces(DiscoveryTraceEvent kind) => Discovery.SnapshotDiagnostics().History.Where(entry => entry.Event == kind).ToArray();
         public void Dispose() { Discovery.Dispose(); Dns.SettleAll(); }
     }
 
@@ -1225,6 +1260,7 @@ public sealed class DiscoveryLifecycleTests
         public bool IsResolve => resolve is not null;
         public bool IsSettled { get; private set; }
         public bool CancelRequested { get; private set; }
+        public bool SettleOnNonPendingStart = true;
         public uint StartStatus = 9506;
         public uint CancelStatus;
         public int CancelCalls;
@@ -1247,7 +1283,7 @@ public sealed class DiscoveryLifecycleTests
             try
             {
                 DuringStart?.Invoke();
-                if (StartStatus != 9506) Settle();
+                if (StartStatus != 9506 && SettleOnNonPendingStart) Settle();
                 return StartStatus;
             }
             finally { StartReturned.TrySetResult(); }

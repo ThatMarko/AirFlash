@@ -33,10 +33,12 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
     private ITimer? _timer;
     private string _interfaceId = "";
     private uint? _interfaceIndex;
+    private bool? _observedInterfaceAvailability;
     private TimeSpan _nextAdapterCheck;
     private long _epoch;
     private long _resolveSequence;
     private long _restartSequence;
+    private long _appliedRestartSequence;
     private readonly DiscoveryHistory _history = new();
     private DiscoveryDemand _demand;
     private bool _started;
@@ -83,7 +85,8 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
 
     public DiscoveryDiagnosticsSnapshot SnapshotDiagnostics()
     {
-        lock (_sync) return new(_epoch, _demand, _started && !_disposed, _running && !_disposed, _interfaceIndex is not null && !_disposed,
+        lock (_sync) return new(_epoch, _demand, _started && !_disposed, _running && !_disposed,
+            _started && !_disposed ? _observedInterfaceAvailability : null,
             _advertised.Count, _records.Count, _pending.Values.Count(owner => !owner.HasResult), _owners.Count,
             _history.Recorded, _history.Overwritten, _history.Snapshot()) { Disposed = _disposed };
     }
@@ -100,6 +103,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
         {
             if (_disposed || _interfaceId == id) return;
             _interfaceId = id;
+            _observedInterfaceAvailability = null;
             ++_epoch; ++_restartSequence;
             foreach (var name in _records.Keys.ToArray()) RemoveRecordLocked(name, DiscoveryTraceReason.InterfaceChanged);
         }
@@ -121,6 +125,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
         {
             if (_disposed || _started) return;
             _started = true;
+            _observedInterfaceAvailability = null;
             TraceLocked(DiscoveryTraceEvent.Started, DiscoveryTraceReason.Requested);
             _nextAdapterCheck = Now + _policy.RefreshInterval;
             if (_enableInfrastructure)
@@ -166,6 +171,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
         {
             if (_disposed || !_started) return;
             selected = _interfaceId; sequence = ++_restartSequence;
+            _observedInterfaceAvailability = null;
         }
         uint? index; string? error = null;
         try { index = DiscoveryInterface.ResolveIndex(selected, _adapters()); }
@@ -175,6 +181,8 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
         {
             if (_disposed || !_started || sequence != _restartSequence || selected != _interfaceId) return;
             ++_epoch; _interfaceIndex = index; _nextAdapterCheck = Now + _policy.RefreshInterval;
+            _appliedRestartSequence = sequence;
+            _observedInterfaceAvailability = error is null ? index.HasValue : null;
             foreach (var owner in _owners.Values) RetireLocked(owner, work);
             _pending.Clear(); _advertised.Clear(); _concurrencyReported = false;
             // Cached entries remain visible on resume until advertised again.
@@ -194,13 +202,19 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
 
     internal void Tick()
     {
-        string selected; uint? previous; long epoch; bool checkAdapter;
+        string selected; uint? previous; long epoch; long restartSequence; TimeSpan nextAdapterCheck; bool checkAdapter;
         lock (_sync)
         {
             if (_disposed || !_started) return;
             selected = _interfaceId; previous = _interfaceIndex; epoch = _epoch;
             checkAdapter = Now >= _nextAdapterCheck;
-            if (checkAdapter) _nextAdapterCheck = Now + _policy.RefreshInterval;
+            if (checkAdapter)
+            {
+                _nextAdapterCheck = Now + _policy.RefreshInterval;
+                _observedInterfaceAvailability = null;
+            }
+            restartSequence = _restartSequence;
+            nextAdapterCheck = _nextAdapterCheck;
         }
         if (checkAdapter)
         {
@@ -210,6 +224,10 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
                 lock (_sync)
                 {
                     if (_disposed || epoch != _epoch || selected != _interfaceId) return;
+                    // Restart advances the epoch only after its lookup finishes.
+                    if (current == previous && restartSequence == _restartSequence
+                        && restartSequence == _appliedRestartSequence && nextAdapterCheck == _nextAdapterCheck)
+                        _observedInterfaceAvailability = current.HasValue;
                 }
                 if (current != previous) { Restart(DiscoveryTraceReason.AdapterChanged); return; }
             }
@@ -232,7 +250,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
             }
             foreach (var owner in _pending.Values.Where(owner => !owner.HasResult && owner.Deadline <= now).ToArray())
             {
-                FailResolveLocked(owner, now, work);
+                FailResolveLocked(owner, now, work, DiscoveryTraceReason.ResolveTimeout);
                 work.Errors.Add(ResolveFailureLocked(owner, now, DiscoveryFailureReason.ResolveTimeout));
             }
             ScheduleLocked(now, work);
@@ -336,7 +354,6 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
             if (status != 0)
             {
                 FailBrowseLocked(owner, now, work);
-                TraceLocked(DiscoveryTraceEvent.BrowseFailed, type: owner.Type);
                 work.Errors.Add(new(L.Format("Receiver discovery failed: {0}. You can add a receiver manually.", new Win32Exception((int)status).Message)));
             }
             else
@@ -355,7 +372,9 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
                     if (_records.TryGetValue(announcement.Name, out var cached))
                     {
                         _records[announcement.Name] = cached with { Expires = _advertised[announcement.Name].Expires, ResumeGrace = false };
-                        if (cached.ResumeGrace) TraceLocked(DiscoveryTraceEvent.CacheRevalidated, record: cached.Record, ttl: Math.Min(announcement.Ttl, 86400u));
+                        if (cached.ResumeGrace)
+                            TraceLocked(DiscoveryTraceEvent.CachedRecordTtlRefreshed, name: announcement.Name,
+                                type: owner.Type, ttl: Math.Min(announcement.Ttl, 86400u));
                     }
                 }
                 ScheduleLocked(now, work);
@@ -377,7 +396,7 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
             if (advertisement.Expires <= now) RemoveAdvertisementLocked(owner.Name, work, DiscoveryTraceReason.PtrExpired);
             else if (!owner.HasResult && owner.Deadline <= now)
             {
-                FailResolveLocked(owner, now, work);
+                FailResolveLocked(owner, now, work, DiscoveryTraceReason.ResolveTimeout);
                 work.Errors.Add(ResolveFailureLocked(owner, now, DiscoveryFailureReason.ResolveTimeout));
             }
             else if (status != 0 || record is null || record.Port is <= 0 or > 65535
@@ -424,21 +443,20 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
         return true;
     }
 
-    private void FailResolveLocked(Owner owner, TimeSpan now, Work work)
+    private void FailResolveLocked(Owner owner, TimeSpan now, Work work, DiscoveryTraceReason reason = DiscoveryTraceReason.ResolveFailed)
     {
         if (_pending.TryGetValue(owner.Name, out var pending) && ReferenceEquals(pending, owner))
         {
             _pending.Remove(owner.Name);
             if (_advertised.TryGetValue(owner.Name, out var advertisement))
                 advertisement.NextAttempt = now + Backoff(++advertisement.Failures);
+            TraceLocked(DiscoveryTraceEvent.ResolveFailed, reason, owner.Name, owner.Type);
         }
         RetireLocked(owner, work);
     }
 
     private DiscoveryFailure ResolveFailureLocked(Owner owner, TimeSpan now, DiscoveryFailureReason reason)
     {
-        TraceLocked(DiscoveryTraceEvent.ResolveFailed, reason == DiscoveryFailureReason.ResolveTimeout
-            ? DiscoveryTraceReason.ResolveTimeout : DiscoveryTraceReason.ResolveFailed, owner.Name, owner.Type);
         DiscoveryResolveContext? context = null;
         if (_records.TryGetValue(owner.Name, out var cached) && cached.Expires > now
             && cached.Record.ServiceType.Equals(owner.Type, StringComparison.OrdinalIgnoreCase))
@@ -464,11 +482,12 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
         return prefix.Length == 12 && prefix.All(Uri.IsHexDigit) && prefix != ReceiverIdentity.Normalize(identity);
     }
 
-    private void FailBrowseLocked(Owner owner, TimeSpan now, Work work)
+    private void FailBrowseLocked(Owner owner, TimeSpan now, Work work, DiscoveryTraceReason reason = DiscoveryTraceReason.None)
     {
         if (_browsers.TryGetValue(owner.Type, out var browser) && ReferenceEquals(browser.Owner, owner))
         {
             browser.Owner = null; browser.NextAttempt = now + Backoff(++browser.Failures);
+            TraceLocked(DiscoveryTraceEvent.BrowseFailed, reason, type: owner.Type);
         }
         RetireLocked(owner, work);
     }
@@ -496,8 +515,8 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
             // A non-pending Start can settle the adapter before its return value is
             // observed. Retire now, but retain the reason so Run reports that result.
             owner.UnexpectedSettlement = true;
-            if (owner.Resolve) FailResolveLocked(owner, Now, work);
-            else FailBrowseLocked(owner, Now, work);
+            if (owner.Resolve) FailResolveLocked(owner, Now, work, DiscoveryTraceReason.QueryEndedUnexpectedly);
+            else FailBrowseLocked(owner, Now, work, DiscoveryTraceReason.QueryEndedUnexpectedly);
         }
         Run(work);
     }
@@ -629,8 +648,8 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
                 }
                 else if (status != PendingStatus)
                 {
-                    if (owner.Resolve) FailResolveLocked(owner, Now, followup);
-                    else FailBrowseLocked(owner, Now, followup);
+                    if (owner.Resolve) FailResolveLocked(owner, Now, followup, DiscoveryTraceReason.QueryStartFailed);
+                    else FailBrowseLocked(owner, Now, followup, DiscoveryTraceReason.QueryStartFailed);
                     followup.Errors.Add(new(L.Format("DNS request did not remain pending: {0}. Discovery will retry with backoff.", status)));
                 }
             }
@@ -644,8 +663,8 @@ public sealed partial class WindowsDiscovery : IDiscoveryService, IDiscoveryDiag
         lock (_sync)
         {
             if (owner.Retired || _disposed || owner.Epoch != _epoch) RetireLocked(owner, work);
-            else if (owner.Resolve) FailResolveLocked(owner, Now, work);
-            else FailBrowseLocked(owner, Now, work);
+            else if (owner.Resolve) FailResolveLocked(owner, Now, work, DiscoveryTraceReason.QueryStartFailed);
+            else FailBrowseLocked(owner, Now, work, DiscoveryTraceReason.QueryStartFailed);
         }
         Run(work);
     }

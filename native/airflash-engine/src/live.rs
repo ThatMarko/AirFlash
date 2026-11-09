@@ -788,10 +788,9 @@ impl RebindBudget {
     }
 }
 
-/// Energy is only used as a probe. The cheap case (a shared-mode loopback that
-/// was already reopened) emits no packets and loses nothing, so the rate limit
-/// matters more than the threshold: never probe twice in a minute, and never
-/// before a real break or rebind has shown that this session can self-heal.
+/// Probe sustained silence after a break or rebind has been observed. Throttle
+/// repeated probes during the same silent run. A nonsilent packet ends that run
+/// and clears its cooldown.
 struct SilenceProbe {
     window: Duration,
     interval: Duration,
@@ -1567,7 +1566,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn silence_probe_needs_the_window_a_prior_break_and_one_probe_per_minute() {
+    fn silence_probe_needs_a_prior_break_and_limits_each_silent_run() {
         let start = Instant::now();
         let mut probe = SilenceProbe::new(SILENT_PROBE_WINDOW, SILENT_PROBE_INTERVAL);
         let packet = |probe: &mut SilenceProbe, millis, audio, after_break| {
@@ -1582,7 +1581,7 @@ pub(crate) mod tests {
         assert!(!packet(&mut probe, 0, false, true));
         assert!(!packet(&mut probe, 1_999, false, true));
         assert!(packet(&mut probe, 2_000, false, true));
-        // One probe per minute, measured from the probe itself.
+        // Throttle repeated probes within the same silent run.
         assert!(!packet(&mut probe, 3_000, false, true));
         assert!(!packet(&mut probe, 61_000, false, true));
         assert!(packet(&mut probe, 62_000, false, true));

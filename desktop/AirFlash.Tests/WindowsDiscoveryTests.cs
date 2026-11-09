@@ -98,6 +98,115 @@ public sealed class WindowsDiscoveryTests
         time.Advance(TimeSpan.FromSeconds(30)); discovery.Tick(); Assert.Empty(last); Assert.Equal(1, api.Resolvers[1].Stops);
     }
     [Fact]
+    public void InterfaceAvailabilityDescribesOnlyTheCurrentLookupWhileScanning()
+    {
+        var api = new FakeDns(); var time = new ManualTime();
+        var lookupSnapshots = new List<bool?>();
+        var failLookup = false;
+        WindowsDiscovery? observing = null;
+        using var discovery = Create(api, time, adapters: () =>
+        {
+            lookupSnapshots.Add(observing!.SnapshotDiagnostics().InterfaceAvailable);
+            if (failLookup) throw new System.Net.NetworkInformation.NetworkInformationException();
+            return [new("nic", "LAN", "LAN", "192.0.2.1", true, 17)];
+        });
+        observing = discovery;
+        bool? Availability() => discovery.SnapshotDiagnostics().InterfaceAvailable;
+        var initialAvailability = Availability();
+
+        discovery.SetInterface("nic");
+        discovery.Start();
+        Assert.True(Availability());
+        Assert.Equal(2, api.Browsers.Count);
+        time.Advance(TimeSpan.FromSeconds(20)); discovery.Tick();
+        Assert.True(Availability());
+        Assert.Null(lookupSnapshots[^1]);
+        Assert.Equal(2, api.Browsers.Count);
+
+        discovery.Stop();
+        Assert.Null(Availability());
+        Assert.Null(initialAvailability);
+        using var bundle = System.Text.Json.JsonDocument.Parse(DiagnosticExport.Compose("test", "test", null,
+            discovery: discovery.SnapshotDiagnostics()));
+        Assert.Equal(System.Text.Json.JsonValueKind.Null,
+            bundle.RootElement.GetProperty("discovery").GetProperty("interface_available").ValueKind);
+        discovery.SetInterface("missing");
+        Assert.Null(Availability());
+        Assert.Equal(2, lookupSnapshots.Count);
+
+        discovery.Start();
+        Assert.False(Availability());
+        Assert.Equal(2, api.Browsers.Count);
+
+        var publishedAvailability = new List<bool?>();
+        discovery.Changed += _ => publishedAvailability.Add(discovery.SnapshotDiagnostics().InterfaceAvailable);
+        discovery.SetInterface("nic");
+        Assert.NotEmpty(publishedAvailability);
+        Assert.Null(publishedAvailability[0]);
+        Assert.True(Availability());
+        Assert.Equal(4, api.Browsers.Count);
+
+        failLookup = true;
+        discovery.SetInterface("missing");
+        Assert.Null(Availability());
+        Assert.Equal(4, api.Browsers.Count);
+        Assert.Equal(5, lookupSnapshots.Count);
+
+        failLookup = false;
+        time.Advance(TimeSpan.FromSeconds(20)); discovery.Tick();
+        Assert.False(Availability());
+        Assert.Equal(4, api.Browsers.Count);
+        Assert.Equal(6, lookupSnapshots.Count);
+        Assert.All(lookupSnapshots, observation => Assert.Null(observation));
+    }
+
+    [Fact]
+    public void PtrAfterRestartExtendsCacheWithoutClaimingAResolvedEndpointOrIdentity()
+    {
+        var time = new ManualTime(); var api = new FakeDns(); using var discovery = Create(api, time);
+        discovery.Start();
+        api.Browsers[0].Announce(0, new DnsAnnouncement(Name, 120));
+        api.Resolvers[0].Resolve(0, Record() with
+        {
+            Txt = new Dictionary<string, string> { ["deviceid"] = "AA:BB:CC:DD:EE:01", ["tsid"] = "synthetic-stereo" }
+        });
+        discovery.Stop();
+        discovery.Start();
+        time.Advance(TimeSpan.FromSeconds(9)); discovery.Tick();
+        var before = discovery.SnapshotDiagnostics();
+        var resolved = Assert.Single(before.History, entry => entry.Event == DiscoveryTraceEvent.ResolveSucceeded);
+        Assert.NotNull(resolved.DeviceToken);
+        Assert.NotNull(resolved.StereoToken);
+        Assert.NotNull(resolved.EndpointToken);
+        Assert.Equal(1, before.CachedRecords);
+
+        api.Browsers[2].Announce(0, new DnsAnnouncement(Name, 30));
+
+        var after = discovery.SnapshotDiagnostics();
+        var events = after.History.Where(entry => entry.Sequence > before.RecordedEvents).ToArray();
+        Assert.Collection(events,
+            entry => Assert.Equal(DiscoveryTraceEvent.AdvertisementAdded, entry.Event),
+            entry =>
+            {
+                Assert.Equal("CachedRecordTtlRefreshed", entry.Event.ToString());
+                Assert.Equal(DiscoveryServiceType.Airplay, entry.ServiceType);
+                Assert.Equal(resolved.ServiceToken, entry.ServiceToken);
+                Assert.Equal(30u, entry.TtlSeconds);
+                Assert.Null(entry.DeviceToken);
+                Assert.Null(entry.StereoToken);
+                Assert.Null(entry.EndpointToken);
+                Assert.Null(entry.StereoMetadataPresent);
+            });
+        Assert.Equal(2, api.Resolvers.Count);
+        Assert.Equal(1, after.PendingResolves);
+
+        time.Advance(TimeSpan.FromSeconds(1)); discovery.Tick();
+        Assert.Equal(1, discovery.SnapshotDiagnostics().CachedRecords);
+        time.Advance(TimeSpan.FromSeconds(29)); discovery.Tick();
+        Assert.Equal(0, discovery.SnapshotDiagnostics().CachedRecords);
+    }
+
+    [Fact]
     public void RepeatedFakeSessionsSettleWithTheExplicitFakeBoundaryGuarantee()
     {
         var api = new FakeDns(); using var discovery = Create(api);
