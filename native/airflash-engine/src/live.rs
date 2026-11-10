@@ -406,9 +406,9 @@ impl Loopback {
     /// sent already is. Feeds the `capture_age` telemetry histogram.
     pub fn sample_age_ms(&self) -> f64 {
         let s = self.state.lock().unwrap();
-        s.frames
-            .front()
-            .map_or(0.0, |queued| qpc_ns().saturating_sub(queued.frame.qpc) as f64 / 1e6)
+        s.frames.front().map_or(0.0, |queued| {
+            qpc_ns().saturating_sub(queued.frame.qpc) as f64 / 1e6
+        })
     }
     /// `(queued, capacity)` in source frames.
     pub fn depth(&self) -> (usize, usize) {
@@ -2091,9 +2091,8 @@ pub(crate) mod tests {
             let before_join = source.metrics().transition_count;
 
             let (pcm, _) = source.packet(1.0).unwrap();
-            let left = |frame: usize| {
-                i32::from(i16::from_be_bytes([pcm[frame * 4], pcm[frame * 4 + 1]]))
-            };
+            let left =
+                |frame: usize| i32::from(i16::from_be_bytes([pcm[frame * 4], pcm[frame * 4 + 1]]));
             let jump = (left(join) - left(join - 1)).abs();
             assert!(
                 jump <= 2,
