@@ -52,6 +52,10 @@ struct Frame {
     right: f32,
     qpc: u64,
 }
+struct QueuedFrame {
+    frame: Frame,
+    splice_before: bool,
+}
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Metrics {
     pub transition_count: u64,
@@ -116,8 +120,10 @@ struct State {
     splice: crate::continuity::Splice,
     quantizer: crate::continuity::Quantizer,
     boundary_pending: bool,
+    rebind_boundary_pending: bool,
+    last_pull_ended_missing: bool,
     equalizer: crate::equalizer::Processor,
-    frames: VecDeque<Frame>,
+    frames: VecDeque<QueuedFrame>,
     capacity: usize,
     target: usize,
     error: Option<String>,
@@ -137,14 +143,15 @@ impl State {
             self.boundary_pending = true;
             self.metrics.last_discontinuity = Some("queue_overflow".into());
         }
-        self.frames.push_back(frame);
+        self.frames.push_back(QueuedFrame {
+            frame,
+            splice_before: std::mem::take(&mut self.rebind_boundary_pending),
+        });
     }
-    /// A rebind keeps everything already encoded in `frames`: those samples are
-    /// still valid and discarding them would only add a hole. Only the resampler
-    /// input (owned by the capture thread) is flushed, and a splice boundary is
-    /// recorded so the receiver can conceal the gap cleanly.
+    /// Keep queued output from the old stream. Splice when the sender reaches
+    /// the first frame produced by the reopened stream.
     fn note_rebind(&mut self, reason: &str) {
-        self.boundary_pending = true;
+        self.rebind_boundary_pending = true;
         self.metrics.discontinuities += 1;
         self.metrics.last_discontinuity = Some(reason.into());
     }
@@ -217,6 +224,8 @@ impl Loopback {
             splice: crate::continuity::Splice::new(rate),
             quantizer: crate::continuity::Quantizer::new(),
             boundary_pending: false,
+            rebind_boundary_pending: false,
+            last_pull_ended_missing: false,
             equalizer: crate::equalizer::Processor::new(equalizer.initial(), rate),
             frames: VecDeque::with_capacity(capacity),
             capacity,
@@ -321,18 +330,23 @@ impl Loopback {
         let mut marker = None;
         let now = qpc_ns();
         let mut padded = 0u64;
+        // A trim or a return from missing audio already splices at the queue head.
+        let splice_at_head = s.boundary_pending || s.last_pull_ended_missing;
         if s.boundary_pending {
             s.splice.boundary();
             s.boundary_pending = false;
         }
-        for _ in 0..FRAMES {
+        for index in 0..FRAMES {
             let missing = force_silence || s.frames.is_empty();
-            let frame = if let Some(f) = if force_silence {
+            let frame = if let Some(queued) = if force_silence {
                 None
             } else {
                 s.frames.pop_front()
             } {
-                f
+                if queued.splice_before && (index != 0 || !splice_at_head) {
+                    s.splice.boundary();
+                }
+                queued.frame
             } else {
                 if force_silence {
                     s.metrics.scheduled_silence_frames += 1;
@@ -360,6 +374,8 @@ impl Loopback {
                 out.extend(s.quantizer.quantize(value).to_be_bytes());
             }
         }
+        // While this pull holds the lock, missing slots can only be a suffix.
+        s.last_pull_ended_missing = force_silence || padded != 0;
         if padded != 0 {
             s.metrics.underrun_packets += 1;
             s.metrics.padded_frames = s.metrics.padded_frames.saturating_add(padded);
@@ -374,7 +390,11 @@ impl Loopback {
     pub fn discard_stale(&self) {
         let mut s = self.state.lock().unwrap();
         let cutoff = qpc_ns().saturating_sub(20_000_000);
-        while s.frames.front().is_some_and(|frame| frame.qpc < cutoff) || s.frames.len() > s.target
+        while s
+            .frames
+            .front()
+            .is_some_and(|queued| queued.frame.qpc < cutoff)
+            || s.frames.len() > s.target
         {
             s.frames.pop_front();
             s.metrics.dropped_frames += 1;
@@ -388,7 +408,7 @@ impl Loopback {
         let s = self.state.lock().unwrap();
         s.frames
             .front()
-            .map_or(0.0, |f| qpc_ns().saturating_sub(f.qpc) as f64 / 1e6)
+            .map_or(0.0, |queued| qpc_ns().saturating_sub(queued.frame.qpc) as f64 / 1e6)
     }
     /// `(queued, capacity)` in source frames.
     pub fn depth(&self) -> (usize, usize) {
@@ -1720,6 +1740,8 @@ pub(crate) mod tests {
                 splice: crate::continuity::Splice::new(rate),
                 quantizer: crate::continuity::Quantizer::new(),
                 boundary_pending: false,
+                rebind_boundary_pending: false,
+                last_pull_ended_missing: false,
                 equalizer: crate::equalizer::Processor::new(equalizer_control.initial(), rate),
                 frames: VecDeque::new(),
                 capacity: rate as usize * 60 / 1000,
@@ -2054,9 +2076,81 @@ pub(crate) mod tests {
         assert_eq!(source.metrics().underrun_packets, 1);
     }
     #[test]
+    fn rebind_splices_at_the_first_new_frame_inside_a_packet() {
+        for rate in [44100, 48000] {
+            let source = source_with(rate, crate::equalizer::Settings::default());
+            let join = 23;
+            enqueue(&source, FRAMES, 0.25);
+            source.packet(1.0).unwrap();
+            let before = source.metrics().transition_count;
+
+            enqueue(&source, FRAMES + join, 0.25);
+            source.state.lock().unwrap().note_rebind("silent_probe");
+            enqueue(&source, FRAMES, -0.25);
+            source.packet(1.0).unwrap();
+            let before_join = source.metrics().transition_count;
+
+            let (pcm, _) = source.packet(1.0).unwrap();
+            let left = |frame: usize| {
+                i32::from(i16::from_be_bytes([pcm[frame * 4], pcm[frame * 4 + 1]]))
+            };
+            let jump = (left(join) - left(join - 1)).abs();
+            assert!(
+                jump <= 2,
+                "PCM jumped {jump} LSB at the rebind join at {rate} Hz"
+            );
+            assert!(left(join - 1) > 8000 && left(FRAMES - 1) < -8000);
+            assert_eq!(before_join, before);
+            assert_eq!(source.metrics().transition_count, before + 1);
+            assert_eq!(source.metrics().padded_frames, 0);
+        }
+    }
+    #[test]
+    fn queued_rebind_splices_survive_scheduled_silence() {
+        let source = source();
+        enqueue(&source, FRAMES, 0.25);
+        source.packet(1.0).unwrap();
+        enqueue(&source, FRAMES, 0.25);
+        for sample in [-0.25, 0.25] {
+            source.state.lock().unwrap().note_rebind("silent_probe");
+            enqueue(&source, FRAMES, sample);
+        }
+
+        source.silence_packet(1.0).unwrap();
+        let before = source.metrics().transition_count;
+        // One missing-to-present splice for the old audio, then one per rebind.
+        for added in 1..=3 {
+            source.packet(1.0).unwrap();
+            assert_eq!(source.metrics().transition_count, before + added);
+        }
+    }
+    #[test]
+    fn a_rebind_at_the_queue_head_reuses_the_existing_splice() {
+        for missing in [false, true] {
+            let source = source();
+            enqueue(&source, FRAMES, 0.25);
+            source.packet(1.0).unwrap();
+            if !missing {
+                enqueue(&source, 1, 0.25);
+            }
+            source.state.lock().unwrap().note_rebind("silent_probe");
+            // In the trim case, overflow drops the last old frame and puts the
+            // first new frame at the head with an immediate splice pending.
+            enqueue(&source, if missing { FRAMES } else { CAPACITY }, -0.25);
+            if missing {
+                source.silence_packet(1.0).unwrap();
+            }
+            let before = source.metrics().transition_count;
+            source.packet(1.0).unwrap();
+            assert_eq!(source.metrics().transition_count, before + 1);
+            assert_eq!(source.metrics().dropped_frames, if missing { 0 } else { 1 });
+        }
+    }
+    #[test]
     fn rebind_keeps_already_encoded_frames_and_only_marks_a_boundary() {
         let source = source();
         source.packet(0.1).unwrap();
+        let before = source.metrics().transition_count;
         {
             let mut s = source.state.lock().unwrap();
             for _ in 0..FRAMES {
@@ -2067,14 +2161,12 @@ pub(crate) mod tests {
                 });
             }
             let queued = s.frames.len();
-            let before = s.metrics.discontinuities;
-            assert!(!s.boundary_pending);
+            let discontinuities = s.metrics.discontinuities;
             s.note_rebind("process_exit");
             // Reopening the capture endpoint must not throw away valid audio.
             assert_eq!(s.frames.len(), queued);
             assert_eq!(s.metrics.dropped_frames, 0);
-            assert!(s.boundary_pending);
-            assert_eq!(s.metrics.discontinuities, before + 1);
+            assert_eq!(s.metrics.discontinuities, discontinuities + 1);
             assert_eq!(
                 s.metrics.last_discontinuity.as_deref(),
                 Some("process_exit")
@@ -2082,6 +2174,7 @@ pub(crate) mod tests {
         }
         assert!(source.packet(0.1).unwrap().0.iter().any(|b| *b != 0));
         let metrics = source.metrics();
+        assert_eq!(metrics.transition_count, before + 1);
         assert_eq!(metrics.padded_frames, FRAMES as u64);
         assert_eq!(metrics.fully_padded_packets, 1);
         assert_eq!(metrics.underrun_packets, 1);
