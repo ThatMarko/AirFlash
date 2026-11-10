@@ -202,7 +202,7 @@ internal static class UiSmoke
             await VerifyNoticeDismissalAsync(panel, app, discovery, engine, audio, checks);
             await VerifyDiscoveryRetryPresentationAsync(panel, app, discovery, checks);
             await VerifyDiscoveryNoticeRecoveryAsync(panel, app, discovery, checks);
-            await VerifyDiscoveryExportAsync(app, discovery, checks);
+            await VerifyDiscoveryExportAsync(app, discovery, engine, checks);
             await VerifyConnectingDiscoveryNoticeAsync(checks);
             Invoke(playbackButton);
             await Until(() => app.Snapshot.State == PlaybackState.Idle);
@@ -449,7 +449,7 @@ internal static class UiSmoke
         await Pump();
     }
 
-    private static async Task VerifyDiscoveryExportAsync(AppViewModel app, MockDiscovery discovery, List<string> checks)
+    private static async Task VerifyDiscoveryExportAsync(AppViewModel app, MockDiscovery discovery, MockFactory engine, List<string> checks)
     {
         app.SetPanelVisible(true); app.SetReceiversPageVisible(false);
         var starts = discovery.Starts;
@@ -463,6 +463,12 @@ internal static class UiSmoke
             new Dictionary<string, string> { ["deviceid"] = "AA:BB:CC:DD:EE:77", ["tsid"] = "NeverExportStereo" }));
         var path = await app.ExportDiagnosticsAsync();
         using var bundle = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        var summary = bundle.RootElement.GetProperty("session");
+        var request = engine.Commands.Last(command => command.Text("command") == "diag_summary");
+        Check(summary.Text("id") == request.Text("id") && request.Text("id").Length > 0,
+            "saved diagnostics contain the reply to the export request sent by the application", checks);
+        Check(summary.GetProperty("session").Integer("session_epoch") == 1,
+            "saved diagnostics belong to the active native playback epoch", checks);
         var history = bundle.RootElement.GetProperty("discovery").GetProperty("history");
         Check(history.EnumerateArray().Any(entry => entry.Text("event") == "ResolveSucceeded" && entry.Text("service_token").Length == 64),
             "saved diagnostics include the optional discovery provider's history", checks);
@@ -838,15 +844,17 @@ internal static class UiSmoke
             return new MockConnection(this);
         }
     }
-    private sealed class MockConnection(MockFactory factory) : IEngineConnection
+    private sealed class MockConnection(MockFactory factory) : IEngineConnection, ICorrelatedEngineConnection
     {
         private readonly Channel<JsonElement> _events = Channel.CreateUnbounded<JsonElement>();
         private CancellationTokenSource? _metrics;
         private string _host = "";
         private readonly Dictionary<string, int> _volumes = [];
         public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
+            => SendCorrelatedAsync(Guid.NewGuid().ToString("N"), session, command, parameters, cancellation);
+        public Task SendCorrelatedAsync(string requestId, string session, string command, object? parameters, CancellationToken cancellation)
         {
-            factory.Commands.Enqueue(JsonSerializer.SerializeToElement(new { command, @params = parameters }));
+            factory.Commands.Enqueue(JsonSerializer.SerializeToElement(new { id = requestId, command, @params = parameters }));
             if (command == "hello") Emit(session, new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "member_volume", "receiver_password", "standby_release", "receiver_ownership_guard", "application_capture", "forced_latency", "now_playing", "diagnostics" } });
             if (command == "pair") factory.EmitEvent = payload => Emit(session, payload);
             if (command == "start")
@@ -856,7 +864,7 @@ internal static class UiSmoke
                 foreach (var peer in data.GetProperty("peers").EnumerateArray())
                     Emit(session, new { @event = "negotiated", receiver_id = peer.Text("receiver_id"), host = peer.Text("host"), port = peer.Integer("port"), codec = "alac", transport = "realtime", timing = "ptp", clock_role = peer.GetProperty("profile").Boolean("follow_receiver_clock") == true ? "follow" : "sender", sample_rate = data.Integer("sample_rate") });
                 factory.EmitEvent = payload => Emit(session, payload);
-                if (factory.AutoReady) Emit(session, new { @event = "streaming" });
+                if (factory.AutoReady) Emit(session, new { @event = "streaming", session_epoch = 1 });
                 var hosts = data.Text("group_mode") == "software_stereo" ? data.GetProperty("peers").EnumerateArray().Select(p => p.Text("host")).ToArray() : [_host];
                 foreach (var host in hosts)
                 {
@@ -866,6 +874,8 @@ internal static class UiSmoke
                 _metrics = new(); var token = _metrics.Token;
                 _ = Task.Run(async () => { try { while (!token.IsCancellationRequested) { Emit(session, new { @event = "capture_metrics", metrics = new { capture_to_send_p95_ms = 10.8, max_queue_age_ms = 11.8, underrun_packets = 0, dropped_frames = 0, input_rate = 48000 } }); Emit(session, new { @event = "transport_metrics", session_uptime_ms = 123456, sender_late_recoveries = 2, skipped_packets = 10, members = new[] { new { host = "192.0.2.1", media = new { packets_sent = 12000, media_send_errors = 1, sync_send_errors = 0, retransmit_requests = 6, retransmits_sent = 5, retransmit_missing = 0, retransmit_expired = 1, retransmit_queue_drops = 0, retransmit_send_errors = 0, receiver_latency_ms = 150, receiver_latency_estimated = true }, health = new { feedback_rtt_ms = 4.2, feedback_failures = 0, feedback_delayed = false } } } }); await Task.Delay(350, token); } } catch (OperationCanceledException) { } }, CancellationToken.None);
             }
+            if (command == "diag_summary")
+                Emit(session, new { @event = "diag_summary", id = requestId, session = new { session_epoch = 1, session_uptime_ms = 123456 } });
             if (command == "set_device_volume")
             {
                 var data = JsonSerializer.SerializeToElement(parameters);

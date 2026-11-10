@@ -1002,14 +1002,9 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     /// <summary>Write the current engine's redacted diagnostic bundle into the log folder.</summary>
     public async Task<string> ExportDiagnosticsAsync()
     {
-        var before = Session.Capture();
-        var attempt = Session.CaptureStreamingAttempt()?.Attempt;
-        var snapshot = await DiagnosticExport.SnapshotAsync(Session).ConfigureAwait(false);
-        var after = Session.Capture();
-        var history = before.Owner == after.Owner && attempt == Session.CaptureStreamingAttempt()?.Attempt
-            ? after.Snapshot.Diagnostics?.CounterDeltaHistory : null;
+        var capture = await DiagnosticExport.CaptureAsync(Session).ConfigureAwait(false);
         var discovery = (_discovery as IDiscoveryDiagnostics)?.SnapshotDiagnostics();
-        var bundle = DiagnosticExport.Compose(AppPaths.DisplayVersion, EngineVersion, snapshot, history, discovery);
+        var bundle = DiagnosticExport.Compose(AppPaths.DisplayVersion, EngineVersion, capture.Summary, capture.CounterHistory, discovery);
         var path = DiagnosticExport.Write(AppPaths.LogDirectory, bundle);
         AppPaths.Log($"Diagnostics exported to {path}");
         return path;

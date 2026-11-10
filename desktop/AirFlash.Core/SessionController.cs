@@ -21,6 +21,7 @@ public sealed record SessionTiming(TimeSpan Connect, TimeSpan Read, TimeSpan Pin
     public static SessionTiming Default { get; } = new(TimeSpan.FromSeconds(40), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(120), TimeSpan.FromSeconds(1));
 }
 public sealed record SessionCapture(SessionSnapshot Snapshot, long Owner, long AutomaticIntent);
+public sealed record DiagnosticCapture(JsonElement? Summary, IReadOnlyList<PlaybackCounterDelta>? CounterHistory);
 internal readonly record struct StreamingAttempt(long Owner, long Intent, long Transport);
 
 public sealed class SessionController(IEngineFactory factory, IAudioService audio, Action<string>? log = null, SessionTiming? timing = null, Action<DesktopSessionRecord>? sessionRecords = null, TimeProvider? clock = null) : IAsyncDisposable
@@ -29,8 +30,9 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private readonly SemaphoreSlim _audioWriter = new(1, 1);
     private readonly SemaphoreSlim _diagnosticWriter = new(1, 1);
     private readonly SemaphoreSlim _nowPlayingWriter = new(1, 1);
-    private TaskCompletionSource<JsonElement?>? _diagnosticReply;
-    private JsonElement? _lastDiagnostic;
+    private PendingDiagnostic? _diagnosticReply;
+    private DiagnosticCapture? _lastDiagnostic;
+    private long? _nativeSessionEpoch;
     /// <summary>The live Now Playing source's latest value, sent again when a stream
     /// starts. It follows the source, not a session: <see cref="ClearNowPlayingAsync"/>
     /// drops it when the source goes away. Stopping a session keeps it because the
@@ -865,38 +867,110 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         }
         catch (OperationCanceledException) { }
     }
-    /// <summary>The engine's redacted <c>diag_summary</c>, asked of the streaming engine
-    /// when its hello advertised <c>diagnostics</c>; otherwise the last summary
-    /// received, or null.</summary>
+    /// <summary>The current streaming engine's redacted summary, or the last
+    /// accepted historical capture when playback is inactive.</summary>
     public async Task<JsonElement?> DiagnosticSnapshotAsync(CancellationToken cancellation = default)
+        => (await CaptureDiagnosticsAsync(cancellation).ConfigureAwait(false)).Summary;
+
+    /// <summary>Capture a summary and counter history from the same playback scope.
+    /// A failed or superseded request retains its request-time history.</summary>
+    public async Task<DiagnosticCapture> CaptureDiagnosticsAsync(CancellationToken cancellation = default)
     {
         using var operation = TryAdmitPassiveOperation();
-        if (operation is null) { lock (_sync) return _lastDiagnostic; }
+        if (operation is null) { lock (_sync) return AvailableDiagnosticsLocked(); }
         await _diagnosticWriter.WaitAsync(cancellation).ConfigureAwait(false);
-        TaskCompletionSource<JsonElement?>? reply = null;
+        PendingDiagnostic? pending = null;
+        DiagnosticCapture fallback = new(null, null);
         try
         {
-            IEngineConnection? connection; string? session;
-            lock (_sync)
-            {
-                connection = _connection; session = _sessionId;
-                if (_passiveDisposed || connection is null || session is null || !_transportStreaming || !_diagnosticsSupported) return _lastDiagnostic;
-                reply = _diagnosticReply = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            }
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
             timeout.CancelAfter(TimeSpan.FromSeconds(5));
-            await connection.SendAsync(session, "diag_summary", null, timeout.Token).ConfigureAwait(false);
-            return await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
+            ICorrelatedEngineConnection connection;
+            lock (_sync)
+            {
+                fallback = new(null, FreezeCounterHistoryLocked());
+                if (_passiveDisposed || !_snapshot.IsActive) return AvailableDiagnosticsLocked();
+                if (_connection is not ICorrelatedEngineConnection current || _sessionId is not { } session
+                    || !_transportStreaming || _snapshot.State != PlaybackState.Streaming || !_diagnosticsSupported)
+                    return fallback;
+                connection = current;
+                var scope = new DiagnosticScope(current, session, _generation, _remoteTransport, _nativeSessionEpoch);
+                pending = _diagnosticReply = new(Guid.NewGuid().ToString("N"), scope, fallback, timeout.Token,
+                    new(TaskCreationOptions.RunContinuationsAsynchronously));
+            }
+            using var canceled = timeout.Token.Register(() => pending.Reply.TrySetResult(pending.Fallback));
+            await connection.SendCorrelatedAsync(pending.Id, pending.Scope.Session, "diag_summary", null, timeout.Token).ConfigureAwait(false);
+            var result = await pending.Reply.Task.ConfigureAwait(false);
+            lock (_sync)
+            {
+                if (timeout.IsCancellationRequested || !DiagnosticScopeCurrentLocked(pending.Scope)
+                    || result.Summary is { } summary && !DiagnosticEpochMatchesLocked(summary)) return fallback;
+                if (result.Summary is not null) _lastDiagnostic = result;
+                return result;
+            }
         }
         catch (Exception error) when (error is IOException or OperationCanceledException or ObjectDisposedException or InvalidOperationException)
         {
-            return null;
+            return fallback;
         }
         finally
         {
-            lock (_sync) { if (ReferenceEquals(_diagnosticReply, reply)) _diagnosticReply = null; }
+            lock (_sync) { if (ReferenceEquals(_diagnosticReply, pending)) _diagnosticReply = null; }
             _diagnosticWriter.Release();
         }
+    }
+
+    private sealed record DiagnosticScope(IEngineConnection Connection, string Session, long Owner, long Transport, long? NativeEpoch);
+    private sealed record PendingDiagnostic(string Id, DiagnosticScope Scope, DiagnosticCapture Fallback, CancellationToken Cancellation,
+        TaskCompletionSource<DiagnosticCapture> Reply);
+
+    private bool DiagnosticScopeCurrentLocked(DiagnosticScope scope) =>
+        !_passiveDisposed && _generation == scope.Owner && ReferenceEquals(_connection, scope.Connection)
+        && _sessionId == scope.Session && _remoteTransport == scope.Transport && _transportStreaming
+        && _snapshot.State == PlaybackState.Streaming && _lifetime?.IsCancellationRequested == false
+        && (scope.NativeEpoch is null || scope.NativeEpoch == _nativeSessionEpoch);
+
+    private DiagnosticCapture AvailableDiagnosticsLocked() =>
+        !_snapshot.IsActive && _lastDiagnostic is { } cached ? cached : new(null, FreezeCounterHistoryLocked());
+
+    private IReadOnlyList<PlaybackCounterDelta>? FreezeCounterHistoryLocked() =>
+        _diagnostics.CounterDeltaHistory is not { } history ? null : Array.AsReadOnly(history.Select(report => report with
+        {
+            Counters = report.Counters is null ? null : new System.Collections.ObjectModel.ReadOnlyDictionary<string, ulong>(
+                new Dictionary<string, ulong>(report.Counters)),
+            Members = report.Members is null ? null : Array.AsReadOnly(report.Members.Select(member => member with
+            {
+                Counters = new System.Collections.ObjectModel.ReadOnlyDictionary<string, ulong>(
+                    new Dictionary<string, ulong>(member.Counters))
+            }).ToArray())
+        }).ToArray());
+
+    private void AcceptDiagnosticLocked(IEngineConnection connection, JsonElement item)
+    {
+        if (_diagnosticReply is not { } pending || !ReferenceEquals(pending.Scope.Connection, connection)
+            || item.Text("id") != pending.Id) return;
+        if (pending.Cancellation.IsCancellationRequested || !DiagnosticScopeCurrentLocked(pending.Scope) || !DiagnosticEpochMatchesLocked(item))
+        {
+            pending.Reply.TrySetResult(pending.Fallback);
+            return;
+        }
+        var capture = new DiagnosticCapture(item.Clone(), FreezeCounterHistoryLocked());
+        pending.Reply.TrySetResult(capture);
+    }
+
+    private bool DiagnosticEpochMatchesLocked(JsonElement item)
+    {
+        if (!item.TryGetProperty("session", out var summary) || summary.ValueKind != JsonValueKind.Object) return false;
+        var epoch = summary.Integer("session_epoch");
+        if (summary.TryGetProperty("session_epoch", out var value) && value.ValueKind != JsonValueKind.Null && epoch is not > 0) return false;
+        return _nativeSessionEpoch is null || epoch == _nativeSessionEpoch;
+    }
+
+    private void ObserveNativeEpochLocked(long? epoch)
+    {
+        if (epoch is not > 0 || epoch == _nativeSessionEpoch || _nativeSessionEpoch is { } previous && epoch < previous) return;
+        _nativeSessionEpoch = epoch;
+        _lastDiagnostic = null;
     }
     private int _adaptiveBase;
     private int _adaptiveInitial;
@@ -1078,8 +1152,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                             lock (_sync)
                             {
                                 if (epoch != _generation) continue;
-                                _lastDiagnostic = item.Clone();
-                                _diagnosticReply?.TrySetResult(_lastDiagnostic);
+                                AcceptDiagnosticLocked(connection, item);
                             }
                         }
                         if (kind == "peer_info")
@@ -1125,7 +1198,14 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                             {
                                 if (epoch != _generation) continue;
                                 // Standby can replace the live transport inside the same IPC session.
-                                if (!_transportStreaming || _snapshot.State != PlaybackState.Streaming) ++_remoteTransport;
+                                if (!_transportStreaming || _snapshot.State != PlaybackState.Streaming)
+                                {
+                                    ++_remoteTransport;
+                                    _nativeSessionEpoch = null;
+                                    _lastDiagnostic = null;
+                                    if (_diagnosticReply is { } pending) pending.Reply.TrySetResult(pending.Fallback);
+                                }
+                                ObserveNativeEpochLocked(item.Integer("session_epoch"));
                                 _transportStreaming = true;
                             }
                             await ApplyLocalMuteAsync().ConfigureAwait(false);
@@ -1230,6 +1310,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                             lock (_sync)
                             {
                                 if (epoch != _generation) continue;
+                                if (_snapshot.State == PlaybackState.Streaming) ObserveNativeEpochLocked(metrics.SessionEpoch);
                                 var history = counterHistory.ObserveTransport(receivedAt, metrics);
                                 _diagnostics = _diagnostics with { Transport = metrics, CounterDeltaHistory = history ?? _diagnostics.CounterDeltaHistory };
                             }
@@ -1261,7 +1342,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                 finally
                 {
                     ClearConnection(connection);
-                    lock (_sync) { _diagnosticReply?.TrySetResult(null); }
+                    lock (_sync)
+                    {
+                        if (_diagnosticReply is { } pending && ReferenceEquals(pending.Scope.Connection, connection))
+                            pending.Reply.TrySetResult(pending.Fallback);
+                    }
                     await RequestStopAsync(connection, session).ConfigureAwait(false);
                     // One desktop row per IPC session, written before the catch
                     // decides whether to reconnect: the engine's row for this
@@ -1455,7 +1540,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         public int Target { get; } = target;
     }
     private static bool IsAuthenticationFailure(string message) => new[] { "pairing", "srp", "verification", "credentials", "signature", "identity", "authentication" }.Any(word => message.Contains(word, StringComparison.OrdinalIgnoreCase));
-    private void SetConnection(IEngineConnection connection, string session) { lock (_sync) { _connection = connection; _sessionId = session; _startSent = false; _sentStandby = null; _nowPlayingSupported = false; _nowPlayingMayBeSet = false; _diagnosticsSupported = false; } }
+    private void SetConnection(IEngineConnection connection, string session) { lock (_sync) { _connection = connection; _sessionId = session; _startSent = false; _sentStandby = null; _nowPlayingSupported = false; _nowPlayingMayBeSet = false; _diagnosticsSupported = false; _nativeSessionEpoch = null; _lastDiagnostic = null; } }
     private void ClearConnection(IEngineConnection connection) { lock (_sync) if (ReferenceEquals(_connection, connection)) { _connection = null; _sessionId = null; _startSent = false; _sentStandby = null; } }
     private static async Task RequestStopAsync(IEngineConnection connection, string session)
     {
@@ -1487,7 +1572,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     }
     private async Task RestoreAudioAsync()
     {
-        lock (_sync) _transportStreaming = false;
+        lock (_sync)
+        {
+            _transportStreaming = false;
+            if (_diagnosticReply is { } pending) pending.Reply.TrySetResult(pending.Fallback);
+        }
         await ApplyLocalMuteAsync().ConfigureAwait(false);
     }
     private async Task ApplyLocalMuteAsync()

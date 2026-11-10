@@ -22,6 +22,13 @@ public static class DiagnosticExport
         return controller.DiagnosticSnapshotAsync(cancellation);
     }
 
+    /// <summary>Capture the current summary together with its frozen counter history.</summary>
+    public static Task<DiagnosticCapture> CaptureAsync(SessionController controller, CancellationToken cancellation = default)
+    {
+        ArgumentNullException.ThrowIfNull(controller);
+        return controller.CaptureDiagnosticsAsync(cancellation);
+    }
+
     /// <summary>Build a bundle from runtime information, a redacted snapshot, and
     /// optional recent numeric counter changes.</summary>
     public static string Compose(string appVersion, string engineVersion, JsonElement? snapshot,

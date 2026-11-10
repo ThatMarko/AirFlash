@@ -37,10 +37,11 @@ internal static class SessionTestEngine
         private readonly ConcurrentQueue<Connection> _connections = new(connections);
         public IEngineConnection Open() => _connections.TryDequeue(out var connection) ? connection : throw new IOException("unexpected retry");
     }
-    internal sealed class Connection : IEngineConnection
+    internal sealed class Connection : ICorrelatedEngineConnection
     {
         private readonly Channel<string> _events = Channel.CreateUnbounded<string>();
         private readonly ConcurrentQueue<(string Command, JsonElement Parameters)> _commands = new();
+        private readonly ConcurrentQueue<(string Command, string RequestId)> _requests = new();
         public readonly TaskCompletionSource Starting = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private string _session = "";
         /// <summary>What hello advertises; defaults to what the real engine reports.</summary>
@@ -51,22 +52,27 @@ internal static class SessionTestEngine
         public Action<Connection, string>? OnCommand { get; init; }
         /// <summary>Pause a selected command before it reaches the fake engine.</summary>
         public Func<string, Task>? BeforeCommandAsync { get; init; }
-        public async Task WaitForAsync(string command)
+        public Func<string, Task>? AfterCommandAsync { get; init; }
+        public string LastRequestId(string command) => _requests.Last(request => request.Command == command).RequestId;
+        public async Task WaitForAsync(string command, int count = 1)
         {
             var deadline = DateTime.UtcNow + Limit;
-            while (Count(command) == 0)
+            while (Count(command) < count)
             {
                 Assert.True(DateTime.UtcNow < deadline, command + " was not sent");
                 await Task.Delay(10);
             }
         }
         public string[] NowPlayingTitles() => _commands.Where(c => c.Command == "set_now_playing").Select(c => c.Parameters.GetProperty("title").GetString()!).ToArray();
-        public async Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
+        public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
+            => SendCorrelatedAsync(Guid.NewGuid().ToString("N"), session, command, parameters, cancellation);
+        public async Task SendCorrelatedAsync(string requestId, string session, string command, object? parameters, CancellationToken cancellation)
         {
             cancellation.ThrowIfCancellationRequested();
             if (BeforeCommandAsync is { } before) await before(command).WaitAsync(cancellation).ConfigureAwait(false);
             cancellation.ThrowIfCancellationRequested();
             _session = session;
+            _requests.Enqueue((command, requestId));
             _commands.Enqueue((command, JsonSerializer.SerializeToElement(parameters)));
             if (command == "hello")
             {
@@ -75,6 +81,7 @@ internal static class SessionTestEngine
             if (command == "start") Starting.TrySetResult();
             if (command == "stop") _events.Writer.TryComplete();
             OnCommand?.Invoke(this, command);
+            if (AfterCommandAsync is { } after) await after(command).WaitAsync(cancellation).ConfigureAwait(false);
         }
         public void Current(string name, object? fields = null)
         {

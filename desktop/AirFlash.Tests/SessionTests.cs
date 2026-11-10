@@ -238,7 +238,8 @@ public sealed class SessionTests
         var export = DiagnosticExport.SnapshotAsync(controller);
         await Until(() => process.Commands.Any(c => c.Command == "diag_summary"));
         process.EmitData(new { @event = "capture_metrics", metrics = new { underrun_packets = 7 } });
-        process.EmitData(new { @event = "diag_summary", session = new { packets = 1234 } });
+        process.EmitData(new { @event = "diag_summary", id = process.Commands.Last(command => command.Command == "diag_summary").RequestId,
+            session = new { packets = 1234, session_epoch = 1 } });
         var result = await export.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(1234, result!.Value.GetProperty("session").Integer("packets"));
         Assert.Equal(1, factory.OpenCount);
@@ -1608,8 +1609,9 @@ public sealed class SessionTests
         public int OpenCount;
         public IEngineConnection Open() { Interlocked.Increment(ref OpenCount); return _processes.TryDequeue(out var p) ? p : throw new IOException("unexpected engine spawn"); }
     }
-    private sealed record EngineCommand(string Session, string CommandName, JsonElement Parameters) { public string Command => CommandName; }
-    private sealed class FakeConnection(bool autoReady = true) : IEngineConnection
+    private sealed record EngineCommand(string Session, string CommandName, JsonElement Parameters)
+    { public string Command => CommandName; public string? RequestId { get; init; } }
+    private sealed class FakeConnection(bool autoReady = true) : ICorrelatedEngineConnection
     {
         private readonly Channel<JsonElement> _events = Channel.CreateUnbounded<JsonElement>();
         public ConcurrentQueue<EngineCommand> Commands { get; } = new();
@@ -1634,9 +1636,11 @@ public sealed class SessionTests
         private long _streamEpoch = 1;
         public object? ReceiverCapabilityResponse { get; init; }
         public TaskCompletionSource? GainEntered, GainGate;
-        public async Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
+        public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
+            => SendCorrelatedAsync(Guid.NewGuid().ToString("N"), session, command, parameters, cancellation);
+        public async Task SendCorrelatedAsync(string requestId, string session, string command, object? parameters, CancellationToken cancellation)
         {
-            var outgoing = new EngineCommand(session, command, JsonSerializer.SerializeToElement(parameters ?? new { }));
+            var outgoing = new EngineCommand(session, command, JsonSerializer.SerializeToElement(parameters ?? new { })) { RequestId = requestId };
             if (BeforeSend is { } beforeSend) await beforeSend(outgoing, cancellation);
             cancellation.ThrowIfCancellationRequested();
             Commands.Enqueue(outgoing);
