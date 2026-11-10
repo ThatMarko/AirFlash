@@ -2054,6 +2054,36 @@ pub(crate) mod tests {
         assert_eq!(source.metrics().underrun_packets, 1);
     }
     #[test]
+    fn rebind_splices_at_the_first_new_frame_inside_a_packet() {
+        for rate in [44100, 48000] {
+            let source = source_with(rate, crate::equalizer::Settings::default());
+            let join = 23;
+            enqueue(&source, FRAMES, 0.25);
+            source.packet(1.0).unwrap();
+            let before = source.metrics().transition_count;
+
+            enqueue(&source, FRAMES + join, 0.25);
+            source.state.lock().unwrap().note_rebind("silent_probe");
+            enqueue(&source, FRAMES, -0.25);
+            source.packet(1.0).unwrap();
+            let before_join = source.metrics().transition_count;
+
+            let (pcm, _) = source.packet(1.0).unwrap();
+            let left = |frame: usize| {
+                i32::from(i16::from_be_bytes([pcm[frame * 4], pcm[frame * 4 + 1]]))
+            };
+            let jump = (left(join) - left(join - 1)).abs();
+            assert!(
+                jump <= 2,
+                "PCM jumped {jump} LSB at the rebind join at {rate} Hz"
+            );
+            assert!(left(join - 1) > 8000 && left(FRAMES - 1) < -8000);
+            assert_eq!(before_join, before);
+            assert_eq!(source.metrics().transition_count, before + 1);
+            assert_eq!(source.metrics().padded_frames, 0);
+        }
+    }
+    #[test]
     fn rebind_keeps_already_encoded_frames_and_only_marks_a_boundary() {
         let source = source();
         source.packet(0.1).unwrap();
