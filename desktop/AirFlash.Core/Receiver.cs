@@ -80,6 +80,7 @@ public static class ReceiverAggregator
             var name = service.Instance.Split("._", StringSplitOptions.None)[0];
             if (name.Contains('@')) name = name[(name.IndexOf('@') + 1)..];
             var identity = group.Select(Identity).FirstOrDefault(id => id.Length > 0) ?? "";
+            var model = group.Select(Model).FirstOrDefault(value => value.Length > 0) ?? "";
             var codecText = Field(group.Where(s => s.ServiceType.StartsWith("_raop", StringComparison.Ordinal)), "cn");
             var aliases = group.SelectMany(s => new[] { Identity(s), ReceiverIdentity.Normalize(Identity(s)), Endpoint(s) }).Where(id => id.Length > 0).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
             if (group.Length > 1) diagnostic?.Invoke("Discovery merged: " + string.Join(" | ", group.Select(Describe))
@@ -87,7 +88,7 @@ public static class ReceiverAggregator
             return new Receiver(identity.Length > 0 ? ReceiverIdentity.Normalize(identity) : Endpoint(service), name, service.Address, service.Port)
             {
                 DeviceId = identity,
-                Model = group.Select(Model).FirstOrDefault(v => v.Length > 0) ?? "",
+                Model = model,
                 StereoId = Field(group, "tsid"),
                 GroupName = Field(group, "gpn"),
                 IsLeader = Field(group, "igl") == "1",
@@ -96,7 +97,7 @@ public static class ReceiverAggregator
                 Features = ParseFeatures(Field(group, "features") is { Length: > 0 } features ? features : Field(group, "ft")),
                 SourceVersion = Field(group, "srcvers"),
                 RequiresPassword = Field(group, "pw").Equals("true", StringComparison.OrdinalIgnoreCase),
-                FollowReceiverClock = Model(service).StartsWith("AudioAccessory", StringComparison.Ordinal) && Field(group, "igl") == "1" && Field(group, "tsid").Length == 0 && Field(group, "pgid").Length == 0 && int.TryParse(Field(group, "osvers").Split('.')[0], out var os) && os >= 27
+                FollowReceiverClock = model.StartsWith("AudioAccessory", StringComparison.Ordinal) && Field(group, "igl") == "1" && Field(group, "tsid").Length == 0 && Field(group, "pgid").Length == 0 && int.TryParse(Field(group, "osvers").Split('.')[0], out var os) && os >= 27
             };
         }).ToArray();
         // Conflicting unidentified services at one endpoint still need independent catalog keys.
