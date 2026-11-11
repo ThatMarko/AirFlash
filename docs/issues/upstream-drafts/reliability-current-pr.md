@@ -2,7 +2,7 @@
 
 This branch carries the remaining fixes forward onto upstream Main after AirFlash v0.6.2. Delayed work can no longer displace a newer session, DNS retries have finite logical deadlines, and a terminal engine event closes an open pairing prompt. The changes also improve mute recovery, diagnostics and panel feedback.
 
-Base `Ding-Kyoma:main` at `a52803d`. Head `ThatMarko:codex/reliability-refresh-v062` at `18eb7de`. The original SDK preflight, settings recovery, PIN/HAP credential changes, native EQ responses and receiver ownership controls already on Main are the foundation for these follow-ups. [Complete diff](https://github.com/ThatMarko/AirFlash/compare/a52803dac1696a56b7067356e09bd7e7ebb9dab6...18eb7de28da3c669670392c5556a636e46b594ca)
+Base `Ding-Kyoma:main` at `a52803d`. Head `ThatMarko:codex/reliability-refresh-v062` at `d68f769`. The original SDK preflight, settings recovery, PIN/HAP credential changes, native EQ responses and receiver ownership controls already on Main are the foundation for these follow-ups. [Complete diff](https://github.com/ThatMarko/AirFlash/compare/a52803dac1696a56b7067356e09bd7e7ebb9dab6...d68f7694a95cd065279372ff8ea5d36a756b2a65)
 
 The later capture and engine audit changes drain readable WASAPI packets after a missed wake, retain yield-only receiver ownership, and align clock telemetry and capability prediction with playback. Queued remote controls carry the originating live transport's authority. Shutdown closes diagnostics admission without stranding queued writers. Now Playing writes stay ordered, project cached progress on replay, and can clear the native mailbox during standby resume. Retransmit gap telemetry excludes requests for zero packets. [Capture correction](https://github.com/ThatMarko/AirFlash/commit/07587e0fe30882ca7c3348ada0244185e024df54) · [Engine and desktop audit](https://github.com/ThatMarko/AirFlash/commit/a78b723fac05e15a526a797a7134f38978bd543f) · [Follow-up regressions](https://github.com/ThatMarko/AirFlash/commit/d6de3adade3306f72bb74a369e5eeb4352bf96dd)
 
@@ -44,9 +44,13 @@ Use the same merged receiver model for catalog display and automatic PTP role se
 
 Keep bounded counter and discovery histories for diagnosis. During healthy playback, quiet routine resolve warnings when discovery identifies a different receiver. Match exported engine summaries to the request and current playback attempt, check the native epoch when available, and capture the summary together with its counter history. [Diagnostic correlation tests](https://github.com/ThatMarko/AirFlash/blob/18eb7de28da3c669670392c5556a636e46b594ca/desktop/AirFlash.Tests/DiagnosticCorrelationTests.cs)
 
+Measure capture age from real captured frames. The extraction percentile omits synthetic padding, and the sender's queue histogram skips empty queues. [Capture age fixtures](https://github.com/ThatMarko/AirFlash/blob/d68f7694a95cd065279372ff8ea5d36a756b2a65/native/airflash-engine/src/live.rs#L1811)
+
 ## Verification
 
 Windows verification on `18eb7de` passed the Release build, 1,379 Core, 252 Python and 375 Rust tests, with two Rust ignores. The `0.3.7-rc.1` preview passed six full portable UI cells, three fractional DPI cells, embedded-engine checks, repeat packaging and the disposable installer lifecycle. The full UI cells verified that the saved diagnostic reply carries the actual request ID and active epoch. [Preview validation](https://github.com/ThatMarko/AirFlash/actions/runs/42917344419)
+
+Current head `d68f769` passed Windows Headless with 377 Rust, 1,379 Core and 252 Python tests, with two Rust ignores. The capture age regression failed on the unchanged runtime and passed on the fixed source. [Before control](https://github.com/ThatMarko/AirFlash/actions/runs/43080428482) · [Headless validation](https://github.com/ThatMarko/AirFlash/actions/runs/43080428831)
 
 Two added controls fail at their intended assertions on test-only commits with unchanged candidate runtime code: reordered independent Grants adopt one lease instead of three, and a saved gain never reaches the still-owned stream after a competing Play is rejected. [Grant before control](https://github.com/ThatMarko/AirFlash/actions/runs/42000664181) · [Gain before control](https://github.com/ThatMarko/AirFlash/actions/runs/42000856056)
 
