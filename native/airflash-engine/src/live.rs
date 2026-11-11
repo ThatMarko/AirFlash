@@ -1808,6 +1808,37 @@ pub(crate) mod tests {
         }
     }
     #[test]
+    fn capture_age_ignores_padding_and_scheduled_silence() {
+        for rate in [44100, 48000] {
+            let source = source_with(rate, crate::equalizer::Settings::default());
+            source.packet(0.1).unwrap();
+            assert_eq!(source.metrics().capture_to_send_p95_ms, None);
+
+            // Genuine captured digital silence still has a capture timestamp.
+            enqueue(&source, 3, 0.0);
+            source.silence_packet(0.1).unwrap();
+            assert_eq!(source.depth().0, 3);
+            assert_eq!(source.metrics().capture_to_send_p95_ms, None);
+
+            source.packet(0.1).unwrap();
+            assert_eq!(source.state.lock().unwrap().ages.len(), 3);
+            let captured = source.metrics();
+            assert!(captured.capture_to_send_p95_ms.is_some());
+            assert_eq!(captured.padded_frames, (2 * FRAMES - 3) as u64);
+            assert_eq!(captured.fully_padded_packets, 1);
+
+            // Synthetic silence must not evict previous capture observations.
+            for _ in 0..12 {
+                source.silence_packet(0.1).unwrap();
+            }
+            assert_eq!(source.state.lock().unwrap().ages.len(), 3);
+            assert_eq!(
+                source.metrics().capture_to_send_p95_ms,
+                captured.capture_to_send_p95_ms
+            );
+        }
+    }
+    #[test]
     fn padding_counts_missing_output_frames_at_both_rates() {
         for rate in [44100, 48000] {
             for count in [0, FRAMES - 1, FRAMES] {
