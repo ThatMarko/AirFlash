@@ -2346,7 +2346,9 @@ fn send_packets(
             schedule.max_lateness_us = schedule.max_lateness_us.max(late.as_micros());
             telemetry.observe_lateness(late.as_secs_f64() * 1000.0);
             if let Some(source) = &live {
-                telemetry.capture_age.observe(source.sample_age_ms());
+                if let Some(age) = source.sample_age_ms() {
+                    telemetry.capture_age.observe(age);
+                }
                 // Slow outer loop: sustained lateness trims the capture resampler.
                 source.report_lateness(late.as_secs_f64() * 1000.0);
             }

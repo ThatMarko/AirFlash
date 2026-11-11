@@ -346,6 +346,12 @@ impl Loopback {
                 if queued.splice_before && (index != 0 || !splice_at_head) {
                     s.splice.boundary();
                 }
+                let age = now.saturating_sub(queued.frame.qpc) as f64 / 1e6;
+                s.metrics.max_queue_age_ms = s.metrics.max_queue_age_ms.max(age);
+                if s.ages.len() == 4000 {
+                    s.ages.pop_front();
+                }
+                s.ages.push_back(age);
                 queued.frame
             } else {
                 if force_silence {
@@ -363,12 +369,6 @@ impl Loopback {
             if frame.left.abs().max(frame.right.abs()) > 0.004 {
                 marker.get_or_insert(frame.qpc);
             }
-            let age = now.saturating_sub(frame.qpc) as f64 / 1e6;
-            s.metrics.max_queue_age_ms = s.metrics.max_queue_age_ms.max(age);
-            if s.ages.len() == 4000 {
-                s.ages.pop_front();
-            }
-            s.ages.push_back(age);
             let processed = s.equalizer.frame([frame.left, frame.right]);
             for value in s.splice.frame(processed, gain, missing) {
                 out.extend(s.quantizer.quantize(value).to_be_bytes());
@@ -402,13 +402,12 @@ impl Loopback {
         s.boundary_pending = true;
         s.metrics.last_discontinuity = Some("scheduler_recovery".into());
     }
-    /// Age of the oldest queued capture frame: how stale the audio about to be
-    /// sent already is. Feeds the `capture_age` telemetry histogram.
-    pub fn sample_age_ms(&self) -> f64 {
+    /// Age of the oldest capture frame queued at a sender deadline. An empty
+    /// queue has no observation for the `capture_age` histogram.
+    pub fn sample_age_ms(&self) -> Option<f64> {
         let s = self.state.lock().unwrap();
-        s.frames.front().map_or(0.0, |queued| {
-            qpc_ns().saturating_sub(queued.frame.qpc) as f64 / 1e6
-        })
+        let queued = s.frames.front()?;
+        Some(qpc_ns().saturating_sub(queued.frame.qpc) as f64 / 1e6)
     }
     /// `(queued, capacity)` in source frames.
     pub fn depth(&self) -> (usize, usize) {
@@ -1806,6 +1805,56 @@ pub(crate) mod tests {
                 qpc,
             });
         }
+    }
+    #[test]
+    fn capture_age_ignores_padding_and_scheduled_silence() {
+        for rate in [44100, 48000] {
+            let source = source_with(rate, crate::equalizer::Settings::default());
+            source.packet(0.1).unwrap();
+            assert_eq!(source.metrics().capture_to_send_p95_ms, None);
+
+            // Genuine captured digital silence still has a capture timestamp.
+            enqueue(&source, 3, 0.0);
+            source.silence_packet(0.1).unwrap();
+            assert_eq!(source.depth().0, 3);
+            assert_eq!(source.metrics().capture_to_send_p95_ms, None);
+
+            source.packet(0.1).unwrap();
+            assert_eq!(source.state.lock().unwrap().ages.len(), 3);
+            let captured = source.metrics();
+            assert!(captured.capture_to_send_p95_ms.is_some());
+            assert_eq!(captured.padded_frames, (2 * FRAMES - 3) as u64);
+            assert_eq!(captured.fully_padded_packets, 1);
+
+            // Synthetic silence must not evict previous capture observations.
+            for _ in 0..12 {
+                source.silence_packet(0.1).unwrap();
+            }
+            assert_eq!(source.state.lock().unwrap().ages.len(), 3);
+            assert_eq!(
+                source.metrics().capture_to_send_p95_ms,
+                captured.capture_to_send_p95_ms
+            );
+        }
+    }
+    #[test]
+    fn sender_deadline_sample_distinguishes_an_empty_queue_from_zero_age() {
+        let source = source();
+        assert_eq!(source.sample_age_ms(), None);
+        {
+            let mut state = source.state.lock().unwrap();
+            // A future timestamp gives an exact zero after saturating subtraction.
+            for qpc in [u64::MAX, 0] {
+                state.push_frame(Frame {
+                    left: 0.0,
+                    right: 0.0,
+                    qpc,
+                });
+            }
+        }
+        assert_eq!(source.sample_age_ms(), Some(0.0));
+        source.packet(0.1).unwrap();
+        assert_eq!(source.sample_age_ms(), None);
     }
     #[test]
     fn padding_counts_missing_output_frames_at_both_rates() {
