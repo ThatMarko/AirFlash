@@ -46,6 +46,8 @@ fn default_sample_rate() -> u32 {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProbeOptions {
+    #[serde(skip)]
+    pub sound_glow: crate::sound_glow::Control,
     pub peers: Vec<Peer>,
     #[serde(default)]
     pub intent: StartIntent,
@@ -191,18 +193,26 @@ impl ProbeOptions {
             "unknown audio source"
         );
         ensure!(
-            !self.peers.is_empty() && self.peers.len() <= 2,
-            "probe supports one device or one stereo pair"
+            !self.peers.is_empty() && (self.peers.len() <= 2 || self.group_mode == "multi_room"),
+            "probe supports one device, one stereo pair, or a multi-room group"
         );
         ensure!(
             self.peers.iter().all(|p| p.host.is_ipv4() && p.port > 0),
             "IPv4 endpoint required"
         );
-        if self.peers.len() == 2 {
-            ensure!(self.peers[0].host != self.peers[1].host, "duplicate peer");
+        let mut seen_peers = std::collections::HashSet::new();
+        for peer in &self.peers {
+            ensure!(seen_peers.insert(peer.host), "duplicate peer");
         }
         ensure!(
-            ["", "single", "native_stereo", "software_stereo"].contains(&self.group_mode.as_str()),
+            [
+                "",
+                "single",
+                "native_stereo",
+                "software_stereo",
+                "multi_room"
+            ]
+            .contains(&self.group_mode.as_str()),
             "invalid group mode"
         );
         for peer in &self.peers {
@@ -227,6 +237,17 @@ impl ProbeOptions {
                         .iter()
                         .any(|p| p.profile.channel == crate::profile::Channel::Right),
                 "software stereo requires one left and one right member"
+            );
+        } else if self.group_mode == "multi_room" {
+            ensure!(
+                self.peers.len() >= 2,
+                "multi-room requires at least two members"
+            );
+            ensure!(
+                self.peers
+                    .iter()
+                    .all(|p| p.profile.channel == crate::profile::Channel::Stereo),
+                "multi-room members must use stereo channel routing"
             );
         } else {
             ensure!(
@@ -278,6 +299,13 @@ fn clock_status(timer: &PtpMaster, hosts: &[IpAddr], phase: &str) -> Json {
         "network":timer.network_snapshot(), "mmcss":*timer.mmcss.lock().unwrap(),
         "engine_path":std::env::current_exe().ok(),
         "event_port":319, "general_port":320,
+    })
+}
+fn clock_warning(host: &str) -> Json {
+    json!({
+        "event":"warning", "channel":"clock", "code":"recovery_original_fault",
+        "host":host, "fault_code":"clock_lost", "recovered":false,
+        "message":"PTP exchanges stopped; verifying receiver ownership before recovery",
     })
 }
 fn dictionary(items: Vec<(&str, Value)>) -> Value {
@@ -385,6 +413,7 @@ struct Member {
     media: MediaTransport,
     uri: String,
     remote_control: u16,
+    rtsp_session: Option<String>,
     ready: bool,
     closed: bool,
     session_started: bool,
@@ -681,6 +710,7 @@ impl Member {
             media: MediaTransport::new(packetizer, audio, control, SocketAddr::new(peer.host, 0))?,
             uri,
             remote_control: 0,
+            rtsp_session: None,
             ready: false,
             closed: false,
             session_started: false,
@@ -727,12 +757,17 @@ impl Member {
         emit(
             json!({"event":"phase","host":peer.host,"phase":"setup_session","timing":options.timing}),
         );
-        let response = member
-            .conn
-            .lock()
-            .unwrap()
-            .plist_request("SETUP", &member.uri, &dictionary(setup))?
-            .plist()?;
+        let response =
+            member
+                .conn
+                .lock()
+                .unwrap()
+                .plist_request("SETUP", &member.uri, &dictionary(setup))?;
+        member.rtsp_session = response
+            .headers
+            .get("session")
+            .map(|s| s.split(';').next().unwrap_or(s).trim().to_owned());
+        let response = response.plist()?;
         member.session_started = true;
         let event_port = get_port(&response, "eventPort")?;
         member.event_addr = Some(SocketAddr::new(peer.host, event_port));
@@ -789,16 +824,22 @@ impl Member {
         emit(
             json!({"event":"phase","host":peer.host,"phase":"setup_audio","requested_latency_ms":options.latency_ms}),
         );
-        let response = member
-            .conn
-            .lock()
-            .unwrap()
-            .plist_request(
-                "SETUP",
-                &member.uri,
-                &dictionary(vec![("streams", Value::Array(vec![stream]))]),
-            )?
-            .plist()?;
+        let response = member.conn.lock().unwrap().plist_request(
+            "SETUP",
+            &member.uri,
+            &dictionary(vec![("streams", Value::Array(vec![stream]))]),
+        )?;
+        if let Some(session) = response.headers.get("session") {
+            member.rtsp_session = Some(
+                session
+                    .split(';')
+                    .next()
+                    .unwrap_or(session)
+                    .trim()
+                    .to_owned(),
+            );
+        }
+        let response = response.plist()?;
         let stream = response
             .as_dictionary()
             .and_then(|d| d.get("streams"))
@@ -1722,15 +1763,14 @@ fn begin_clock_ownership_check(
         .map(|member| member.peer.host)
         .collect();
     emit(clock_status(timer, &hosts, "lost"));
-    emit(
-        json!({"event":"warning","channel":"clock","code":"recovery_original_fault","host":host,"fault_code":"clock_lost","recovered":false,"message":"PTP exchanges stopped; verifying receiver ownership before recovery"}),
-    );
+    let host = host.to_string();
+    emit(clock_warning(&host));
     for member in members {
         member
             .health
             .preemption_signal(preemption::Signal::ClockLost);
     }
-    host.to_string()
+    host
 }
 
 fn ownership_unconfirmed(host: impl ToString) -> Fault {
@@ -2067,6 +2107,15 @@ fn rtp_queue_state(members: &[Member]) -> (usize, u64) {
         })
 }
 
+fn group_ownership_uncertain(members: &[Member]) -> bool {
+    members.iter().any(|member| {
+        member.preempted
+            || member.ownership_uncertain
+            || member.preemption.session_ended()
+            || member.health.ownership_uncertain()
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn send_packets(
     options: &ProbeOptions,
@@ -2138,11 +2187,44 @@ fn send_packets(
     for member in members.iter_mut() {
         member.start_feedback(start)?;
     }
+    let positions = members
+        .iter()
+        .map(|m| {
+            std::sync::Arc::new(std::sync::atomic::AtomicU64::new(
+                crate::sound_glow::position(m.media.packetizer.seq, m.media.packetizer.timestamp),
+            ))
+        })
+        .collect::<Vec<_>>();
+    let glow_worker = crate::sound_glow::Worker::start(
+        members
+            .iter()
+            .zip(&positions)
+            .map(|(m, position)| crate::sound_glow::Peer {
+                host: m.peer.host.to_string(),
+                uri: m.uri.clone(),
+                session: m.rtsp_session.clone(),
+                connection: m.conn.clone(),
+                position: position.clone(),
+            })
+            .collect(),
+        options.sound_glow.clone(),
+    );
+    let glow_worker = match glow_worker {
+        Ok(worker) => Some(worker),
+        Err(error) => {
+            options.sound_glow.disable(error.to_string());
+            emit(json!({"event":"sound_glow_error","message":error.to_string()}));
+            None
+        }
+    };
     let volume_peers = members
         .iter()
         .map(|m| (m.peer.host.to_string(), m.uri.clone(), m.conn.clone()))
         .collect::<Vec<_>>();
-    let volume_workers = if options.group_mode == "software_stereo" {
+    let volume_workers = if matches!(
+        options.group_mode.as_str(),
+        "software_stereo" | "multi_room"
+    ) {
         volume_peers
             .iter()
             .cloned()
@@ -2157,6 +2239,7 @@ fn send_packets(
         volume_peers,
         crate::metadata::global().clone(),
         metadata_timeline.clone(),
+        options.sound_glow.clone(),
     )
     .ok();
     let mut next_metrics = start + Duration::from_secs(1);
@@ -2212,6 +2295,20 @@ fn send_packets(
                 }
             }
             metadata_timeline.set(members[0].media.packetizer.timestamp);
+            if let Some(worker) = &glow_worker {
+                for event in worker.events.try_iter() {
+                    emit(event);
+                }
+            }
+            for (member, position) in members.iter().zip(&positions) {
+                position.store(
+                    crate::sound_glow::position(
+                        member.media.packetizer.seq,
+                        member.media.packetizer.timestamp,
+                    ),
+                    Ordering::Release,
+                );
+            }
             for worker in &volume_workers {
                 for event in worker.events.try_iter() {
                     emit(event);
@@ -2290,8 +2387,9 @@ fn send_packets(
                 pending_clock_fault = Some(begin_clock_ownership_check(timer, members, host, emit));
             }
             if pending_clock_fault.is_some() {
-                // Timing is unusable. Stop producing media while the bounded
-                // background probes settle; cancellation remains responsive.
+                // Fresh PTP alone cannot identify the session's owner. Keep
+                // media paused until the bounded ownership probes settle, even
+                // if timing recovers; cancellation remains responsive.
                 thread::sleep(Duration::from_millis(2));
                 continue;
             }
@@ -2337,7 +2435,9 @@ fn send_packets(
             schedule.max_lateness_us = schedule.max_lateness_us.max(late.as_micros());
             telemetry.observe_lateness(late.as_secs_f64() * 1000.0);
             if let Some(source) = &live {
-                telemetry.capture_age.observe(source.sample_age_ms());
+                if let Some(age) = source.sample_age_ms() {
+                    telemetry.capture_age.observe(age);
+                }
                 // Slow outer loop: sustained lateness trims the capture resampler.
                 source.report_lateness(late.as_secs_f64() * 1000.0);
             }
@@ -2554,8 +2654,8 @@ fn send_packets(
                     emit(clock_status(timer, &hosts, "streaming"));
                 }
                 if let Some(source) = &live {
-                    sample_capture(source, &mut capture_baseline, &mut telemetry);
-                    emit(json!({"event":"capture_metrics","metrics":source.metrics()}));
+                    let metrics = sample_capture(source, &mut capture_baseline, &mut telemetry);
+                    emit(json!({"event":"capture_metrics","metrics":metrics}));
                 }
                 record_member_counters(&mut telemetry, members);
                 let snapshot = transport_metrics(
@@ -2624,18 +2724,6 @@ fn send_packets(
         }
         Ok(StreamEnd::Finished)
     })();
-    // A single uncertain member makes group-wide cleanup unsafe. Never send an
-    // old association's TEARDOWN to the other half of a taken-over stereo pair.
-    if members.iter().any(|m| {
-        m.preempted
-            || m.ownership_uncertain
-            || m.preemption.session_ended()
-            || m.health.ownership_uncertain()
-    }) {
-        for member in members.iter_mut() {
-            member.preempted = true;
-        }
-    }
     // A stall in the last 250 ms of the session never reaches its own deadline.
     // Report what the window saw rather than dropping the stall from the summary.
     if let Some(window) = stall_drain.take() {
@@ -2648,15 +2736,22 @@ fn send_packets(
     // The drain is fallible (the final packet still goes through the packetizer),
     // but its error must not skip the end-of-session record below. Keep it and
     // return it after the summary has been emitted.
-    // A local stop, source end or silence can win while the ownership probe
-    // is pending. Close normally, but do not write media on that association.
-    let drained = if outcome.is_ok() && pending_clock_fault.is_none() {
+    // Stop, source end or silence can win before a pending ownership signal is
+    // polled. One uncertain member rules out a final write for the whole group.
+    let drained = if outcome.is_ok()
+        && pending_clock_fault.is_none()
+        && !group_ownership_uncertain(members)
+    {
         (|| -> Result<()> {
             if let Some(source) = &live {
                 let render = offset_deadline(schedule.playout_deadline(), common_latency, 0)?;
                 let (fade, _) = source.silence_packet(0.0)?;
                 let mut sent = true;
-                for member in members.iter_mut() {
+                for index in 0..members.len() {
+                    if group_ownership_uncertain(members) {
+                        return Ok(());
+                    }
+                    let member = &mut members[index];
                     sent &= member
                         .media
                         .send(
@@ -2682,7 +2777,7 @@ fn send_packets(
                                 .max()
                                 .unwrap_or(0),
                         );
-                    while Instant::now() < until {
+                    while Instant::now() < until && !group_ownership_uncertain(members) {
                         if members
                             .iter_mut()
                             .any(|m| m.media.service_buffered(Instant::now()).is_err())
@@ -2696,7 +2791,9 @@ fn send_packets(
                 // is a deliberate end of the timeline, not a `flush` reset: the
                 // receiver is never asked to discard queued audio, so a normal
                 // stop keeps every reset bucket at zero.
-                emit(json!({"event":"timeline_drained","faded":sent}));
+                if !group_ownership_uncertain(members) {
+                    emit(json!({"event":"timeline_drained","faded":sent}));
+                }
             }
             Ok(())
         })()
@@ -2704,8 +2801,8 @@ fn send_packets(
         Ok(())
     };
     if let Some(source) = &live {
-        sample_capture(source, &mut capture_baseline, &mut telemetry);
-        emit(json!({"event":"capture_metrics","metrics":source.metrics()}));
+        let metrics = sample_capture(source, &mut capture_baseline, &mut telemetry);
+        emit(json!({"event":"capture_metrics","metrics":metrics}));
     }
     for member in members.iter() {
         for notice in member.health.notices() {
@@ -2763,12 +2860,19 @@ fn send_packets(
     );
     let path = (!options.report_session_id.is_empty()).then(crate::telemetry::summary_path);
     emit_session_summary(&summary, path.as_deref(), emit);
-    // Both workers share each member's control connection: stop them before
-    // TEARDOWN so neither contends for the lock nor writes after it.
+    // Join the workers that share the control connection before TEARDOWN.
+    drop(glow_worker);
     drop(volume_workers);
     drop(metadata_worker);
-    for m in members.iter_mut() {
-        m.close();
+    // Feedback workers can latch an ownership signal as they stop. Join them
+    // all before deciding whether any member may send TEARDOWN.
+    for member in members.iter_mut() {
+        member.feedback.take();
+    }
+    let uncertain = group_ownership_uncertain(members);
+    for member in members.iter_mut() {
+        member.preempted |= uncertain;
+        member.close();
     }
     drained?;
     outcome
@@ -2795,6 +2899,7 @@ fn session_summary(
     // qualification call) falls back to the member count.
     let topology = match options.group_mode.as_str() {
         "software_stereo" => "software_stereo",
+        "multi_room" => "multi_room",
         "native_stereo" => "native_stereo",
         "single" => "single",
         _ if members.len() > 1 => "group",
@@ -3122,7 +3227,7 @@ fn sample_capture(
     source: &crate::live::Loopback,
     baseline: &mut Option<crate::live::Metrics>,
     telemetry: &mut crate::telemetry::SessionTelemetry,
-) {
+) -> crate::live::Metrics {
     let metrics = source.metrics();
     if let Some(previous) = baseline {
         telemetry.input_drops += metrics
@@ -3156,7 +3261,8 @@ fn sample_capture(
             }
         }
     }
-    *baseline = Some(metrics);
+    *baseline = Some(metrics.clone());
+    metrics
 }
 
 /// Copy per-member counters into the session block before a snapshot. The
@@ -3956,6 +4062,7 @@ mod tests {
             media,
             uri: "rtsp://127.0.0.1/test".into(),
             remote_control: 0,
+            rtsp_session: None,
             ready: true,
             closed: false,
             session_started: true,
@@ -4065,6 +4172,247 @@ mod tests {
         worker.join().unwrap();
         probe_worker.join().unwrap();
         assert!(!methods.lock().unwrap().iter().any(|m| m == "TEARDOWN"));
+    }
+    #[test]
+    fn clock_warning_retains_the_original_fault_and_host() {
+        let fault = clock_warning("192.0.2.1");
+        assert_eq!(fault["host"], "192.0.2.1");
+        assert_eq!(fault["fault_code"], "clock_lost");
+        assert_eq!(fault["recovered"], false);
+    }
+    fn followed_test_clock(hosts: &[IpAddr]) -> PtpMaster {
+        PtpMaster::from_sockets(
+            hosts.to_vec(),
+            hosts.to_vec(),
+            Clock::new(),
+            UdpSocket::bind("127.0.0.1:0").unwrap(),
+            UdpSocket::bind("127.0.0.1:0").unwrap(),
+        )
+        .unwrap()
+    }
+    fn replay_ready_clock(timer: &PtpMaster, hosts: &[IpAddr], first_seq: u16, offset: u64) {
+        let now = Instant::now();
+        for index in 0..3u16 {
+            let at = now - Duration::from_millis(u64::from(2 - index) * 150);
+            for host in hosts {
+                timer.replay_exchange(*host, first_seq + index, offset, at);
+            }
+        }
+        assert!(hosts.iter().all(|host| timer.ready(*host)));
+    }
+    #[test]
+    fn offset_jump_within_grace_keeps_media_and_does_not_probe_ownership() {
+        let (mut member, receiver, server) = local_member();
+        member.compat = crate::profile::CompatProfile::derive(
+            &dictionary(vec![]),
+            &Profile {
+                timing: Timing::Ptp,
+                ..Default::default()
+            },
+            &[],
+            44100,
+            true,
+        )
+        .unwrap();
+        let host = member.peer.host;
+        member
+            .media
+            .connect_audio(receiver.local_addr().unwrap())
+            .unwrap();
+        let timer = std::sync::Arc::new(followed_test_clock(&[host]));
+        replay_ready_clock(&timer, &[host], 0, 1_000_000);
+        timer.timeline(host, 1_000_000_000).unwrap();
+        let (frozen, resume) = std::sync::mpsc::channel();
+        let recovery_timer = timer.clone();
+        let recovery = thread::spawn(move || {
+            resume.recv_timeout(Duration::from_secs(2)).unwrap();
+            thread::sleep(Duration::from_millis(310));
+            replay_ready_clock(&recovery_timer, &[host], 4, 11_000_000);
+        });
+        let mut members = vec![member];
+        let events = std::sync::Mutex::new(Vec::new());
+        let result = send_packets(
+            &summary_options("", "single", 1200),
+            &Cancellation::default(),
+            &std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0.0f32.to_bits())),
+            crate::volume::Control::default(),
+            None,
+            &crate::standby::Control::default(),
+            &Clock::new(),
+            None,
+            &mut members,
+            Some(&timer),
+            &vec![0; FRAMES * 2],
+            None,
+            &|event| {
+                if event["event"] == "streaming" {
+                    timer.replay_exchange(host, 3, 11_000_000, Instant::now());
+                    assert!(!timer.ready(host));
+                } else if event["code"] == "clock_frozen" && event["recovered"] == false {
+                    // Re-converge in the background while media keeps using
+                    // its frozen mapping, without stalling the sender itself.
+                    frozen.send(()).unwrap();
+                }
+                events.lock().unwrap().push(event);
+            },
+        );
+        recovery.join().unwrap();
+        assert!(result.is_ok(), "{result:?}");
+        assert!(members[0].media.metrics.packets_sent > 0);
+        assert!(!members[0].ownership_uncertain);
+        assert!(!members[0].health.ownership_uncertain());
+        assert!(members[0].probe_task.is_none());
+        let events = events.lock().unwrap();
+        for recovered in [false, true] {
+            assert!(
+                events
+                    .iter()
+                    .any(|e| e["code"] == "clock_frozen" && e["recovered"] == recovered)
+            );
+        }
+        assert!(
+            !events
+                .iter()
+                .any(|e| e["code"] == "recovery_original_fault")
+        );
+        drop(events);
+        drop(members);
+        drop(receiver);
+        server.join().unwrap();
+    }
+    #[test]
+    fn fresh_ptp_during_ownership_check_never_resumes_the_group() {
+        for signal in [
+            None,
+            Some(preemption::Signal::FeedbackLost),
+            Some(preemption::Signal::UnexpectedTeardown),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let probe_port = listener.local_addr().unwrap().port();
+            let probe_stop = Cancellation::default();
+            let stop = probe_stop.clone();
+            let probe_server = thread::spawn(move || {
+                while !stop.is_cancelled() {
+                    let socket = match listener.accept() {
+                        Ok((socket, _)) => socket,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(1));
+                            continue;
+                        }
+                        Err(error) => panic!("status probe accept failed: {error}"),
+                    };
+                    let mut conn = Connection::from_stream(socket, stop.clone()).unwrap();
+                    let Ok(request) = conn.read() else { continue };
+                    assert!(request.first.starts_with("GET /info"));
+                    let mut body = Vec::new();
+                    dictionary(vec![(
+                        "statusFlags",
+                        Value::Integer(preemption::RECEIVER_SESSION_ACTIVE.into()),
+                    )])
+                    .to_writer_binary(&mut body)
+                    .unwrap();
+                    let mut response = format!(
+                        "RTSP/1.0 200 OK\r\nCSeq: {}\r\nContent-Length: {}\r\n\r\n",
+                        request.headers["cseq"],
+                        body.len()
+                    )
+                    .into_bytes();
+                    response.extend(body);
+                    let _ = conn.write(&response);
+                }
+            });
+            let mut members = Vec::new();
+            let mut servers = Vec::new();
+            let mut health = Vec::new();
+            for host in ["127.0.0.1", "127.0.0.2"] {
+                let (mut member, receiver, server) = local_member();
+                member.peer.host = host.parse().unwrap();
+                member.peer.port = probe_port;
+                member
+                    .media
+                    .connect_audio(receiver.local_addr().unwrap())
+                    .unwrap();
+                member.compat = crate::profile::CompatProfile::derive(
+                    &dictionary(vec![]),
+                    &Profile {
+                        timing: Timing::Ptp,
+                        ..Default::default()
+                    },
+                    &[],
+                    44100,
+                    true,
+                )
+                .unwrap();
+                // Keep the receiver and RTSP worker alive until media stops.
+                servers.push((receiver, server));
+                health.push(member.health.clone());
+                members.push(member);
+            }
+            let hosts: Vec<_> = members.iter().map(|m| m.peer.host).collect();
+            let timer = followed_test_clock(&hosts);
+            let events = std::sync::Mutex::new(Vec::new());
+            let result = send_packets(
+                &summary_options("", "native_stereo", 4000),
+                &Cancellation::default(),
+                &std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0.0f32.to_bits())),
+                crate::volume::Control::default(),
+                None,
+                &crate::standby::Control::default(),
+                &Clock::new(),
+                None,
+                &mut members,
+                Some(&timer),
+                &vec![0; FRAMES * 2],
+                None,
+                &|event| {
+                    if event["code"] == "recovery_original_fault" {
+                        // Make every required clock ready before the next
+                        // media-loop iteration consumes the ClockLost signal.
+                        replay_ready_clock(&timer, &hosts, 0, 1_000_000);
+                        if let Some(signal) = signal {
+                            health[0].preemption_signal(signal);
+                        }
+                    }
+                    events.lock().unwrap().push(event);
+                },
+            );
+            let fault = result.unwrap_err().downcast::<Fault>().unwrap();
+            let expected = if matches!(signal, Some(preemption::Signal::UnexpectedTeardown)) {
+                "preempted"
+            } else {
+                "ownership_unconfirmed"
+            };
+            assert_eq!(fault.code, expected);
+            assert!(!fault.retryable);
+            assert!(hosts.iter().all(|host| timer.ready(*host)));
+            assert!(members.iter().all(|m| m.media.metrics.packets_sent == 0));
+            assert!(members.iter().all(|m| m.health.ownership_uncertain()));
+            let events = events.lock().unwrap();
+            assert!(
+                events
+                    .iter()
+                    .any(|e| e["code"] == "recovery_original_fault")
+            );
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| e["code"] == "recovery_original_fault" && e["recovered"] == true)
+            );
+            assert!(
+                !events
+                    .iter()
+                    .any(|e| e["event"] == "clock_status" && e["phase"] == "ready")
+            );
+            drop(events);
+            drop(members);
+            probe_stop.cancel();
+            probe_server.join().unwrap();
+            for (receiver, server) in servers {
+                drop(receiver);
+                server.join().unwrap();
+            }
+        }
     }
     #[test]
     fn clock_failure_is_adjudicated_before_cleanup_and_keeps_the_original_fault() {
@@ -4320,6 +4668,75 @@ mod tests {
         worker.join().unwrap();
         assert!(!methods.lock().unwrap().iter().any(|m| m == "TEARDOWN"));
     }
+
+    #[test]
+    fn stop_checks_group_ownership_before_the_fade_and_again_before_teardown() {
+        for (signal_at, expect_fade) in [("streaming", false), ("transport_metrics", true)] {
+            let (mut members, receivers): (Vec<_>, Vec<_>) = (0..2)
+                .map(|_| {
+                    let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+                    receiver
+                        .set_read_timeout(Some(Duration::from_millis(30)))
+                        .unwrap();
+                    let address = receiver.local_addr().unwrap();
+                    let (mut member, server, methods) = local_member_with(address, None);
+                    member.media.connect_audio(address).unwrap();
+                    (member, (receiver, server, methods))
+                })
+                .unzip();
+            let health = members[0].health.clone();
+            let cancel = Cancellation::default();
+            let source = crate::live::tests::source();
+            let saw_drain = std::sync::atomic::AtomicBool::new(false);
+            let ended = send_packets(
+                &summary_options("", "native_stereo", 0),
+                &cancel,
+                &std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0.0f32.to_bits())),
+                crate::volume::Control::default(),
+                Some(&source),
+                &crate::standby::Control::default(),
+                &Clock::new(),
+                None,
+                &mut members,
+                None,
+                &[],
+                None,
+                &|event| {
+                    if event["event"] == signal_at {
+                        health.preemption_signal(preemption::Signal::FeedbackLost);
+                    }
+                    if event["event"] == "streaming" {
+                        cancel.cancel();
+                    }
+                    if event["event"] == "timeline_drained" {
+                        saw_drain.store(true, Ordering::Relaxed);
+                    }
+                },
+            )
+            .unwrap();
+            assert!(matches!(ended, StreamEnd::Finished));
+            assert!(health.ownership_uncertain());
+            drop(members);
+            for (receiver, server, methods) in receivers {
+                server.join().unwrap();
+                assert_eq!(
+                    receiver.recv(&mut [0; 2048]).is_ok(),
+                    expect_fade,
+                    "signal during {signal_at}"
+                );
+                assert!(
+                    !methods
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .any(|method| method == "TEARDOWN"),
+                    "signal during {signal_at} must suppress TEARDOWN for both members"
+                );
+            }
+            assert_eq!(saw_drain.load(Ordering::Relaxed), expect_fade);
+        }
+    }
+
     #[test]
     fn a_normal_member_close_still_sends_teardown() {
         let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -5351,6 +5768,7 @@ mod tests {
         use std::sync::atomic::{AtomicU64, Ordering};
         let options: ProbeOptions = serde_json::from_value(json!({"peers":[{"host":"127.0.0.1"}],"source":"loopback","duration_ms":0,"latency_ms":120,"gain":0.0})).unwrap();
         let options = ProbeOptions {
+            sound_glow: crate::sound_glow::Control::default(),
             group_mode: if software {
                 "software_stereo"
             } else {
@@ -6323,6 +6741,7 @@ mod tests {
         assert!(serde_json::from_value::<ProbeOptions>(parameters).is_err());
         let mut o = ProbeOptions {
             intent: StartIntent::Manual,
+            sound_glow: crate::sound_glow::Control::default(),
             peers: vec![Peer {
                 receiver_id: String::new(),
                 host: "127.0.0.1".parse().unwrap(),
@@ -6375,6 +6794,60 @@ mod tests {
         o.sample_rate = 48000;
         assert!(o.validate().is_ok());
         o.sample_rate = 96000;
+        assert!(o.validate().is_err());
+    }
+
+    #[test]
+    fn multi_room_options_validation() {
+        let make_peer = |ip: &str, ch: crate::profile::Channel| Peer {
+            receiver_id: "pod".into(),
+            host: ip.parse().unwrap(),
+            port: 7000,
+            codecs: vec![],
+            profile: crate::profile::Profile {
+                channel: ch,
+                sync_offset_ms: 0,
+                latency_ms: None,
+                timing: crate::profile::Timing::Auto,
+                codec: crate::profile::Codec::Auto,
+                follow_receiver_clock: false,
+                transport: crate::profile::Transport::Auto,
+                features: None,
+            },
+        };
+        let mut o = summary_options("test", "multi_room", 100);
+        o.source = "wav".into();
+        o.wav_path = PathBuf::from("test.wav");
+        o.peers = vec![
+            make_peer("192.168.1.10", crate::profile::Channel::Stereo),
+            make_peer("192.168.1.11", crate::profile::Channel::Stereo),
+            make_peer("192.168.1.12", crate::profile::Channel::Stereo),
+        ];
+        assert!(o.validate().is_ok());
+
+        let (member, _receiver, _server) = local_member();
+        let telemetry = crate::telemetry::SessionTelemetry::new();
+        let summary = session_summary(
+            &o,
+            std::slice::from_ref(&member),
+            &telemetry,
+            45,
+            Duration::from_millis(100),
+        );
+        assert_eq!(summary.topology, "multi_room");
+
+        // Duplicate IP should fail
+        o.peers[2].host = "192.168.1.10".parse().unwrap();
+        assert!(o.validate().is_err());
+        o.peers[2].host = "192.168.1.12".parse().unwrap();
+
+        // Non-stereo channel in multi_room should fail
+        o.peers[0].profile.channel = crate::profile::Channel::Left;
+        assert!(o.validate().is_err());
+        o.peers[0].profile.channel = crate::profile::Channel::Stereo;
+
+        // Less than 2 peers in multi_room should fail
+        o.peers.truncate(1);
         assert!(o.validate().is_err());
     }
 }

@@ -80,8 +80,8 @@ impl RemoteCommand {
             "mute" => Self::Mute,
             "volumeup" | "volume_up" | "volume-up" => Self::VolumeUp,
             "volumedown" | "volume_down" | "volume-down" => Self::VolumeDown,
-            "shuffle" | "shufflenext" => Self::ShuffleNext,
-            "repeat" | "repeatnext" => Self::RepeatNext,
+            "shuffle" | "shufflenext" | "shuffle_next" => Self::ShuffleNext,
+            "repeat" | "repeatnext" | "repeat_next" => Self::RepeatNext,
             _ => return None,
         })
     }
@@ -277,6 +277,15 @@ mod tests {
         let parsed = parse(&binary(dict));
         assert!(parsed.commands.is_empty());
         assert_eq!(parsed.source, None);
+    }
+
+    #[test]
+    fn shuffle_and_repeat_accept_the_canonical_command_names() {
+        for command in [RemoteCommand::ShuffleNext, RemoteCommand::RepeatNext] {
+            let mut dict = Dictionary::new();
+            dict.insert("command".into(), Value::String(command.name().into()));
+            assert_eq!(parse(&binary(dict)).commands, vec![command]);
+        }
     }
 
     #[test]

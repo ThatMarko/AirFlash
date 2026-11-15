@@ -204,6 +204,35 @@ public sealed class SoftwareGroupSettingsTests
         Assert.False(string.IsNullOrWhiteSpace(settings.Validate()));
     }
 
+    [Theory]
+    [InlineData("\"multi_room\"", "null")]
+    [InlineData("\"multi_room\"", "[null]")]
+    [InlineData("\"unknown\"", "[]")]
+    [InlineData("null", "[]")]
+    public void MalformedGroupModeOrMembersUseSettingsRecovery(string mode, string members)
+    {
+        using var fixture = new TemporaryStore();
+        var original = Encode($$"""
+            {
+              "schema_version": {{AppSettings.CurrentSchemaVersion}},
+              "software_groups": [{
+                "id":"software:synthetic", "left_id":"a", "right_id":"b",
+                "group_mode":{{mode}}, "members":{{members}}
+              }]
+            }
+            """, "utf8-bom");
+        File.WriteAllBytes(fixture.Path, original);
+        var store = new SettingsStore(fixture.Path);
+
+        AssertSafeDefaults(store.Load());
+        AssertSafeDefaults(store.Load());
+        Assert.False(string.IsNullOrWhiteSpace(store.LoadWarning));
+        store.Save(new AppSettings { MasterVolume = 29 });
+
+        Assert.Equal(original, File.ReadAllBytes(fixture.Path + ".pre-wpf.bak"));
+        Assert.Equal(29, new SettingsStore(fixture.Path).Load().MasterVolume);
+    }
+
     private static string Configuration(string? id, string? name = "Synthetic group", string? rate = "44100",
         string? left = "synthetic-left", string? right = "synthetic-right", int schema = AppSettings.CurrentSchemaVersion) => JsonSerializer.Serialize(new
     {

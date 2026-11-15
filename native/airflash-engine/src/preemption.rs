@@ -1,122 +1,50 @@
-//! Receiver-takeover policy: a live `statusFlags` probe and a receiver-side TCP
-//! liveness probe decide, control-plane symptoms only leave evidence.
+//! Receiver ownership checks under `receiver_ownership_guard`.
 //!
-//! The reference sender does not infer a takeover from what the control channel
-//! does. An unexpected `TEARDOWN` or a `Connection: close` is logged with
-//! context (`policy`, `rtp_healthy`, `packets_prepared`, `tcp_reachable`) and
-//! then the receiver is asked directly: `GET /info` and read `statusFlags`. The
-//! live answer is combined with a TCP connect probe of the control port (Q34,
-//! corrected by Q42):
+//! [`Tracker`] classifies probe results and schedules confirmations. The
+//! session applies the verdict. `Requeue` and `Reclaim` are historical action
+//! names. Both end the current attempt.
 //!
-//! | media healthy | liveness | verdict |
-//! | --- | --- | --- |
-//! | yes | Alive | `OursActive` — our session is still being served |
-//! | yes | Refused | `Gone` — the host is alive but not serving us; reclaim |
-//! | yes | Dead | `Gone` — the device is gone, reclaim, never `BusyElsewhere` |
-//! | yes | Unknown | `OursActive` — conservative, a failed probe is not a death |
-//! | no | any | consult `statusFlags` (see [`classify`]) |
-//!
-//! Q42 corrects two things about that dimension:
-//!
-//! - **`ConnectionRefused` does not mean the device is dead.** A returned RST
-//!   proves the host is alive and its network stack answered; it simply is not
-//!   serving the control port. Action-wise it is still a fail-open reclaim (no
-//!   `statusFlags` can be read), but it stays a distinct state in the log, or
-//!   "judged gone" and "refused the connection" become indistinguishable.
-//! - **`Unknown` is "temporarily unknown", not "counts as mine forever".**
-//!   [`LivenessTracker`] escalates a chain of non-definitive probes to `Dead`
-//!   after [`LIVENESS_PATIENCE`] consecutive failures, instead of enumerating
-//!   platform error codes.
-//!
-//! A group-wide cross-check closes the last ambiguous case: when **every**
-//! receiver of a multi-receiver session fails its probe in the same round, the
-//! common cause could be our own side (routing table, interface, Wi-Fi) — or the
-//! user really did switch every device off. Q46 turns that guess into a
-//! judgement with a control group: the same round probes the **default
-//! gateway**, which shares our local path but not our receivers' power state.
-//!
-//! | gateway | all receivers failed | conclusion |
-//! | --- | --- | --- |
-//! | answered (a connect or an RST) | yes | the devices really are gone: reclaim |
-//! | silent | yes | our own network: mark nothing dead |
-//! | not discoverable | yes | mark nothing dead, but time-boxed by [`GATEWAY_FALLBACK_WINDOW`] |
-//!
-//! [`judge_all_failed`] is the whole rule. A failed gateway probe is never
-//! evidence about a receiver: it only chooses between "the devices are gone" and
-//! "our network is gone" (see [`GatewayReachability`]).
-//!
-//! **The session loop does not consult this rule.** Each member's probe runs on
-//! its own background thread and completes on its own loop tick, so there is
-//! no round in which every member's liveness is known at once without holding
-//! one member's verdict back for the other's; and the gateway connect must never
-//! run on the audio thread. Every member is therefore judged on its own liveness
-//! (`local_suspected = false`). Under the ownership guard below, the rounds that
-//! matter most (feedback loss, clock loss, an unexpected `TEARDOWN`) already
-//! evaluate with unhealthy media and yield `ownership_unconfirmed` whether or
-//! not the rule would have suppressed them. The rule and its gateway helpers
-//! remain unit-tested here so it can be wired again with an asynchronous
-//! reference probe.
-//!
-//! The bit values are recovered from the reference implementation (Q31 answer):
-//! `ReceiverStatusFlags.ReceiverSessionActive = 131072 (0x20000, bit 17)`,
-//! `ReceiverStatusFlags.StereoPartnerUnreachable = 16384 (0x4000, bit 14)` and
-//! `ReceiverAccessPolicy.PasswordRequiredFlag = 128 (0x80, bit 7)`, all on a
-//! 64-bit (`ulong`) field. Only the session bit is a decision input, and it is
-//! **not** an "another sender" bit: it is true for our own session too. The
-//! reference sender's "is playing another sender's session" line is context —
-//! it probes from a reclaim path that already lost the session — so [`classify`]
-//! takes a second dimension, [`Tracker::we_hold_session`]. Without it, filling
-//! in `0x20000` would misjudge our own healthy session as a takeover and
-//! immediately reclaim it, interrupting working audio.
-//!
-//! Ownership is **derived live**, never latched (Q32): healthy RTP always wins
-//! over a control-plane signal, and an "our session ended" conclusion is trusted
-//! for [`ENDED_TRUST_WINDOW`] only. `403` is an access/authentication error in
-//! the reference classification, never takeover evidence: the feedback worker
-//! routes it to the existing authentication fault path, so it cannot reach this
-//! module at all. That closes the deadlock where a `403` latched "not ours",
-//! every probe reported our own session as somebody else's, and the queue never
-//! ended.
-//!
-//! A state-changing verdict (`Free` or `BusyElsewhere`) is re-probed once
-//! after [`CONFIRM_DELAY`]; a disagreement keeps the non-destructive outcome
-//! (never reclaim).
-//!
-//! # What the engine does with a verdict (`receiver_ownership_guard`)
-//!
-//! [`Tracker`] classifies and schedules; the session decides. The engine never
-//! reclaims a receiver inside a session and never waits behind another sender:
-//! every settled destructive action ends the attempt (see
-//! `docs/RECEIVER-OWNERSHIP.md`). `Member::apply_preemption` in `session.rs`
-//! maps the tracker's actions as follows:
-//!
-//! | settled action | session outcome |
+//! | Tracker action | Session outcome |
 //! | --- | --- |
-//! | [`ProbeAction::Confirm`] | keep streaming until the confirmation probe |
-//! | [`ProbeAction::FallThrough`] | keep streaming; an `Unknown` liveness re-probes after [`LIVENESS_RETRY`] |
-//! | [`ProbeAction::Requeue`] | yield `preempted` (reason `takeover`) when the receiver ended our session and is still busy, otherwise `ownership_unconfirmed` |
-//! | [`ProbeAction::Reclaim`] | yield `peer_closed` only when the confirmation probe itself read `Free`, otherwise `ownership_unconfirmed` |
+//! | [`ProbeAction::Confirm`] | Keep streaming until the confirmation probe. |
+//! | [`ProbeAction::FallThrough`] | Keep streaming. Re-probe `Unknown` liveness after [`LIVENESS_RETRY`]. |
+//! | [`ProbeAction::Requeue`] | Yield `preempted` with reason `takeover` when the receiver ended our session and is still busy. Otherwise yield `ownership_unconfirmed`. |
+//! | [`ProbeAction::Reclaim`] | Yield retryable `peer_closed` only when the confirmation probe itself read `Free`. Otherwise yield `ownership_unconfirmed`. |
 //!
-//! Disagreeing confirmation probes, and an ownership check that is still open
-//! 15 s after feedback loss, clock loss or an unexpected `TEARDOWN`, also yield
-//! `ownership_unconfirmed`. Every yield marks the member so that closing it
-//! sends no `TEARDOWN` (a receiver another controller may now be using must
-//! not get one back; a settled `Requeue`/`Reclaim` also poisons the control
-//! connection) and [`Tracker::suspend`]s the tracker for the rest of that
-//! member's life. A yield stops the whole group. `preempted` and
-//! `ownership_unconfirmed` are not retryable; `peer_closed` is, but any
-//! automatic restart (desktop retry, standby or capture-source resume) first
-//! runs the free-receiver preflight: every member must report an inactive
-//! session in two `/info` rounds 500 ms apart before SETUP is sent.
+//! A disagreeing confirmation or an ownership check still open 15 s after
+//! feedback loss, clock loss, or an unexpected `TEARDOWN` also yields
+//! `ownership_unconfirmed`. A yield stops the whole group and suppresses its
+//! old `TEARDOWN` requests. The affected member suspends its tracker, including
+//! any busy re-probe scheduled by [`REPROBE_BACKOFF`].
 //!
-//! The tracker still computes a [`REPROBE_BACKOFF`] schedule for a confirmed
-//! `BusyElsewhere`, but the engine suspends it on that same verdict, so no
-//! session waits the backoff out. There is no in-session reclaim loop and no
-//! reclaim → takeover cycle counter: the first confirmed takeover already
-//! yields.
+//! `preempted` and `ownership_unconfirmed` require manual reconnect. When a
+//! clock fault is pending, the sender reports retryable `clock_lost` in place
+//! of the confirmed-free `peer_closed`. Every automatic start, including
+//! desktop retry, standby resume, and capture-source restart, must first get
+//! an inactive session from every member in two read-only `/info` rounds
+//! [`CONFIRM_DELAY`] apart before SETUP. See `docs/RECEIVER-OWNERSHIP.md`.
 //!
-//! Real-device values are still unverified: the raw `statusFlags` value is
-//! always logged so it can be mapped from a receiver that owns the session.
+//! ## Probe inputs
+//!
+//! Control-plane symptoms schedule a probe. The background probe combines a
+//! TCP liveness check on the receiver's control port and a fresh `GET /info`
+//! with the session's local evidence. A successful UDP write only shows local
+//! socket acceptance. A receiver-initiated `TEARDOWN`, feedback loss, or clock
+//! loss invalidates the corresponding healthy-media assumption. Authentication
+//! faults on the feedback channel follow the authentication fault path.
+//!
+//! [`classify`] interprets the 64-bit `statusFlags` field. Its session-active
+//! bit can describe our session or another controller's, so the classifier
+//! also takes the caller's association context. [`combine`] preserves the
+//! distinction between `Refused` and `Dead` in the liveness evidence while
+//! classifying both as `Gone`. [`LivenessTracker`] bounds consecutive unknown
+//! samples. The first `Free` or `BusyElsewhere` verdict schedules a confirmation
+//! after [`CONFIRM_DELAY`].
+//!
+//! The group-wide gateway reference model ([`judge_all_failed`]) is exercised
+//! by tests. The live session does not run it. Each member's background probe
+//! completes independently, and the sender applies its verdict without
+//! waiting for a synchronized group round or connecting to the gateway.
 use crate::rtsp::{Cancellation, Connection};
 use anyhow::{Context, Result};
 use plist::Value;
@@ -134,25 +62,10 @@ pub const PROBE_TIMEOUT: Duration = Duration::from_secs(2);
 /// as [`PROBE_TIMEOUT`]: both are one control-plane round trip to a LAN address.
 pub const LIVENESS_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Q42's escalation timer: how many **consecutive** non-definitive liveness
-/// probes are tolerated before the receiver counts as gone. Q42 only fixed the
-/// shape ("`Unknown` must have a patience limit"), not the number; Q46 fixed the
-/// budget — a genuine power-off must be reclaimed in roughly **15 s**, and 6 s
-/// is too short for a Wi-Fi client that is re-associating:
-///
-/// - cross-AP re-association plus DHCP takes 5–15 s, and a DFS channel switch
-///   can take up to 60 s; five samples leave room for the common case without
-///   waiting anywhere near the DFS worst case;
-/// - the gap between the first and the fifth failure is
-///   `(LIVENESS_PATIENCE - 1) × LIVENESS_RETRY = 4 × 3 s = 12 s`, plus the
-///   deciding probe itself (at most [`LIVENESS_TIMEOUT`]) — about 12–14 s, i.e.
-///   the ~15 s Q46 asked for; a powered-off LAN device normally fails after its
-///   ARP lookup (`HostUnreachable`, ~1 s), so 15 s is the realistic order;
-/// - a chain that short is still far quicker than the media-health backstop,
-///   which never fires while UDP sends keep "succeeding";
-/// - early is the *audible* mistake (the session is rebuilt), late only costs a
-///   few seconds of a stream nobody is receiving — so the direction of the
-///   trade-off is deliberately conservative.
+/// Consecutive non-definitive liveness probes before the tracker reports
+/// `Dead`. Five samples at [`LIVENESS_RETRY`] leave 12 s between the first and
+/// fifth nominal probe times. The session's separate ownership-check deadline
+/// can end the attempt sooner.
 pub const LIVENESS_PATIENCE: u32 = 5;
 
 /// The wall-clock half of Q42's escalation timer: a receiver that has not been
@@ -306,26 +219,17 @@ pub fn incoming_teardown(method: Option<&str>) -> Option<Signal> {
     (method == Some("TEARDOWN")).then_some(Signal::UnexpectedTeardown)
 }
 
-/// The receiver-side liveness dimension Q34 recovered from the reference
-/// sender: one TCP connect to the control port, not an RTP feedback path.
-///
-/// Q42 splits what used to be `Dead` into two states. A refused connect is a
-/// *returned RST*: the host is up and answered, it just does not serve that
-/// port. Only a timeout or an explicitly unreachable host/network means the
-/// device is not there. The action is the same fail-open reclaim for both, but
-/// the states must not be collapsed: the log has to distinguish "the device is
-/// gone" from "the device refused the connection".
+/// Result of one TCP connect to the receiver's control port. `Refused` and
+/// `Dead` lead to the same ownership verdict while remaining distinct evidence
+/// in diagnostics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReceiverLiveness {
     /// `TcpStream::connect_timeout` succeeded: the receiver is alive.
     Alive,
-    /// The connection was refused (a returned RST): the host is alive, its
-    /// stack answered, but the control port is not serving. No `statusFlags`
-    /// can be read, so this reclaims like `Dead` — it is simply never *called*
-    /// dead (Q42).
+    /// The connection was refused. A host answered, but the control port did
+    /// not accept the connection needed to read `statusFlags`.
     Refused,
-    /// The connect timed out, or the host/network was reported unreachable: the
-    /// device is not there.
+    /// The connect timed out or the host or network was reported unreachable.
     Dead,
     /// The probe failed in a way that proves neither life nor death (a firewall
     /// rule, a transient local socket error, IPv6 neighbour discovery, ...).
@@ -565,18 +469,17 @@ impl GatewayReachability {
     }
 }
 
-/// The verdict of Q46's all-failed rule for one full polling round.
+/// The verdict of the test-only gateway model for one full polling round.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AllFailed {
     /// Not every receiver of a multi-receiver session failed this round: each
     /// receiver's own verdict stands.
     NotAllFailed,
-    /// Every receiver failed **and the gateway answered**. The common cause
-    /// cannot be our network, so the devices really are gone: the per-receiver
-    /// `Dead` verdicts stand and the receivers are reclaimed (Q46).
+    /// Every receiver failed and the gateway answered. The model leaves the
+    /// per-receiver `Dead` verdicts in place.
     DevicesGone,
-    /// Every receiver failed **and the gateway did not answer**. Our own
-    /// routing/interface/Wi-Fi is the common cause: nothing is marked dead.
+    /// Every receiver failed and the gateway did not answer. The model treats
+    /// a local network issue as possible and suppresses the `Dead` verdicts.
     LocalNetwork,
     /// Every receiver failed and there is no default route to probe. Suppress,
     /// but only until [`GATEWAY_FALLBACK_WINDOW`] elapses (Q46's last resort).
@@ -609,11 +512,11 @@ impl AllFailed {
 /// receivers' power state:
 ///
 /// ```text
-/// all receivers failed + gateway answered  => DevicesGone       (reclaim)
+/// all receivers failed + gateway answered  => DevicesGone       (no suppression)
 /// all receivers failed + gateway silent    => LocalNetwork     (suppress)
 /// all receivers failed + no default route  => LocalNetworkUnproven
 ///                                            until GATEWAY_FALLBACK_WINDOW,
-///                                            then FallbackExpired (reclaim)
+///                                            then FallbackExpired (no suppression)
 /// ```
 ///
 /// `all_failed_for` is how long the current all-failed episode has lasted. It is
@@ -758,25 +661,17 @@ pub enum ProbeOutcome {
     /// No active session on the receiver ([`RECEIVER_SESSION_ACTIVE`] is clear),
     /// whatever the other bits say.
     Free,
-    /// The receiver's active session is **ours**: the session bit is set and we
-    /// still hold the session ([`Tracker::we_hold_session`]), or healthy media
-    /// plus a reachable receiver made the auxiliary probe irrelevant. Never a
-    /// reclaim trigger — the receiver is still serving us, so the control-plane
-    /// symptom is something else.
+    /// The association is treated as ours based on the active bit and the
+    /// caller's local context, or on healthy media and non-terminal liveness.
     OursActive,
-    /// The receiver has an active session and we do not hold it: another sender
-    /// owns the device. Queue one re-probe, do not fight.
+    /// The receiver reports an active session while the caller does not hold an
+    /// association. A first verdict schedules a confirmation probe.
     BusyElsewhere,
-    /// The probe completed but `statusFlags` was missing or not an unsigned
-    /// 64-bit integer. Structurally unclassifiable; the caller reclaims
-    /// (fail-open), exactly like a failed probe.
+    /// The probe could not classify ownership, for example because `statusFlags`
+    /// was missing or invalid.
     Unknown,
-    /// The receiver did not answer a TCP connect on its control port while our
-    /// media was still healthy (Q34), or it refused the connection (Q42: the
-    /// host is alive but not serving, so `statusFlags` cannot be read either).
-    /// Either way this reclaims and must never be classified as
-    /// `BusyElsewhere`; the diagnostic line keeps the raw state (`dead` vs
-    /// `refused`).
+    /// The receiver's control port was unreachable or refused the connection.
+    /// The diagnostic line keeps `dead` and `refused` distinct.
     Gone,
 }
 
@@ -803,12 +698,10 @@ pub struct ProbeReport {
 
 /// The one and only interpreter of `statusFlags` session bits.
 ///
-/// `we_hold_session` is the context the receiver cannot give us (the reference
-/// sender gets it from where in its lifecycle it probes). It is true when our
-/// own media is still flowing and the receiver's "session ended" conclusion (if
-/// any) is still fresh; see [`we_hold_session`] for the exact derivation. The
-/// three-way shape is Q31's prescription: the session bit alone cannot
-/// distinguish our own session from another sender's.
+/// `we_hold_session` is the caller's local association context. A live member
+/// clears it when the receiver ended the association or ownership became
+/// uncertain. The automatic-start preflight passes `false` because it has no
+/// association yet. The session bit alone cannot distinguish senders.
 pub fn classify(status_flags: u64, we_hold_session: bool) -> ProbeOutcome {
     if status_flags & RECEIVER_SESSION_ACTIVE == 0 {
         ProbeOutcome::Free
@@ -826,12 +719,11 @@ pub fn classify(status_flags: u64, we_hold_session: bool) -> ProbeOutcome {
 /// (media healthy, Refused) => Gone       // alive, but not serving us
 /// (media healthy, Dead)    => Gone       // the device is gone, not taken over
 /// (media healthy, Unknown) => OursActive // conservative
-/// (!media healthy, _)      => consult statusFlags
+/// (!media healthy, Alive or Unknown) => consult statusFlags
 /// ```
 ///
 /// The status-flags consultation is [`classify`] (and `Unknown` when the field
-/// is missing), i.e. the fail-open path is unchanged for an unhealthy media
-/// session. `Dead` and `Refused` win over the flags in every case so they can
+/// is missing). `Dead` and `Refused` win over the flags in every case so they can
 /// never resolve to `BusyElsewhere`: a receiver that cannot accept a TCP
 /// connection is not "busy with another sender". Q42 keeps them distinct as
 /// states (see [`ReceiverLiveness`]) while sharing this action.
@@ -880,15 +772,12 @@ fn report_from_info(info: &Value, we_hold_session: bool) -> ProbeReport {
 /// confirmation probe — has been applied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProbeAction {
-    /// The receiver is free, gone, or unreadable (fail-open): our association
-    /// is over. The engine does not reconnect in-session; it yields
-    /// `peer_closed` for a confirmed `Free` and `ownership_unconfirmed`
-    /// otherwise.
+    /// Historical label for the free, gone, or unreadable path. The member
+    /// yields `peer_closed` only when the confirmation itself read `Free`, and
+    /// `ownership_unconfirmed` otherwise.
     Reclaim,
-    /// Another sender's session is active (confirmed `BusyElsewhere`). The
-    /// tracker schedules the next [`requeue_delay`] interval and never turns
-    /// busy into a reclaim (Q34); the engine yields on this verdict instead
-    /// of queueing.
+    /// Historical label for the settled `BusyElsewhere` path. The tracker can
+    /// schedule another probe, which the member discards when it yields.
     Requeue,
     /// Not preemption: the receiver's active session is ours. Take no
     /// preemption action, so the control symptom falls through to the existing
@@ -909,12 +798,9 @@ pub fn action_for(outcome: ProbeOutcome) -> ProbeAction {
     }
 }
 
-/// The Q30 verdict table including probe failure and timeout: **fail-open**.
-/// Errors must never fall through to the generic transport-fault branch.
-///
-/// The liveness dimension is applied by [`combine`] before this function: a
-/// healthy media session with a reachable (or unproven) receiver never reaches
-/// the error path. When media is unhealthy, a probe error still reclaims.
+/// Classify a completed probe or a failed probe. An error takes the historical
+/// [`ProbeAction::Reclaim`] branch, which yields `ownership_unconfirmed` in the
+/// session because no successful `Free` result was read.
 pub fn action_for_result(result: &Result<ProbeReport>) -> ProbeAction {
     match result {
         Ok(report) => action_for(report.outcome),
@@ -924,16 +810,10 @@ pub fn action_for_result(result: &Result<ProbeReport>) -> ProbeAction {
 
 /// Adjudicate a state-changing first verdict against its confirmation probe.
 ///
-/// `second` is `None` when the confirmation probe failed; the first verdict
-/// then stands (fail-open on the reclaim path, the queue on the busy path).
-/// When the two probes disagree the **non-destructive** interpretation wins and
-/// a reclaim is never issued: `OursActive` falls through, `BusyElsewhere`
-/// keeps queueing. `Unknown` is not a verdict, so it never counts as a
-/// disagreement; the first verdict stands unchanged.
-///
-/// The settled outcome is returned too: it is what the action is based on, so
-/// the caller can tell a confirmed `Free` (a real takeover cycle) from the
-/// fail-open paths without re-deriving the confirmation rule.
+/// A failed or `Unknown` second probe leaves the first tracker verdict in
+/// place. The session still requires the second probe itself to read `Free`
+/// before allowing automatic recovery. Two different usable outcomes return a
+/// disagreement, which the session turns into `ownership_unconfirmed`.
 fn confirm(
     first: ProbeOutcome,
     second: Option<ProbeOutcome>,
@@ -1024,14 +904,13 @@ fn probe_infos(
 
 /// Probe the receiver's live status on a fresh RTSP connection.
 ///
-/// `we_hold_session` is the locally derived context [`classify`] needs: our own
-/// media is still flowing and the receiver's ended conclusion (if any) is fresh
-/// (see [`we_hold_session`]). It is an input, never something the probe invents.
+/// `we_hold_session` is the caller's local association context used by
+/// [`classify`]. The probe only reads the receiver's status.
 ///
 /// The caller's existing control connection is deliberately not used: after a
 /// takeover it belongs to a session the receiver already ended, and encrypted
 /// RTSP cannot be re-keyed mid-session (Q16). Any TCP/RTSP/plist error or read
-/// timeout is returned as `Err`; the policy layer turns that into a reclaim.
+/// timeout is returned as `Err` for the caller to classify.
 pub fn probe(
     addr: SocketAddr,
     cancel: &Cancellation,
@@ -1092,10 +971,9 @@ pub struct ProbeNote {
     /// Set when the first and confirmation probes gave different usable
     /// verdicts. The caller logs the disagreement.
     pub disagreement: Option<(ProbeOutcome, ProbeOutcome)>,
-    /// The settled verdict is a confirmed `Free` and the action is
-    /// [`ProbeAction::Reclaim`]. Queueing (`Requeue`), a dead receiver (`Gone`)
-    /// and the fail-open paths never set it. The engine is stricter still: it
-    /// reports `peer_closed` only when the confirmation probe itself read `Free`.
+    /// The tracker settled on `Free` and [`ProbeAction::Reclaim`]. The session
+    /// uses the actual confirmation result to decide whether the fault is
+    /// retryable.
     pub takeover: bool,
 }
 
@@ -1288,12 +1166,11 @@ impl Tracker {
     /// Feed one probe result back and apply the confirmation rule plus the
     /// queue backoff.
     ///
-    /// A `Free` or `BusyElsewhere` first verdict is not acted on: it schedules
-    /// one confirmation probe after [`CONFIRM_DELAY`]. `OursActive` and the
-    /// fail-open paths (`Unknown`, `Gone`, error, timeout) are acted on
-    /// immediately. A confirmed `BusyElsewhere` schedules another probe after
-    /// the next [`REPROBE_BACKOFF`] interval and never forces a reclaim; the
-    /// engine yields on that verdict instead of waiting for it.
+    /// A first `Free` or `BusyElsewhere` verdict schedules a confirmation
+    /// probe after [`CONFIRM_DELAY`]. `OursActive`, `Unknown`, `Gone`, and errors
+    /// settle immediately. The tracker schedules a confirmed `BusyElsewhere`
+    /// re-probe after the next [`REPROBE_BACKOFF`] interval, which the session
+    /// drops when it yields.
     pub fn note_result(&mut self, result: &Result<ProbeReport>, now: Instant) -> ProbeNote {
         let log = match result {
             Ok(report) => ProbeLog {
@@ -1323,9 +1200,8 @@ impl Tracker {
             Ok(report) if report.outcome == ProbeOutcome::BusyElsewhere => {
                 self.schedule_confirmation(ProbeOutcome::BusyElsewhere, log_changed, now)
             }
-            // `OursActive` changes nothing; `Unknown`/`Gone`/error are
-            // fail-open and reclaim immediately. Neither waits for a
-            // confirmation.
+            // `OursActive`, `Unknown`, `Gone`, and errors settle without a
+            // confirmation. The session applies the resulting action.
             _ => {
                 let action = action_for_result(result);
                 let settled = result

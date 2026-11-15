@@ -92,7 +92,8 @@ fn playback_holds_the_same_mapping_through_a_delay_offset_jump_and_reacquires() 
     send_delay_response(&mut state, 21, jump_at, t3, t3 + 5_014_090_000);
     assert_eq!(state.packets.last_rejection, Some("offset_jump"));
     assert_eq!(state.round_trip_ns, Some(14_180_000.0));
-    assert_eq!(state.last, None);
+    assert_eq!(state.first, Some(jump_at));
+    assert_eq!(state.last, Some(jump_at));
     assert!(!state.ready(jump_at));
     assert_eq!(state.map_offset(jump_at, Duration::ZERO), None);
     assert!(state.playback_timing_available(jump_at, grace));

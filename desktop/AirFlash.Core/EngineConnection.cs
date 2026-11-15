@@ -10,12 +10,17 @@ public interface IEngineConnection : IAsyncDisposable
     Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation);
     ValueTask<JsonElement?> ReadAsync(CancellationToken cancellation);
 }
+/// <summary>Writes JSONL requests with a caller-selected ID that the engine echoes in its reply.</summary>
+public interface ICorrelatedEngineConnection : IEngineConnection
+{
+    Task SendCorrelatedAsync(string requestId, string session, string command, object? parameters, CancellationToken cancellation);
+}
 public interface IEngineFactory { IEngineConnection Open(); }
 public sealed class ProcessEngineFactory(string executable, Action<string>? log = null) : IEngineFactory
 {
     public IEngineConnection Open() => new ProcessEngineConnection(executable, log);
 }
-public sealed class ProcessEngineConnection : IEngineConnection
+public sealed class ProcessEngineConnection : ICorrelatedEngineConnection
 {
     private readonly Process _process;
     private readonly SemaphoreSlim _writer = new(1, 1);
@@ -69,13 +74,16 @@ public sealed class ProcessEngineConnection : IEngineConnection
     public string FailureDescription => _process.HasExited
         ? $"{L.Get("The engine did not return hello.")} Exit code {_process.ExitCode} (0x{unchecked((uint)_process.ExitCode):X8})."
         : L.Get("The engine did not return hello.");
-    public async Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
+    public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
+        => SendCorrelatedAsync(Guid.NewGuid().ToString("N"), session, command, parameters, cancellation);
+    public async Task SendCorrelatedAsync(string requestId, string session, string command, object? parameters, CancellationToken cancellation)
     {
+        ArgumentException.ThrowIfNullOrEmpty(requestId);
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposing) != 0, this);
         if (command == "stop") Interlocked.CompareExchange(ref _shutdownStarted, Stopwatch.GetTimestamp(), 0);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, _ioStop.Token);
         if (command == "stop") linked.CancelAfter(ShutdownRemaining());
-        var request = JsonSerializer.Serialize(new { version = 1, id = Guid.NewGuid().ToString("N"), session_id = session, command, @params = parameters ?? new { } });
+        var request = JsonSerializer.Serialize(new { version = 1, id = requestId, session_id = session, command, @params = parameters ?? new { } });
         try
         {
             await _writer.WaitAsync(linked.Token).ConfigureAwait(false);

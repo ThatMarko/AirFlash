@@ -446,6 +446,34 @@ public sealed class SessionSettingsContextTests
     }
 
     [Fact]
+    public void MultiRoomProjectionKeepsAllOwnedMembersAndAppliesSavedOffsets()
+    {
+        var first = Legacy();
+        var second = Legacy("192.0.2.11");
+        var third = Legacy("192.0.2.12");
+        var settings = Settings(first);
+        settings.SoftwareGroups.Add(new()
+        {
+            Id = "software:fixture", GroupMode = "multi_room",
+            Members = [new() { ReceiverId = first.Id }, new() { ReceiverId = second.Id }, new() { ReceiverId = third.Id }]
+        });
+        var owned = SoftwareStereo.Resolve([first, second, third], settings).Single();
+        var canonicalThird = Canonical(third, "canonical-third");
+        var incoming = Migrated(settings, third, canonicalThird);
+        incoming.SoftwareGroups[0].Members[2].OffsetMs = 17;
+
+        var projected = new SessionSettingsContext([], Migration(third, canonicalThird)).Project(incoming, settings, owned);
+        var resolved = SoftwareStereo.Resolve([first, second, third], projected).Single();
+
+        Assert.True(resolved.IsMultiRoom);
+        Assert.True(resolved.Online);
+        Assert.Equal(new[] { first.Id, second.Id, third.Id }, resolved.Peers.Select(member => member.Id));
+        Assert.Equal(17, resolved.Members[2].SyncOffsetMs);
+        Assert.Equal(canonicalThird.Id, incoming.SoftwareGroups[0].Members[2].ReceiverId);
+
+    }
+
+    [Fact]
     public async Task ExplicitAvailableManualMemberReplacementAdoptsNewTransportWithoutRestoringTheOldMember()
     {
         var left = Legacy(); var right = Legacy("192.0.2.11", 7010); var settings = Settings(left);

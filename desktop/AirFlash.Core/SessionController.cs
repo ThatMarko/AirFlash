@@ -21,15 +21,66 @@ public sealed record SessionTiming(TimeSpan Connect, TimeSpan Read, TimeSpan Pin
     public static SessionTiming Default { get; } = new(TimeSpan.FromSeconds(40), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(120), TimeSpan.FromSeconds(1));
 }
 public sealed record SessionCapture(SessionSnapshot Snapshot, long Owner, long AutomaticIntent);
+public sealed record DiagnosticCapture(JsonElement? Summary, IReadOnlyList<PlaybackCounterDelta>? CounterHistory);
+internal readonly record struct StreamingAttempt(long Owner, long Intent, long Transport);
 
 public sealed class SessionController(IEngineFactory factory, IAudioService audio, Action<string>? log = null, SessionTiming? timing = null, Action<DesktopSessionRecord>? sessionRecords = null, TimeProvider? clock = null) : IAsyncDisposable
 {
     private readonly SemaphoreSlim _serial = new(1, 1);
+    private long _soundGlowSequence;
+    private long _soundGlowTransport;
+    private bool _soundGlowSupported;
+    private readonly SemaphoreSlim _soundGlowWriter = new(1, 1);
+    public bool SoundGlowSupported { get { lock (_sync) return _soundGlowSupported; } }
+    public event Action<JsonElement>? SoundGlowFeedback;
+    public async Task SendSoundGlowTestAsync(string palette, CancellationToken cancellation = default)
+    {
+        if (palette is not ("metadata_only" or "red" or "blue" or "green"))
+            throw new ArgumentException("Unknown test palette.", nameof(palette));
+        using var operation = TryAdmitPassiveOperation();
+        if (operation is null) throw new InvalidOperationException(L.Get("Start streaming before testing Sound Glow."));
+        IEngineConnection connection;
+        string session;
+        CancellationToken lifetime;
+        StreamingAttempt attempt;
+        lock (_sync)
+        {
+            if (!_transportStreaming || _snapshot.State != PlaybackState.Streaming || _connection is null || _sessionId is null || _lifetime is null)
+                throw new InvalidOperationException(L.Get("Start streaming before testing Sound Glow."));
+            if (!_soundGlowSupported)
+                throw new InvalidOperationException(L.Get("This audio engine does not support the Sound Glow experiment."));
+            connection = _connection;
+            session = _sessionId;
+            lifetime = _lifetime.Token;
+            attempt = new(_generation, _automaticIntent, _remoteTransport);
+        }
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime);
+        timeout.CancelAfter(TimeSpan.FromSeconds(2));
+        await _soundGlowWriter.WaitAsync(timeout.Token).ConfigureAwait(false);
+        try
+        {
+            long sequence;
+            lock (_sync)
+            {
+                timeout.Token.ThrowIfCancellationRequested();
+                if (_passiveDisposed || !_transportStreaming || _snapshot.State != PlaybackState.Streaming
+                    || attempt != new StreamingAttempt(_generation, _automaticIntent, _remoteTransport)
+                    || !ReferenceEquals(connection, _connection))
+                    throw new InvalidOperationException(L.Get("Start streaming before testing Sound Glow."));
+                sequence = ++_soundGlowSequence;
+                _soundGlowTransport = attempt.Transport;
+            }
+            await connection.SendAsync(session, "set_sound_glow", new { sequence, palette }, timeout.Token).ConfigureAwait(false);
+            log?.Invoke($"Sound Glow test requested: sequence={sequence}; palette={palette}");
+        }
+        finally { _soundGlowWriter.Release(); }
+    }
     private readonly SemaphoreSlim _audioWriter = new(1, 1);
     private readonly SemaphoreSlim _diagnosticWriter = new(1, 1);
     private readonly SemaphoreSlim _nowPlayingWriter = new(1, 1);
-    private TaskCompletionSource<JsonElement?>? _diagnosticReply;
-    private JsonElement? _lastDiagnostic;
+    private PendingDiagnostic? _diagnosticReply;
+    private DiagnosticCapture? _lastDiagnostic;
+    private long? _nativeSessionEpoch;
     /// <summary>The live Now Playing source's latest value, sent again when a stream
     /// starts. It follows the source, not a session: <see cref="ClearNowPlayingAsync"/>
     /// drops it when the source goes away. Stopping a session keeps it because the
@@ -60,6 +111,9 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private long _generation;
     private long _automaticIntent;
     private bool _passiveDisposed;
+    private int _passiveOperations;
+    private TaskCompletionSource? _passiveDrained;
+    private Task? _disposeTask;
     private bool _muted;
     private bool _transportStreaming;
     private long _remoteTransport;
@@ -94,9 +148,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     }
     private async Task PreviewEqualizerLoopAsync(CancellationTokenSource edit)
     {
+        using var operation = TryAdmitPassiveOperation();
         var token = edit.Token;
         try
         {
+            if (operation is null) return;
             while (true)
             {
                 await Task.Delay(50, token).ConfigureAwait(false);
@@ -132,6 +188,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private EqualizerSettings EffectiveEqualizer() { lock (_sync) return (_equalizerPreview ?? _settings.Equalizer).Clone(); }
     private async Task SendEqualizerAsync(long? expectedSequence = null, CancellationToken cancellation = default)
     {
+        using var operation = TryAdmitPassiveOperation();
+        if (operation is null) return;
         await _equalizerWriter.WaitAsync(cancellation).ConfigureAwait(false);
         try
         {
@@ -160,20 +218,24 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private CancellationTokenSource? _volumeEdit;
     public async Task SetDeviceVolumeAsync(string receiverId, int value)
     {
+        using var operation = TryAdmitPassiveOperation();
+        if (operation is null) return;
         if (Snapshot.Receiver?.IsSoftwareGroup == true) { await SetMemberVolumeAsync(receiverId, value).ConfigureAwait(false); return; }
+        CancellationTokenSource edit;
         CancellationToken token;
         long sequence, epoch;
         lock (_sync)
         {
-            if (_receiver?.Id != receiverId || !_deviceVolume.Available || _snapshot.State is not (PlaybackState.Streaming or PlaybackState.Standby)) return;
-            _volumeEdit?.Cancel(); _volumeEdit?.Dispose();
-            _volumeEdit = CancellationTokenSource.CreateLinkedTokenSource(_lifetime!.Token);
-            token = _volumeEdit.Token; sequence = ++_volumeSequence; epoch = _generation;
+            if (_passiveDisposed || _lifetime is null || _receiver?.Id != receiverId || !_deviceVolume.Available
+                || _snapshot.State is not (PlaybackState.Streaming or PlaybackState.Standby)) return;
+            _volumeEdit?.Cancel();
+            _volumeEdit = edit = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+            token = edit.Token; sequence = ++_volumeSequence; epoch = _generation;
             _deviceVolume = _deviceVolume.Begin(Math.Clamp(value, 0, 100), sequence);
         }
-        PublishCurrent(epoch);
         try
         {
+            PublishCurrent(epoch);
             await Task.Delay(200, token).ConfigureAwait(false);
             await _serial.WaitAsync(token).ConfigureAwait(false);
             try
@@ -207,6 +269,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             log?.Invoke($"Device volume command failed: {error.Message}");
             PublishCurrent(epoch);
         }
+        finally
+        {
+            lock (_sync) { if (ReferenceEquals(_volumeEdit, edit)) _volumeEdit = null; }
+            edit.Dispose();
+        }
     }
     private void PublishCurrent(long epoch)
     {
@@ -219,8 +286,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         long epoch, sequence; string host, session; IEngineConnection connection; CancellationToken token;
         lock (_sync)
         {
-            if (_receiver?.IsSoftwareGroup != true || _snapshot.State is not (PlaybackState.Streaming or PlaybackState.Standby) || !_memberVolumes.TryGetValue(memberId, out var state) || !state.Available || !_memberHosts.TryGetValue(memberId, out host!) || _connection is null || _sessionId is null) return;
-            epoch = _generation; sequence = ++_volumeSequence; connection = _connection; session = _sessionId; token = _lifetime!.Token;
+            if (_passiveDisposed || _lifetime is null || _receiver?.IsSoftwareGroup != true || _snapshot.State is not (PlaybackState.Streaming or PlaybackState.Standby) || !_memberVolumes.TryGetValue(memberId, out var state) || !state.Available || !_memberHosts.TryGetValue(memberId, out host!) || _connection is null || _sessionId is null) return;
+            epoch = _generation; sequence = ++_volumeSequence; connection = _connection; session = _sessionId; token = _lifetime.Token;
             _memberVolumes[memberId] = state.Begin(Math.Clamp(value, 0, 100), sequence);
         }
         PublishCurrent(epoch);
@@ -245,6 +312,15 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private SessionSnapshot _snapshot = new(PlaybackState.Idle);
     public SessionSnapshot Snapshot { get { lock (_sync) return _snapshot; } }
     public SessionCapture Capture() { lock (_sync) return new(_snapshot, _generation, _automaticIntent); }
+    internal (StreamingAttempt Attempt, Receiver Receiver)? CaptureStreamingAttempt()
+    {
+        lock (_sync)
+        {
+            if (!_transportStreaming || _snapshot.State != PlaybackState.Streaming || _snapshot.IsRetrying
+                || _receiver is not { } receiver || _lifetime?.IsCancellationRequested != false || _passiveDisposed) return null;
+            return (new(_generation, _automaticIntent, _remoteTransport), receiver);
+        }
+    }
     public void InvalidateAutomaticIntent() => BeginExplicitIntent();
     public long BeginExplicitIntent() { lock (_sync) return ++_automaticIntent; }
     public bool IsIntentCurrent(long intent) { lock (_sync) return !_passiveDisposed && intent == _automaticIntent; }
@@ -280,7 +356,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         var application = settings.CaptureMode == "application";
         return new()
         {
-            ["receiver"] = JsonSerializer.Serialize(new { mode = receiver.IsSoftwareGroup ? "software_stereo" : receiver.IsGroup ? "native_stereo" : "single",
+            ["receiver"] = JsonSerializer.Serialize(new { mode = receiver.PlaybackGroupMode,
                 group = receiver.IsGroup && !receiver.IsSoftwareGroup ? receiver.StereoId : null,
                 peers = receiver.Peers.OrderBy(m => m.Address, StringComparer.Ordinal).ThenBy(m => m.Port).Select(m => new { m.Address, m.Port, leader = receiver.IsGroup && m.IsLeader }) }),
             ["capture"] = JsonSerializer.Serialize(new { settings.CaptureMode, endpoint = settings.EffectiveEndpoint,
@@ -323,12 +399,13 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private static void ValidateStart(Receiver receiver, AppSettings settings)
     {
         if (!receiver.Online) throw new InvalidOperationException(L.Get("The receiver is unavailable."));
-        if (!receiver.Complete) throw new InvalidOperationException(L.Get("Both stereo pair members must be online."));
+        if (!receiver.Complete) throw new InvalidOperationException(L.Get(receiver.IsMultiRoom
+            ? "All multi-room members must be online." : "Both stereo pair members must be online."));
         if (settings.Validate() is { } validation) throw new ArgumentException(validation, nameof(settings));
         if (LatencyPolicy.ForceConflict(settings, receiver) is { } conflict) throw new InvalidOperationException(conflict);
-        if (receiver.IsSoftwareGroup && (receiver.Members.Select(m => Receiver.PhysicalKey(m.DeviceId, m.Address)).Distinct().Count() != 2
-            || receiver.Members.Select(m => m.Address).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 2))
-            throw new InvalidOperationException(L.Get("Stereo groups require two distinct independent receivers."));
+        if (receiver.IsSoftwareGroup && !receiver.HasDistinctSoftwareMembers)
+            throw new InvalidOperationException(L.Get(receiver.IsMultiRoom
+                ? "Multi-room groups require distinct independent receivers." : "Stereo groups require two distinct independent receivers."));
     }
     private async Task<bool> StartExplicitAsync(Receiver receiver, AppSettings settings, Func<Receiver, CancellationToken, Task<string?>>? requestPin, long expectedIntent)
     {
@@ -515,7 +592,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private async Task StopLockedAsync(bool retryCleanup = false)
     {
         if (!retryCleanup && Volatile.Read(ref _cleanupFailure) is { } pending) throw pending;
-        lock (_sync) { ++_generation; _discoveredReceiver = null; _volumeEdit?.Cancel(); _volumeEdit?.Dispose(); _volumeEdit = null; _deviceVolume = new(); _memberVolumes.Clear(); _memberHosts.Clear(); }
+        lock (_sync) { ++_generation; _discoveredReceiver = null; _volumeEdit?.Cancel(); _volumeEdit = null; _deviceVolume = new(); _memberVolumes.Clear(); _memberHosts.Clear(); }
         if (_lifetime is not null) await _lifetime.CancelAsync().ConfigureAwait(false);
         var cleanup = retryCleanup ? Volatile.Read(ref _cleanupFailure) : null;
         if (_work is not null)
@@ -651,8 +728,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     || receiver.IsGroup != previous.IsGroup || receiver.Id != migrations.GetValueOrDefault(previous.Id, previous.Id)) return;
                 var settings = _settings.Clone();
                 ReceiverCatalog.ApplyMigrations(settings, migrations, previous.Id);
-                if (receiver.Online && receiver.Complete && (!receiver.IsSoftwareGroup || receiver.Members.Select(m => Receiver.PhysicalKey(m.DeviceId, m.Address)).Distinct().Count() == 2
-                    && receiver.Members.Select(m => m.Address).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 2)) _discoveredReceiver = receiver;
+                if (receiver.Online && receiver.Complete && (!receiver.IsSoftwareGroup || receiver.HasDistinctSoftwareMembers))
+                    _discoveredReceiver = receiver;
                 Receiver Identity(Receiver active, Receiver discovered) => active with { Id = discovered.Id, Name = discovered.Name, DeviceId = discovered.DeviceId,
                     Model = discovered.Model, GroupName = discovered.GroupName, Aliases = discovered.Aliases };
                 var retained = Identity(previous, receiver);
@@ -730,13 +807,15 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private static object StandbyParameters(AppSettings settings, string receiverId) => new { enabled = settings.StandbyEnabled, silence_seconds = settings.ReadOptions(receiverId).StandbySeconds ?? settings.StandbySilenceSeconds };
     private async Task SendStandbyAsync()
     {
+        using var operation = TryAdmitPassiveOperation();
+        if (operation is null) return;
         await _equalizerWriter.WaitAsync().ConfigureAwait(false);
         try
         {
             IEngineConnection? connection; string? session; (bool Enabled, double Seconds) policy;
             lock (_sync)
             {
-                if (!_startSent || _receiver is null) return;
+                if (_passiveDisposed || !_startSent || _receiver is null) return;
                 connection = _connection; session = _sessionId;
                 policy = (_settings.StandbyEnabled, _settings.ReadOptions(_receiver.Id).StandbySeconds ?? _settings.StandbySilenceSeconds);
                 if (_sentStandby == policy) return;
@@ -793,7 +872,9 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     /// <summary>Send to the current engine when its hello advertised <c>now_playing</c>.</summary>
     private async Task SendNowPlayingAsync(CancellationToken cancellation)
     {
-        lock (_sync) { if (_passiveDisposed || !_nowPlayingSupported || !_startSent) return; }
+        lock (_sync) { if (!_nowPlayingSupported || !_startSent) return; }
+        using var operation = TryAdmitPassiveOperation();
+        if (operation is null) return;
         try
         {
             await _nowPlayingWriter.WaitAsync(cancellation).ConfigureAwait(false);
@@ -835,37 +916,110 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         }
         catch (OperationCanceledException) { }
     }
-    /// <summary>The engine's redacted <c>diag_summary</c>, asked of the streaming engine
-    /// when its hello advertised <c>diagnostics</c>; otherwise the last summary
-    /// received, or null.</summary>
+    /// <summary>The current streaming engine's redacted summary, or the last
+    /// accepted historical capture when playback is inactive.</summary>
     public async Task<JsonElement?> DiagnosticSnapshotAsync(CancellationToken cancellation = default)
+        => (await CaptureDiagnosticsAsync(cancellation).ConfigureAwait(false)).Summary;
+
+    /// <summary>Capture a summary and counter history from the same playback scope.
+    /// A failed or superseded request retains its request-time history.</summary>
+    public async Task<DiagnosticCapture> CaptureDiagnosticsAsync(CancellationToken cancellation = default)
     {
-        lock (_sync) { if (_passiveDisposed) return _lastDiagnostic; }
+        using var operation = TryAdmitPassiveOperation();
+        if (operation is null) { lock (_sync) return AvailableDiagnosticsLocked(); }
         await _diagnosticWriter.WaitAsync(cancellation).ConfigureAwait(false);
-        TaskCompletionSource<JsonElement?>? reply = null;
+        PendingDiagnostic? pending = null;
+        DiagnosticCapture fallback = new(null, null);
         try
         {
-            IEngineConnection? connection; string? session;
-            lock (_sync)
-            {
-                connection = _connection; session = _sessionId;
-                if (_passiveDisposed || connection is null || session is null || !_transportStreaming || !_diagnosticsSupported) return _lastDiagnostic;
-                reply = _diagnosticReply = new(TaskCreationOptions.RunContinuationsAsynchronously);
-            }
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
             timeout.CancelAfter(TimeSpan.FromSeconds(5));
-            await connection.SendAsync(session, "diag_summary", null, timeout.Token).ConfigureAwait(false);
-            return await reply.Task.WaitAsync(timeout.Token).ConfigureAwait(false);
+            ICorrelatedEngineConnection connection;
+            lock (_sync)
+            {
+                fallback = new(null, FreezeCounterHistoryLocked());
+                if (_passiveDisposed || !_snapshot.IsActive) return AvailableDiagnosticsLocked();
+                if (_connection is not ICorrelatedEngineConnection current || _sessionId is not { } session
+                    || !_transportStreaming || _snapshot.State != PlaybackState.Streaming || !_diagnosticsSupported)
+                    return fallback;
+                connection = current;
+                var scope = new DiagnosticScope(current, session, _generation, _remoteTransport, _nativeSessionEpoch);
+                pending = _diagnosticReply = new(Guid.NewGuid().ToString("N"), scope, fallback, timeout.Token,
+                    new(TaskCreationOptions.RunContinuationsAsynchronously));
+            }
+            using var canceled = timeout.Token.Register(() => pending.Reply.TrySetResult(pending.Fallback));
+            await connection.SendCorrelatedAsync(pending.Id, pending.Scope.Session, "diag_summary", null, timeout.Token).ConfigureAwait(false);
+            var result = await pending.Reply.Task.ConfigureAwait(false);
+            lock (_sync)
+            {
+                if (timeout.IsCancellationRequested || !DiagnosticScopeCurrentLocked(pending.Scope)
+                    || result.Summary is { } summary && !DiagnosticEpochMatchesLocked(summary)) return fallback;
+                if (result.Summary is not null) _lastDiagnostic = result;
+                return result;
+            }
         }
         catch (Exception error) when (error is IOException or OperationCanceledException or ObjectDisposedException or InvalidOperationException)
         {
-            return null;
+            return fallback;
         }
         finally
         {
-            lock (_sync) { if (ReferenceEquals(_diagnosticReply, reply)) _diagnosticReply = null; }
+            lock (_sync) { if (ReferenceEquals(_diagnosticReply, pending)) _diagnosticReply = null; }
             _diagnosticWriter.Release();
         }
+    }
+
+    private sealed record DiagnosticScope(IEngineConnection Connection, string Session, long Owner, long Transport, long? NativeEpoch);
+    private sealed record PendingDiagnostic(string Id, DiagnosticScope Scope, DiagnosticCapture Fallback, CancellationToken Cancellation,
+        TaskCompletionSource<DiagnosticCapture> Reply);
+
+    private bool DiagnosticScopeCurrentLocked(DiagnosticScope scope) =>
+        !_passiveDisposed && _generation == scope.Owner && ReferenceEquals(_connection, scope.Connection)
+        && _sessionId == scope.Session && _remoteTransport == scope.Transport && _transportStreaming
+        && _snapshot.State == PlaybackState.Streaming && _lifetime?.IsCancellationRequested == false
+        && (scope.NativeEpoch is null || scope.NativeEpoch == _nativeSessionEpoch);
+
+    private DiagnosticCapture AvailableDiagnosticsLocked() =>
+        !_snapshot.IsActive && _lastDiagnostic is { } cached ? cached : new(null, FreezeCounterHistoryLocked());
+
+    private IReadOnlyList<PlaybackCounterDelta>? FreezeCounterHistoryLocked() =>
+        _diagnostics.CounterDeltaHistory is not { } history ? null : Array.AsReadOnly(history.Select(report => report with
+        {
+            Counters = report.Counters is null ? null : new System.Collections.ObjectModel.ReadOnlyDictionary<string, ulong>(
+                new Dictionary<string, ulong>(report.Counters)),
+            Members = report.Members is null ? null : Array.AsReadOnly(report.Members.Select(member => member with
+            {
+                Counters = new System.Collections.ObjectModel.ReadOnlyDictionary<string, ulong>(
+                    new Dictionary<string, ulong>(member.Counters))
+            }).ToArray())
+        }).ToArray());
+
+    private void AcceptDiagnosticLocked(IEngineConnection connection, JsonElement item)
+    {
+        if (_diagnosticReply is not { } pending || !ReferenceEquals(pending.Scope.Connection, connection)
+            || item.Text("id") != pending.Id) return;
+        if (pending.Cancellation.IsCancellationRequested || !DiagnosticScopeCurrentLocked(pending.Scope) || !DiagnosticEpochMatchesLocked(item))
+        {
+            pending.Reply.TrySetResult(pending.Fallback);
+            return;
+        }
+        var capture = new DiagnosticCapture(item.Clone(), FreezeCounterHistoryLocked());
+        pending.Reply.TrySetResult(capture);
+    }
+
+    private bool DiagnosticEpochMatchesLocked(JsonElement item)
+    {
+        if (!item.TryGetProperty("session", out var summary) || summary.ValueKind != JsonValueKind.Object) return false;
+        var epoch = summary.Integer("session_epoch");
+        if (summary.TryGetProperty("session_epoch", out var value) && value.ValueKind != JsonValueKind.Null && epoch is not > 0) return false;
+        return _nativeSessionEpoch is null || epoch == _nativeSessionEpoch;
+    }
+
+    private void ObserveNativeEpochLocked(long? epoch)
+    {
+        if (epoch is not > 0 || epoch == _nativeSessionEpoch || _nativeSessionEpoch is { } previous && epoch < previous) return;
+        _nativeSessionEpoch = epoch;
+        _lastDiagnostic = null;
     }
     private int _adaptiveBase;
     private int _adaptiveInitial;
@@ -919,12 +1073,15 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private async Task RunStreamAsync(Receiver receiver, long epoch, SessionStartIntent intent, CancellationToken cancellation)
     {
         var attempts = 0;
+        var diagnosticAttempt = 0;
+        var counterHistory = new PlaybackCounterHistory();
         var recoveryHealth = new RecoveryHealth(_clock);
         // Q43 companion record: how many reconnects this playback run had already
         // done when the next attempt started, and the whole fault story (first,
         // count and the compact sequence) instead of only the latest reason.
         var reconnects = 0;
         var transportFaults = new List<string>();
+        var recovering = false;
         while (!cancellation.IsCancellationRequested)
         {
             // A new process must not replace a mute obligation left by cleanup.
@@ -956,6 +1113,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     peers.Add(new { receiver_id = member.Id, host, port = member.Port, codecs = member.Codecs.Select(x => (int)x).ToArray(), profile = PeerProfile(receiver, member, settings) });
                 }
                 await using var connection = factory.Open();
+                var currentAttempt = ++diagnosticAttempt;
+                counterHistory.End();
                 recoveryHealth.BeginAttempt(hosts.Values);
                 var session = Guid.NewGuid().ToString("N");
                 SetConnection(connection, session);
@@ -967,6 +1126,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     var deadline = DateTime.UtcNow + _timing.Connect;
                     await connection.SendAsync(session, "hello", null, cancellation).ConfigureAwait(false);
                     var hello = await ReadEventAsync(connection, session, _timing.Connect, cancellation).ConfigureAwait(false);
+                    lock (_sync) { if (epoch == _generation) _soundGlowSupported = EngineHandshake.HasCapability(hello, "sound_glow_test"); }
                     _confirmedLeadSupported = EngineHandshake.HasCapability(hello, "adaptive_lead_v2");
                     lock (_sync)
                     {
@@ -981,6 +1141,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         throw new EngineFailure(new("forced_latency_unsupported", "", "setup", L.Get("This audio engine does not support forced latency. Update the engine or turn off forced latency."), false));
                     if (settings.CaptureMode == "application") EngineHandshake.RequireCapabilities(hello, "application_capture");
                     if (receiver.IsSoftwareGroup) EngineHandshake.RequireCapabilities(hello, "member_volume");
+                    if (receiver.IsMultiRoom) EngineHandshake.RequireCapabilities(hello, "multi_room");
                     var capabilities = await ReceiverCapabilityCatalog.QueryConnectionAsync(connection, session, hello, receiver, cancellation, hosts).ConfigureAwait(false);
                     var selected = capabilities.Select(id => ProfileOptions(receiver, receiver.Peers.Single(p => p.Id == id), settings), settings.SampleRate(receiver));
                     if (capabilities.Members.Count > 0 && selected.Count == 0) throw new InvalidOperationException(L.Get("The receiver does not support this stream profile. Choose Automatic or a supported option in Receivers."));
@@ -997,7 +1158,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     await _equalizerWriter.WaitAsync(cancellation).ConfigureAwait(false);
                     try
                     {
-                        var startParameters = JsonSerializer.SerializeToNode(new { peers, group_mode = receiver.IsSoftwareGroup ? "software_stereo" : receiver.IsGroup ? "native_stereo" : "single", group_id = receiver.IsGroup && !receiver.IsSoftwareGroup ? receiver.StereoId : null, source = settings.CaptureMode == "application" ? "application" : "loopback", capture_application_path = settings.CaptureMode == "application" ? settings.CaptureApplicationPath : null, capture_process_id = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.ProcessId : null, capture_process_started_at = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.StartedAt : null, standby = StandbyParameters(settings, receiver.Id), duration_ms = 0, latency_ms = _adaptiveBase, gain = Gain(receiver), timing = "ptp", capture_endpoint = settings.EffectiveEndpoint, sample_rate = sampleRate, equalizer = EffectiveEqualizer().WireParameters() })!.AsObject();
+                        var groupMode = receiver.PlaybackGroupMode;
+                        var startParameters = JsonSerializer.SerializeToNode(new { peers, group_mode = groupMode, group_id = receiver.IsGroup && !receiver.IsSoftwareGroup ? receiver.StereoId : null, source = settings.CaptureMode == "application" ? "application" : "loopback", capture_application_path = settings.CaptureMode == "application" ? settings.CaptureApplicationPath : null, capture_process_id = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.ProcessId : null, capture_process_started_at = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.StartedAt : null, standby = StandbyParameters(settings, receiver.Id), duration_ms = 0, latency_ms = _adaptiveBase, gain = Gain(receiver), timing = "ptp", capture_endpoint = settings.EffectiveEndpoint, sample_rate = sampleRate, equalizer = EffectiveEqualizer().WireParameters() })!.AsObject();
                         if (forceLatency) startParameters["force_latency"] = true;
                         startParameters["intent"] = attemptIntent == SessionStartIntent.Manual ? "manual" : "automatic";
                         if (adaptiveMode && _confirmedLeadSupported)
@@ -1036,6 +1198,17 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                             continue;
                         }
                         var kind = item.Text("event");
+                        if (kind.StartsWith("sound_glow_", StringComparison.Ordinal))
+                        {
+                            lock (_sync)
+                            {
+                                if (epoch != _generation || item.Integer("sequence") is { } sequence
+                                    && (!_transportStreaming || _soundGlowTransport != _remoteTransport || sequence != _soundGlowSequence)) continue;
+                            }
+                            log?.Invoke("Sound Glow: " + item.GetRawText());
+                            SoundGlowFeedback?.Invoke(item.Clone());
+                            continue;
+                        }
                         if (kind == "error") throw new EngineFailure(EngineNotice.Parse(item));
                         if (kind == "stopped") throw new IOException(L.Get("The audio session ended unexpectedly."));
                         if (kind == "diag_summary")
@@ -1043,8 +1216,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                             lock (_sync)
                             {
                                 if (epoch != _generation) continue;
-                                _lastDiagnostic = item.Clone();
-                                _diagnosticReply?.TrySetResult(_lastDiagnostic);
+                                AcceptDiagnosticLocked(connection, item);
                             }
                         }
                         if (kind == "peer_info")
@@ -1082,14 +1254,23 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         }
                         if (kind == "streaming")
                         {
+                            recovering = false;
                             AcceptLatency(item);
+                            counterHistory.Begin(currentAttempt, item.Integer("session_epoch"));
                             startedAt = Stopwatch.GetTimestamp();
                             hasStreamed = true;
                             lock (_sync)
                             {
                                 if (epoch != _generation) continue;
                                 // Standby can replace the live transport inside the same IPC session.
-                                if (!_transportStreaming || _snapshot.State != PlaybackState.Streaming) ++_remoteTransport;
+                                if (!_transportStreaming || _snapshot.State != PlaybackState.Streaming)
+                                {
+                                    ++_remoteTransport;
+                                    _nativeSessionEpoch = null;
+                                    _lastDiagnostic = null;
+                                    if (_diagnosticReply is { } pending) pending.Reply.TrySetResult(pending.Fallback);
+                                }
+                                ObserveNativeEpochLocked(item.Integer("session_epoch"));
                                 _transportStreaming = true;
                             }
                             await ApplyLocalMuteAsync().ConfigureAwait(false);
@@ -1099,6 +1280,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         }
                         else if (kind == "standby")
                         {
+                            counterHistory.End();
+                            recovering = false;
                             recoveryHealth.ResetStability();
                             lock (_sync) _adaptive.Suspend();
                             startedAt = Stopwatch.GetTimestamp();
@@ -1113,6 +1296,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         }
                         else if (kind == "resuming")
                         {
+                            counterHistory.End();
                             recoveryHealth.BeginAttempt(hosts.Values);
                             lock (_sync) _adaptive.Resume(_adaptiveInitial);
                             startedAt = 0; deadline = DateTime.UtcNow + _timing.Connect;
@@ -1181,6 +1365,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         }
                         else if (kind == "transport_metrics" && startedAt != 0)
                         {
+                            var receivedAt = _clock.GetUtcNow();
                             var metrics = TransportMetrics.Parse(item);
                             if (recoveryHealth.Observe(metrics))
                             {
@@ -1188,7 +1373,13 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                                 log?.Invoke("Session retry budget reset reason=receiver_healthy_60s");
                             }
                             AcceptLatency(item);
-                            lock (_sync) { if (epoch != _generation) continue; _diagnostics = _diagnostics with { Transport = metrics }; }
+                            lock (_sync)
+                            {
+                                if (epoch != _generation) continue;
+                                if (_snapshot.State == PlaybackState.Streaming) ObserveNativeEpochLocked(metrics.SessionEpoch);
+                                var history = counterHistory.ObserveTransport(receivedAt, metrics);
+                                _diagnostics = _diagnostics with { Transport = metrics, CounterDeltaHistory = history ?? _diagnostics.CounterDeltaHistory };
+                            }
                             if (AdaptivePlan() is not null)
                             {
                                 bool fresh; lock (_sync) fresh = _adaptive.Observe(metrics);
@@ -1199,8 +1390,15 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         }
                         else if (kind == "capture_metrics" && item.TryGetProperty("metrics", out var metrics))
                         {
+                            var receivedAt = _clock.GetUtcNow();
                             var parsed = new StreamMetrics(metrics.Number("capture_to_send_p95_ms"), metrics.Number("max_queue_age_ms"), metrics.Integer("underrun_packets"), metrics.Integer("dropped_frames"), metrics.Integer("input_rate") is { } rate ? (int)rate : null,
                                 metrics.Unsigned("padded_frames"), metrics.Unsigned("fully_padded_packets"));
+                            lock (_sync)
+                            {
+                                if (epoch != _generation) continue;
+                                if (counterHistory.ObserveCapture(receivedAt, parsed) is { } history)
+                                    _diagnostics = _diagnostics with { CounterDeltaHistory = history };
+                            }
                             var current = Snapshot;
                             Publish(epoch, current.State, current.Message, metrics: parsed, isRetrying: current.IsRetrying);
                         }
@@ -1210,7 +1408,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                 finally
                 {
                     ClearConnection(connection);
-                    lock (_sync) { _diagnosticReply?.TrySetResult(null); }
+                    lock (_sync)
+                    {
+                        if (_diagnosticReply is { } pending && ReferenceEquals(pending.Scope.Connection, connection))
+                            pending.Reply.TrySetResult(pending.Fallback);
+                    }
                     await RequestStopAsync(connection, session).ConfigureAwait(false);
                     // One desktop row per IPC session, written before the catch
                     // decides whether to reconnect: the engine's row for this
@@ -1245,7 +1447,9 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     log?.Invoke($"Session automatic recovery blocked; code={notice.Code}; manual_reconnect_required=true");
                     return;
                 }
-                if (!(_settings.ForceReconnect || receiver.IsSoftwareGroup || notice.Code is "timeline_expired" or "clock_lost" or "adaptive_rebuild") || attempts > _settings.MaxReconnectAttempts || notice.Retryable == false || notice.Retryable is null && IsAuthenticationFailure(error.Message)) return;
+                var recoveryAllowed = _settings.ForceReconnect || receiver.IsSoftwareGroup || notice.Code is "timeline_expired" or "clock_lost" or "adaptive_rebuild" || (recovering && (notice.Code is "host_error" or "network_error" || notice.Retryable == true));
+                if (!recoveryAllowed || attempts > _settings.MaxReconnectAttempts || notice.Retryable == false || notice.Retryable is null && IsAuthenticationFailure(error.Message)) return;
+                recovering = true;
                 // This is the one reconnect notion the desktop already has; the
                 // companion record only reports it, it does not add a second one.
                 ++reconnects;
@@ -1404,8 +1608,34 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         public int Target { get; } = target;
     }
     private static bool IsAuthenticationFailure(string message) => new[] { "pairing", "srp", "verification", "credentials", "signature", "identity", "authentication" }.Any(word => message.Contains(word, StringComparison.OrdinalIgnoreCase));
-    private void SetConnection(IEngineConnection connection, string session) { lock (_sync) { _connection = connection; _sessionId = session; _startSent = false; _sentStandby = null; _nowPlayingSupported = false; _nowPlayingMayBeSet = false; _diagnosticsSupported = false; } }
-    private void ClearConnection(IEngineConnection connection) { lock (_sync) if (ReferenceEquals(_connection, connection)) { _connection = null; _sessionId = null; _startSent = false; _sentStandby = null; } }
+    private void SetConnection(IEngineConnection connection, string session)
+    {
+        lock (_sync)
+        {
+            _connection = connection;
+            _sessionId = session;
+            _startSent = false;
+            _sentStandby = null;
+            _nowPlayingSupported = false;
+            _nowPlayingMayBeSet = false;
+            _diagnosticsSupported = false;
+            _soundGlowSupported = false;
+            _nativeSessionEpoch = null;
+            _lastDiagnostic = null;
+        }
+    }
+    private void ClearConnection(IEngineConnection connection)
+    {
+        lock (_sync)
+        {
+            if (!ReferenceEquals(_connection, connection)) return;
+            _connection = null;
+            _sessionId = null;
+            _startSent = false;
+            _sentStandby = null;
+            _soundGlowSupported = false;
+        }
+    }
     private static async Task RequestStopAsync(IEngineConnection connection, string session)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
@@ -1436,7 +1666,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     }
     private async Task RestoreAudioAsync()
     {
-        lock (_sync) _transportStreaming = false;
+        lock (_sync)
+        {
+            _transportStreaming = false;
+            if (_diagnosticReply is { } pending) pending.Reply.TrySetResult(pending.Fallback);
+        }
         await ApplyLocalMuteAsync().ConfigureAwait(false);
     }
     private async Task ApplyLocalMuteAsync()
@@ -1471,22 +1705,63 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         }
         Changed?.Invoke(snapshot);
     }
-    public async ValueTask DisposeAsync()
+    private PassiveOperation? TryAdmitPassiveOperation()
     {
-        lock (_sync) { _passiveDisposed = true; ++_automaticIntent; _equalizerDisposed = true; _equalizerEdit?.Cancel(); _equalizerEdit = null; _equalizerEditTask = null; }
-        await StopAsync().ConfigureAwait(false);
-        Task? endpointRecovery;
-        lock (_sync) endpointRecovery = _endpointRecoveryTask;
-        if (endpointRecovery is not null) await endpointRecovery.ConfigureAwait(false);
-        // Join current writers. These managed gates have no wait handles and
-        // remain usable by callers already queued when admission closed.
-        await _equalizerWriter.WaitAsync().ConfigureAwait(false);
-        _equalizerWriter.Release();
-        await _diagnosticWriter.WaitAsync().ConfigureAwait(false);
-        _diagnosticWriter.Release();
-        await _nowPlayingWriter.WaitAsync().ConfigureAwait(false);
-        _nowPlayingWriter.Release();
-        _serial.Dispose();
-        _audioWriter.Dispose();
+        lock (_sync)
+        {
+            if (_passiveDisposed) return null;
+            ++_passiveOperations;
+            return new(this);
+        }
+    }
+
+    private sealed class PassiveOperation(SessionController owner) : IDisposable
+    {
+        public void Dispose()
+        {
+            lock (owner._sync)
+                if (--owner._passiveOperations == 0) owner._passiveDrained?.TrySetResult();
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        TaskCompletionSource completion;
+        Task drained;
+        lock (_sync)
+        {
+            if (_disposeTask is { IsCompleted: false } or { IsCompletedSuccessfully: true }) return new(_disposeTask);
+            completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            _disposeTask = completion.Task;
+            _passiveDisposed = true; ++_automaticIntent; _equalizerDisposed = true;
+            drained = _passiveOperations == 0 ? Task.CompletedTask
+                : (_passiveDrained ??= new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+        }
+        _ = FinishDisposalAsync(completion, drained);
+        return new(completion.Task);
+    }
+
+    private async Task FinishDisposalAsync(TaskCompletionSource completion, Task drained)
+    {
+        try
+        {
+            lock (_sync) { _equalizerEdit?.Cancel(); _equalizerEdit = null; _equalizerEditTask = null; }
+            // Stop joins the stream worker, including its direct use of the EQ gate
+            // at startup. The admission drain joins callers waiting on the writers.
+            await StopAsync().ConfigureAwait(false);
+            Task? endpointRecovery;
+            lock (_sync) endpointRecovery = _endpointRecoveryTask;
+            if (endpointRecovery is not null) await endpointRecovery.ConfigureAwait(false);
+            await drained.ConfigureAwait(false);
+            _equalizerWriter.Dispose();
+            _diagnosticWriter.Dispose();
+            _nowPlayingWriter.Dispose();
+            _soundGlowWriter.Dispose();
+            _serial.Dispose();
+            _audioWriter.Dispose();
+            completion.SetResult();
+        }
+        catch (OperationCanceledException error) { completion.SetCanceled(error.CancellationToken); }
+        catch (Exception error) { completion.SetException(error); }
     }
 }

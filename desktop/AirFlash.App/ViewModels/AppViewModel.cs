@@ -57,18 +57,21 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private int _pendingEligibilityChanges;
     private bool _controlledScheduling;
     public bool IsStopping { get; private set; }
+    private DiscoveryFailure? _discoveryNotice;
     public string Notice
     {
         get => _notice;
-        private set
-        {
-            if (_notice == value) return;
-            _notice = value;
-            _noticeDismissed = false;
-            Notify();
-            RefreshNoticeBanner();
-            Notify(nameof(ErrorDetails));
-        }
+        private set => SetNotice(value);
+    }
+    private void SetNotice(string value, DiscoveryFailure? discoveryFailure = null)
+    {
+        _discoveryNotice = discoveryFailure;
+        if (_notice == value) return;
+        _notice = value;
+        _noticeDismissed = false;
+        Notify(nameof(Notice));
+        RefreshNoticeBanner();
+        Notify(nameof(ErrorDetails));
     }
     public bool HasNotice => !_noticeDismissed && !string.IsNullOrWhiteSpace(Notice);
     public RelayCommand DismissNoticeCommand { get; }
@@ -264,7 +267,14 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
                 finally { EndEligibilityChange(); }
             });
         };
-        _discovery.Failed += message => _dispatcher.BeginInvoke(() => ShowError(new IOException(message)));
+        // WindowsDiscovery logs failures before publishing them. Present the
+        // notice without repeating the synchronous file append on the dispatcher.
+        _discovery.Failed += DiscoveryFailed;
+        _discovery.ResolveSucceeded += resolution => _dispatcher.BeginInvoke(() =>
+        {
+            if (!_closing && _discoveryNotice is { Attempt: { } failure } && failure.Epoch <= resolution.Epoch
+                && failure.Sequence < resolution.Sequence && failure.SameService(resolution)) Notice = "";
+        });
         _discovery.RunningChanged += running => _dispatcher.BeginInvoke(() =>
         {
             if (_closing) return;
@@ -355,10 +365,32 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     }
     public void SetPanelVisible(bool visible) { _panelVisible = visible; UpdateDiscoveryDemand(); }
     public void SetReceiversPageVisible(bool visible) { _receiversPageVisible = visible; UpdateDiscoveryDemand(); }
+    private void DiscoveryFailed(DiscoveryFailure failure)
+    {
+        var context = failure.Reason is DiscoveryFailureReason.ResolveTimeout or DiscoveryFailureReason.ResolveFailed ? failure.Resolve : null;
+        var attempt = context is not null ? Session.CaptureStreamingAttempt()?.Attempt : null;
+        _dispatcher.BeginInvoke(() =>
+        {
+            if (_closing) return;
+            if (context is not null && attempt is { } original && Session.CaptureStreamingAttempt() is { } current
+                && current.Attempt == original && DiscoveryFailureAttribution.IsOtherReceiver(context, current.Receiver, _known.Values, _settings.ReceiverAliases)) return;
+            SetNotice(failure.Message, failure.Reason is DiscoveryFailureReason.ResolveTimeout or DiscoveryFailureReason.ResolveFailed ? failure : null);
+        });
+    }
+    private void RefreshDiscoveryNotice()
+    {
+        if (_discoveryNotice?.Resolve is { } context && Session.CaptureStreamingAttempt() is { } current
+            && DiscoveryFailureAttribution.IsOtherReceiver(context, current.Receiver, _known.Values, _settings.ReceiverAliases)) Notice = "";
+    }
     private void UpdateDiscoveryDemand()
     {
         if (!_started || _closing || _resetting) return;
-        var requested = _panelVisible || _receiversPageVisible || _startupDiscovery || _snapshot.IsActive && _snapshot.Receiver?.IsSoftwareGroup == true;
+        var demand = (_panelVisible ? DiscoveryDemand.Panel : DiscoveryDemand.None)
+            | (_receiversPageVisible ? DiscoveryDemand.Receivers : DiscoveryDemand.None)
+            | (_startupDiscovery ? DiscoveryDemand.Startup : DiscoveryDemand.None)
+            | (_snapshot.IsActive && _snapshot.Receiver?.IsSoftwareGroup == true ? DiscoveryDemand.SoftwareStereo : DiscoveryDemand.None);
+        if (_discovery is IDiscoveryDiagnostics diagnostics) diagnostics.RecordDemand(demand);
+        var requested = demand != DiscoveryDemand.None;
         if (requested == _discoveryRequested) return;
         _discoveryRequested = requested;
         if (requested)
@@ -616,6 +648,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         if (hint != ActionHint) Notify(nameof(ActionHint));
         if (previous.State != snapshot.State || previous.Receiver?.Id != snapshot.Receiver?.Id || needsCleanup)
         {
+            RefreshDiscoveryNotice();
             RefreshReceivers();
             StopCommand.Refresh();
             Notify(nameof(CanReconnect));
@@ -900,7 +933,8 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
                     if (!_closing && Session.IsIntentCurrent(owner.AutomaticIntent))
                     {
                         var changedMemberships = draft.SoftwareGroups.Where(group => baseline.SoftwareGroups.FirstOrDefault(previous => previous.Id == group.Id) is { } previous
-                            && (previous.LeftId != group.LeftId || previous.RightId != group.RightId)).Select(group => group.Id).ToArray();
+                            && (previous.IsMultiRoom != group.IsMultiRoom || !previous.MemberIds.SequenceEqual(group.MemberIds)))
+                        .Select(group => group.Id).ToArray();
                         var context = CaptureSessionSettingsContext(baseline.Receivers.Keys.Except(draft.Receivers.Keys), changedMemberships);
                         var expected = owner;
                         if (owner.Snapshot.Receiver is { IsSoftwareGroup: true } active && changedMemberships.Contains(active.Id)
@@ -969,8 +1003,9 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     /// <summary>Write the current engine's redacted diagnostic bundle into the log folder.</summary>
     public async Task<string> ExportDiagnosticsAsync()
     {
-        var snapshot = await DiagnosticExport.SnapshotAsync(Session).ConfigureAwait(false);
-        var bundle = DiagnosticExport.Compose(AppPaths.DisplayVersion, EngineVersion, snapshot);
+        var capture = await DiagnosticExport.CaptureAsync(Session).ConfigureAwait(false);
+        var discovery = (_discovery as IDiscoveryDiagnostics)?.SnapshotDiagnostics();
+        var bundle = DiagnosticExport.Compose(AppPaths.DisplayVersion, EngineVersion, capture.Summary, capture.CounterHistory, discovery);
         var path = DiagnosticExport.Write(AppPaths.LogDirectory, bundle);
         AppPaths.Log($"Diagnostics exported to {path}");
         return path;
@@ -1048,7 +1083,7 @@ public sealed class ReceiverViewModel : ObservableObject
     public bool CanPlay => !_app.IsStopping && !_app.Session.NeedsCleanup
         && (Active || !_app.IsClosing && _app.EngineReady && _app.MuteReady && Receiver.Online && Receiver.Complete);
     public string PlayHint => IsStopping ? L.Get("Disconnecting…") : NeedsDisconnect ? L.Get("Stop playback / disconnect") : L.Get("Play on this device");
-    public string StateText => (NeedsDisconnect ? _app.StatusTitle : !Receiver.Online ? L.Get("Offline") : !Receiver.Complete ? L.Get("Waiting for the other member") : L.Get("Disconnected")) + (Receiver.IsGroup ? $" · {Receiver.GroupDisplayMemberCount}/2" : "");
+    public string StateText => (NeedsDisconnect ? _app.StatusTitle : !Receiver.Online ? L.Get("Offline") : !Receiver.Complete ? L.Get(Receiver.IsMultiRoom ? "Waiting for other members" : "Waiting for the other member") : L.Get("Disconnected")) + (Receiver.IsGroup ? $" · {Receiver.GroupDisplayMemberCount}/{(Receiver.IsMultiRoom ? Receiver.Members.Length : 2)}" : "");
     public AsyncCommand ToggleCommand { get; }
     public AsyncCommand MuteCommand { get; }
     public void Refresh()

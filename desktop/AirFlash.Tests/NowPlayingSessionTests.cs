@@ -120,6 +120,21 @@ public sealed class NowPlayingSessionTests
     }
 
     [Fact]
+    public async Task A_source_cleared_while_idle_sends_no_command_and_cannot_seed_the_next_session()
+    {
+        var first = new SessionTestEngine.Connection(); var second = new SessionTestEngine.Connection();
+        await using var controller = TestSessionController.Create(new SessionTestEngine.Factory(first, second), new SessionTestEngine.Audio(), timing: Timing);
+        await SessionTestEngine.StreamAsync(controller, first);
+        await controller.PublishNowPlayingAsync(Track("Old"));
+        await controller.StopAsync().WaitAsync(Limit);
+
+        await controller.ClearNowPlayingAsync();
+        Assert.Equal(["Old"], first.NowPlayingTitles());
+        await SessionTestEngine.StreamAsync(controller, second);
+        Assert.Empty(second.NowPlayingTitles());
+    }
+
+    [Fact]
     public async Task An_engine_without_the_capabilities_gets_neither_command()
     {
         var connection = new SessionTestEngine.Connection { Capabilities = ["receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_ownership_guard"] };

@@ -41,9 +41,14 @@ internal static class UiSmoke
         Check(startupText.Contains("Startup stage=platform", StringComparison.Ordinal)
             && startupText.Contains("Startup stage=wpf-resources ready", StringComparison.Ordinal),
             "both startup stages are recorded in isolated smoke logs", checks);
+        Check(!Metadata.SmtcNowPlayingSource.HasMetadata(Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus.Stopped)
+            && !Metadata.SmtcNowPlayingSource.HasMetadata(Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed)
+            && Metadata.SmtcNowPlayingSource.HasMetadata(Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused)
+            && Metadata.SmtcNowPlayingSource.HasMetadata(Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing),
+            "stopped and closed media clear the source while paused and playing media keep metadata", checks);
         foreach (var arguments in new string[][]
         {
-            ["--ui-pairing-smoke"], ["--ui-pairing-smoek"], ["--receiver-settings-regression"],
+            ["--ui-pairing-smoke"], ["--ui-pairing-smoek"], ["--receiver-settings-regression"], ["--ui-sound-glow-smoke"],
             ["--ui-smoke", "--ui-perf"], ["--ui-smoke", "--ui-smoke"], ["--ui-smoke", "--audio-check"],
             ["--ui-smoke", "--discovery-check"], ["--ui-smoke", "--dns-resolve-helper"],
             ["--ui-perf", "--ui-pairing-smoke"], ["--ui-perf", "--ui-unknown"], ["--ui-perf", "--receiver-settings-regression"],
@@ -98,6 +103,7 @@ internal static class UiSmoke
                 "--ui-regression" or "--ui-regression-smoke" => UiRegression.RunAsync(checks, directory),
                 "--receiver-settings-regression" => ReceiverSettingsRegression.RunAsync(checks, directory),
                 "--ui-pairing-hint-smoke" => PairingHintRegression.RunAsync(checks, directory),
+                "--ui-sound-glow-smoke" => SoundGlowRegression.RunAsync(checks, directory),
                 "--ui-ownership-smoke" => UiOwnershipRecovery.RunAsync(checks),
                 "--ui-mute-recovery-smoke" => UiMuteRecovery.RunAsync(checks, directory),
                 "--ui-settings-recovery-smoke" => UiSettingsRecovery.RunAsync(checks, directory),
@@ -118,6 +124,11 @@ internal static class UiSmoke
         var pageEndLayouts = new List<object>();
         var store = new MemoryStore(); var engine = new MockFactory();
         var discovery = new MockDiscovery(); var audio = new MockAudio();
+        discovery.Items = discovery.Items.Select(row => row with
+        {
+            DeviceId = row.Id,
+            Members = row.Members.Select(member => member with { DeviceId = member.Id }).ToArray()
+        }).ToArray();
         await using var app = new AppViewModel(store, discovery, new MockAutostart(), audio, engine, Application.Current.Dispatcher, isolatedVerification: true) { EngineVersion = "0.1.0（模拟）" };
         var panel = new ControlPanel(app); SettingsWindow? settings = null;
         // Verification must never bind the production GUID to a test executable path.
@@ -190,6 +201,10 @@ internal static class UiSmoke
             CheckPanelIcons(panel, app, checks);
             Check(engine.Commands.Any(c => c.Text("command") == "start"), "panel start reaches engine", checks);
             await VerifyNoticeDismissalAsync(panel, app, discovery, engine, audio, checks);
+            await VerifyDiscoveryRetryPresentationAsync(panel, app, discovery, checks);
+            await VerifyDiscoveryNoticeRecoveryAsync(panel, app, discovery, checks);
+            await VerifyDiscoveryExportAsync(app, discovery, engine, checks);
+            await VerifyConnectingDiscoveryNoticeAsync(checks);
             Invoke(playbackButton);
             await Until(() => app.Snapshot.State == PlaybackState.Idle);
             CheckPanelIcons(panel, app, checks);
@@ -346,16 +361,18 @@ internal static class UiSmoke
         Check(!banner.IsVisible && !dismiss.IsEnabled && app.ErrorDetails.Length == 0, "whitespace notification stays hidden", checks);
 
         const string failure = "Synthetic receiver resolution timeout. Discovery will retry.";
+        await app.FlushVolumeAsync();
+        var commands = factory.Commands.Count;
+        var restores = audio.Restores;
+        var owner = app.Session.Capture().Owner;
         discovery.PublishFailure(failure); await Pump();
-        Check(app.HasNotice && banner.IsVisible && app.Snapshot.State == PlaybackState.Streaming,
-            "discovery warning is visible during active playback", checks);
+        Check(app.HasNotice && banner.IsVisible && app.Snapshot.State == PlaybackState.Streaming
+            && factory.Commands.Count == commands && audio.Restores == restores && app.Session.Capture().Owner == owner,
+            "discovery warning is visible without touching active playback", checks);
         Check(ReferenceEquals(dismiss.Command, app.DismissNoticeCommand) && dismiss.IsEnabled
             && System.Windows.Automation.AutomationProperties.GetName(dismiss) == L.Get("Dismiss notification")
             && (string?)dismiss.ToolTip == L.Get("Dismiss notification") && dismiss.Focus() && dismiss.IsKeyboardFocused,
             "notification dismissal is localized and keyboard accessible", checks);
-        var commands = factory.Commands.Count;
-        var restores = audio.Restores;
-        var owner = app.Session.Capture().Owner;
         Invoke(dismiss); await Pump();
         var details = Descendants(panel).OfType<Expander>().Single(e => Equals(e.Header, L.Get("View error details")));
         Check(!app.HasNotice && !banner.IsVisible && app.Notice == failure && app.ErrorDetails == failure
@@ -369,6 +386,123 @@ internal static class UiSmoke
             "a different notification becomes visible after dismissal", checks);
         Invoke(dismiss); await Pump();
     }
+    private static async Task VerifyDiscoveryRetryPresentationAsync(ControlPanel panel, AppViewModel app, MockDiscovery discovery, List<string> checks)
+    {
+        var banner = Descendants(panel).OfType<Border>().Single(border => border.Name == "NoticeBanner");
+        var dismiss = Descendants(panel).OfType<Button>().Single(button => button.Name == "DismissNoticeButton");
+        var active = app.Snapshot.Receiver!;
+        var activePeer = active.Peers.Last();
+        var other = discovery.Items.Single(receiver => receiver.Online && receiver.Id != active.Id).Peers.First();
+        DiscoveryResolveContext Context(Receiver peer) => new(peer.DeviceId, peer.Address, peer.Port, peer.StereoId);
+        var priorNotice = app.Notice;
+        var priorDetails = app.ErrorDetails;
+
+        discovery.PublishFailure(new DiscoveryFailure("Synthetic other receiver timeout", DiscoveryFailureReason.ResolveTimeout, Context(other)));
+        await Pump();
+        Check(!banner.IsVisible && app.Notice == priorNotice && app.ErrorDetails == priorDetails,
+            "attributed background resolve retry preserves the previous notice during playback", checks);
+
+        const string ambiguous = "Synthetic ambiguous receiver timeout";
+        discovery.PublishFailure(new DiscoveryFailure(ambiguous, DiscoveryFailureReason.ResolveTimeout, Context(other) with { DeviceId = "unknown" }));
+        await Pump();
+        Check(banner.IsVisible && app.Notice == ambiguous, "ambiguous resolve retry remains visible during playback", checks);
+
+        const string relevant = "Synthetic active member resolve failure";
+        discovery.PublishFailure(new DiscoveryFailure(relevant, DiscoveryFailureReason.ResolveFailed, Context(activePeer)));
+        await Pump();
+        Check(banner.IsVisible && app.Notice == relevant, "active receiver or member resolve retry remains visible during playback", checks);
+
+        const string actionable = "Synthetic unavailable adapter warning";
+        discovery.PublishFailure(new DiscoveryFailure(actionable, DiscoveryFailureReason.Other, Context(other)));
+        await Pump();
+        Check(banner.IsVisible && app.Notice == actionable && app.Snapshot.State == PlaybackState.Streaming,
+            "actionable discovery warning remains visible during playback", checks);
+        Invoke(dismiss); await Pump();
+    }
+
+    private static async Task VerifyDiscoveryNoticeRecoveryAsync(ControlPanel panel, AppViewModel app, MockDiscovery discovery, List<string> checks)
+    {
+        var banner = Descendants(panel).OfType<Border>().Single(border => border.Name == "NoticeBanner");
+        var attempt = new DiscoveryResolveAttempt("synthetic._raop._tcp.local", "_raop._tcp.local", 1, 10);
+        const string timeout = "Synthetic initial discovery timeout";
+        discovery.PublishFailure(new DiscoveryFailure(timeout, DiscoveryFailureReason.ResolveTimeout) { Attempt = attempt });
+        await Pump();
+        Check(banner.IsVisible && app.Notice == timeout, "unresolved initial discovery timeout remains visible", checks);
+
+        discovery.PublishResolution(attempt with { Epoch = 0, Sequence = 11 });
+        discovery.PublishResolution(attempt with { Sequence = 9 });
+        discovery.PublishResolution(attempt with { ServiceType = "_airplay._tcp.local", Sequence = 11 });
+        await Pump();
+        Check(banner.IsVisible && app.Notice == timeout, "stale and different-service resolutions preserve the discovery warning", checks);
+
+        discovery.PublishResolution(attempt with { Instance = "SYNTHETIC._RAOP._TCP.LOCAL.", Epoch = 2, Sequence = 12 });
+        await Pump();
+        Check(!banner.IsVisible && app.Notice.Length == 0 && app.ErrorDetails.Length == 0,
+            "exact service recovery after browse restart clears its old discovery warning", checks);
+
+        discovery.PublishFailure(new DiscoveryFailure(timeout, DiscoveryFailureReason.ResolveTimeout) { Attempt = attempt });
+        await Pump();
+        app.ShowError(new IOException(timeout));
+        discovery.PublishResolution(attempt with { Sequence = 13 });
+        await Pump();
+        Check(banner.IsVisible && app.Notice == timeout, "discovery recovery preserves a newer actionable notice with identical text", checks);
+        app.DismissNoticeCommand.Execute(null);
+        await Pump();
+    }
+
+    private static async Task VerifyDiscoveryExportAsync(AppViewModel app, MockDiscovery discovery, MockFactory engine, List<string> checks)
+    {
+        app.SetPanelVisible(true); app.SetReceiversPageVisible(false);
+        var starts = discovery.Starts;
+        app.SetReceiversPageVisible(true);
+        var demand = discovery.SnapshotDiagnostics().Demand;
+        Check((demand & (DiscoveryDemand.Panel | DiscoveryDemand.Receivers)) == (DiscoveryDemand.Panel | DiscoveryDemand.Receivers)
+            && discovery.Starts == starts, "discovery diagnostics observe changed demand without restarting an already requested browse", checks);
+        app.SetReceiversPageVisible(false);
+        const string name = "NeverExportFixture._airplay._tcp.local", address = "192.0.2.211";
+        discovery.RecordResolutionForDiagnostics(new(name, "_airplay._tcp.local", address, 7000,
+            new Dictionary<string, string> { ["deviceid"] = "AA:BB:CC:DD:EE:77", ["tsid"] = "NeverExportStereo" }));
+        var path = await app.ExportDiagnosticsAsync();
+        using var bundle = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        var summary = bundle.RootElement.GetProperty("session");
+        var request = engine.Commands.Last(command => command.Text("command") == "diag_summary");
+        Check(summary.Text("id") == request.Text("id") && request.Text("id").Length > 0,
+            "saved diagnostics contain the reply to the export request sent by the application", checks);
+        Check(summary.GetProperty("session").Integer("session_epoch") == 1,
+            "saved diagnostics belong to the active native playback epoch", checks);
+        var history = bundle.RootElement.GetProperty("discovery").GetProperty("history");
+        Check(history.EnumerateArray().Any(entry => entry.Text("event") == "ResolveSucceeded" && entry.Text("service_token").Length == 64),
+            "saved diagnostics include the optional discovery provider's history", checks);
+        var text = bundle.RootElement.ToString();
+        Check(!text.Contains(name, StringComparison.Ordinal) && !text.Contains(address, StringComparison.Ordinal)
+            && !text.Contains("NeverExportStereo", StringComparison.Ordinal), "saved discovery diagnostics redact service, endpoint and stereo identities", checks);
+    }
+
+    private static async Task VerifyConnectingDiscoveryNoticeAsync(List<string> checks)
+    {
+        var active = new Receiver("synthetic-active", "Synthetic active", "127.0.0.11") { DeviceId = "001122334455" };
+        var other = new Receiver("synthetic-other", "Synthetic other", "127.0.0.12") { DeviceId = "66778899aabb" };
+        var discovery = new MockDiscovery { Items = [active, other] };
+        var factory = new MockFactory { AutoReady = false };
+        await using var app = new AppViewModel(new MemoryStore(), discovery, new MockAutostart(), new MockAudio(), factory,
+            Application.Current.Dispatcher, isolatedVerification: true);
+        app.SetPanelVisible(true);
+        app.Start();
+        await app.Startup;
+        await Until(() => app.AllReceivers.Count == 2);
+        await app.ToggleAsync(active);
+        await Until(() => app.Snapshot.State == PlaybackState.Connecting && factory.EmitEvent is not null);
+        discovery.PublishFailure(new DiscoveryFailure("Synthetic timeout while connecting", DiscoveryFailureReason.ResolveTimeout,
+            new(other.DeviceId, other.Address, other.Port, "")));
+        await Pump();
+        Check(app.HasNotice, "discovery retry stays visible while a connection is pending", checks);
+
+        factory.EmitEvent!(new { @event = "streaming" });
+        await Until(() => app.Snapshot.State == PlaybackState.Streaming && app.Notice.Length == 0);
+        Check(!app.HasNotice && factory.Commands.Count(command => command.Text("command") == "start") == 1,
+            "successful playback quiets a connecting-time retry for a confirmed different receiver", checks);
+    }
+
     private static async Task VerifyStartupFailureAsync(List<string> checks, string directory)
     {
         var attempts = 0;
@@ -391,7 +525,7 @@ internal static class UiSmoke
             Check(app.EngineFailed && !receiver.ToggleCommand.CanExecute(null) && !row.PairCommand.CanExecute(null), "failed engine disables playback and pairing", checks);
             Check(app.RetryEngineCommand.CanExecute(null) && settings.CancelCommand.CanExecute(null), "failed engine preserves retry and settings", checks);
             using var missingDns = new WindowsDiscovery(dnsAvailable: () => false);
-            string? failure = null; missingDns.Failed += value => failure = value; missingDns.Start();
+            string? failure = null; missingDns.Failed += value => failure = value.Message; missingDns.Start();
             Check(failure is not null, "missing DNS-SD produces a recoverable diagnostic", checks);
             app.ShowError(new IOException("simulated discovery failure")); await Pump();
             Render(panel, Path.Combine(directory, "startup-failure.png"), 1);
@@ -648,15 +782,41 @@ internal static class UiSmoke
         public Task MuteAsync(string? endpointId) => FailMute ? Task.FromException(new IOException("mock mute failed")) : Task.CompletedTask;
         public Task RestoreAsync() { Restores++; return Task.CompletedTask; }
     }
-    internal sealed class MockDiscovery : IDiscoveryService
+    internal sealed class MockDiscovery : IDiscoveryService, IDiscoveryDiagnostics
     {
+        private readonly object _diagnosticLock = new();
+        private readonly DiscoveryHistory _history = new();
+        private DiscoveryDemand _demand;
+        public void RecordDemand(DiscoveryDemand demand)
+        {
+            lock (_diagnosticLock)
+            {
+                if (_demand == demand) return;
+                _demand = demand;
+                _history.Record(DateTimeOffset.UtcNow, TimeSpan.Zero, Starts + Stops, DiscoveryTraceEvent.DemandChanged,
+                    DiscoveryTraceReason.None, demand, Items.Count);
+            }
+        }
+        public void RecordResolutionForDiagnostics(ServiceRecord record)
+        {
+            lock (_diagnosticLock) _history.Record(DateTimeOffset.UtcNow, TimeSpan.Zero, Starts + Stops,
+                DiscoveryTraceEvent.ResolveSucceeded, DiscoveryTraceReason.None, _demand, Items.Count, record: record);
+        }
+        public DiscoveryDiagnosticsSnapshot SnapshotDiagnostics()
+        {
+            lock (_diagnosticLock) return new(Starts + Stops, _demand, Running, Running, true, Items.Count, Items.Count,
+                0, 0, _history.Recorded, _history.Overwritten, _history.Snapshot());
+        }
         public event Action<bool>? RunningChanged;
         public bool Running { get; private set; }
         public int Starts { get; private set; }
         public int Stops { get; private set; }
         public event Action<IReadOnlyList<Receiver>>? Changed;
-        public event Action<string>? Failed;
-        public void PublishFailure(string message) => Failed?.Invoke(message);
+        public event Action<DiscoveryFailure>? Failed;
+        public event Action<DiscoveryResolveAttempt>? ResolveSucceeded;
+        public void PublishFailure(string message) => PublishFailure(new DiscoveryFailure(message));
+        public void PublishFailure(DiscoveryFailure failure) => Failed?.Invoke(failure);
+        public void PublishResolution(DiscoveryResolveAttempt resolution) => ResolveSucceeded?.Invoke(resolution);
         public void Start() { if (Running) return; Running = true; Starts++; RunningChanged?.Invoke(true); Publish(); }
         public void Stop() { if (!Running) return; Running = false; Stops++; RunningChanged?.Invoke(false); }
         public string SelectedInterface { get; private set; } = "";
@@ -677,6 +837,7 @@ internal static class UiSmoke
         public bool AutoReady = true;
         public Action<object>? EmitEvent;
         public ConcurrentQueue<JsonElement> Commands { get; } = new();
+        public bool SupportsSoundGlow { get; init; } = true;
         public int CreatedCount, DisposedCount;
         public IEngineConnection Open()
         {
@@ -685,16 +846,18 @@ internal static class UiSmoke
             return new MockConnection(this);
         }
     }
-    private sealed class MockConnection(MockFactory factory) : IEngineConnection
+    private sealed class MockConnection(MockFactory factory) : IEngineConnection, ICorrelatedEngineConnection
     {
         private readonly Channel<JsonElement> _events = Channel.CreateUnbounded<JsonElement>();
         private CancellationTokenSource? _metrics;
         private string _host = "";
         private readonly Dictionary<string, int> _volumes = [];
         public Task SendAsync(string session, string command, object? parameters, CancellationToken cancellation)
+            => SendCorrelatedAsync(Guid.NewGuid().ToString("N"), session, command, parameters, cancellation);
+        public Task SendCorrelatedAsync(string requestId, string session, string command, object? parameters, CancellationToken cancellation)
         {
-            factory.Commands.Enqueue(JsonSerializer.SerializeToElement(new { command, @params = parameters }));
-            if (command == "hello") Emit(session, new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "member_volume", "receiver_password", "standby_release", "receiver_ownership_guard", "application_capture", "forced_latency", "now_playing", "diagnostics" } });
+            factory.Commands.Enqueue(JsonSerializer.SerializeToElement(new { id = requestId, command, @params = parameters }));
+            if (command == "hello") Emit(session, new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "multi_room", "continuity", "buffered_audio", "member_volume", "receiver_password", "standby_release", "receiver_ownership_guard", "application_capture", "forced_latency", "now_playing", "diagnostics" }.Concat(factory.SupportsSoundGlow ? ["sound_glow_test"] : []).ToArray() });
             if (command == "pair") factory.EmitEvent = payload => Emit(session, payload);
             if (command == "start")
             {
@@ -703,8 +866,8 @@ internal static class UiSmoke
                 foreach (var peer in data.GetProperty("peers").EnumerateArray())
                     Emit(session, new { @event = "negotiated", receiver_id = peer.Text("receiver_id"), host = peer.Text("host"), port = peer.Integer("port"), codec = "alac", transport = "realtime", timing = "ptp", clock_role = peer.GetProperty("profile").Boolean("follow_receiver_clock") == true ? "follow" : "sender", sample_rate = data.Integer("sample_rate") });
                 factory.EmitEvent = payload => Emit(session, payload);
-                if (factory.AutoReady) Emit(session, new { @event = "streaming" });
-                var hosts = data.Text("group_mode") == "software_stereo" ? data.GetProperty("peers").EnumerateArray().Select(p => p.Text("host")).ToArray() : [_host];
+                if (factory.AutoReady) Emit(session, new { @event = "streaming", session_epoch = 1 });
+                var hosts = data.Text("group_mode") is "software_stereo" or "multi_room" ? data.GetProperty("peers").EnumerateArray().Select(p => p.Text("host")).ToArray() : [_host];
                 foreach (var host in hosts)
                 {
                     _volumes[host] = host == _host ? 28 : 45;
@@ -713,6 +876,8 @@ internal static class UiSmoke
                 _metrics = new(); var token = _metrics.Token;
                 _ = Task.Run(async () => { try { while (!token.IsCancellationRequested) { Emit(session, new { @event = "capture_metrics", metrics = new { capture_to_send_p95_ms = 10.8, max_queue_age_ms = 11.8, underrun_packets = 0, dropped_frames = 0, input_rate = 48000 } }); Emit(session, new { @event = "transport_metrics", session_uptime_ms = 123456, sender_late_recoveries = 2, skipped_packets = 10, members = new[] { new { host = "192.0.2.1", media = new { packets_sent = 12000, media_send_errors = 1, sync_send_errors = 0, retransmit_requests = 6, retransmits_sent = 5, retransmit_missing = 0, retransmit_expired = 1, retransmit_queue_drops = 0, retransmit_send_errors = 0, receiver_latency_ms = 150, receiver_latency_estimated = true }, health = new { feedback_rtt_ms = 4.2, feedback_failures = 0, feedback_delayed = false } } } }); await Task.Delay(350, token); } } catch (OperationCanceledException) { } }, CancellationToken.None);
             }
+            if (command == "diag_summary")
+                Emit(session, new { @event = "diag_summary", id = requestId, session = new { session_epoch = 1, session_uptime_ms = 123456 } });
             if (command == "set_device_volume")
             {
                 var data = JsonSerializer.SerializeToElement(parameters);
