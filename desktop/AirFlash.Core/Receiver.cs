@@ -18,6 +18,10 @@ public sealed record Receiver(string Id, string Name, string Address, int Port =
     public bool RequiresPassword { get; init; }
     public bool FollowReceiverClock { get; init; }
     public bool IsSoftwareGroup { get; init; }
+    public string GroupMode { get; init; } = "";
+    [JsonIgnore] public bool IsMultiRoom => IsSoftwareGroup && GroupMode == "multi_room";
+    [JsonIgnore] internal string PlaybackGroupMode => IsMultiRoom ? "multi_room" : IsSoftwareGroup
+        ? "software_stereo" : IsGroup ? "native_stereo" : "single";
     public string Channel { get; init; } = "stereo";
     public int SyncOffsetMs { get; init; }
     public string[] Aliases { get; init; } = [];
@@ -27,9 +31,13 @@ public sealed record Receiver(string Id, string Name, string Address, int Port =
         .Select(m => m.Address).Distinct(StringComparer.OrdinalIgnoreCase).Count();
     // Keep excess announcements visible even when they share an address.
     [JsonIgnore] public int GroupDisplayMemberCount => IsSoftwareGroup || Members.Length > 2 ? Members.Length : NativeMemberEndpointCount;
-    public bool Complete => !IsGroup || Members.Length == 2 && (IsSoftwareGroup
-        ? Members.All(m => m.Online && !m.IsGroup && m.StereoId.Length == 0)
-        : NativeMemberEndpointCount == 2);
+    public bool Complete => !IsGroup || (IsSoftwareGroup
+        ? (IsMultiRoom ? Members.Length >= 2 : Members.Length == 2)
+            && Members.All(m => m.Online && !m.IsGroup && m.StereoId.Length == 0)
+        : Members.Length == 2 && NativeMemberEndpointCount == 2);
+    internal bool HasDistinctSoftwareMembers => Members.All(m => !string.IsNullOrWhiteSpace(m.Address))
+        && Members.Select(m => PhysicalKey(m.DeviceId, m.Address)).Distinct().Count() == Members.Length
+        && Members.Select(m => m.Address).Distinct(StringComparer.OrdinalIgnoreCase).Count() == Members.Length;
     /// <summary>TXT-only four-state label; missing features never become classic.</summary>
     public AirPlayCapability Support => AirPlayCapabilityClassifier.Classify(Features, SourceVersion);
     /// <summary>WAC's routing predicate: TXT bit 40 and <c>srcvers &gt;= 354.54.6</c>.</summary>
@@ -42,7 +50,9 @@ public sealed record Receiver(string Id, string Name, string Address, int Port =
         _ => L.Get("AirPlay 2 support unknown")
     };
     private string BaseDetail => Model.Length > 0 ? Model : L.Get("AirFlash receiver");
-    public string Detail => IsSoftwareGroup ? L.Get("Software stereo · experimental") : IsGroup ? L.Format("HomePod stereo · {0}/2", GroupDisplayMemberCount) : $"{BaseDetail} · {CapabilityDetail}";
+    public string Detail => IsMultiRoom ? Members.Length > 0 ? L.Format("Multi-room · {0} speakers", Members.Length) : L.Get("Multi-room")
+        : IsSoftwareGroup ? L.Get("Software stereo · experimental")
+        : IsGroup ? L.Format("HomePod stereo · {0}/2", GroupDisplayMemberCount) : $"{BaseDetail} · {CapabilityDetail}";
     [JsonIgnore] public IEnumerable<Receiver> Peers => IsGroup ? Members : [this];
     public string TransportKey => string.Join(";", Peers.OrderBy(p => p.Address, StringComparer.Ordinal).ThenBy(p => p.Port).Select(p => $"{p.Address}:{p.Port}:{(IsGroup && p.IsLeader)}:{p.Channel}:{p.SyncOffsetMs}"));
     public static string PhysicalKey(string identity, string address) => string.IsNullOrWhiteSpace(identity) ? address : ReceiverIdentity.Normalize(identity);

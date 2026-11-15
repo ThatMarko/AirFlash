@@ -933,7 +933,8 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
                     if (!_closing && Session.IsIntentCurrent(owner.AutomaticIntent))
                     {
                         var changedMemberships = draft.SoftwareGroups.Where(group => baseline.SoftwareGroups.FirstOrDefault(previous => previous.Id == group.Id) is { } previous
-                            && (previous.LeftId != group.LeftId || previous.RightId != group.RightId)).Select(group => group.Id).ToArray();
+                            && (previous.IsMultiRoom != group.IsMultiRoom || !previous.MemberIds.SequenceEqual(group.MemberIds)))
+                        .Select(group => group.Id).ToArray();
                         var context = CaptureSessionSettingsContext(baseline.Receivers.Keys.Except(draft.Receivers.Keys), changedMemberships);
                         var expected = owner;
                         if (owner.Snapshot.Receiver is { IsSoftwareGroup: true } active && changedMemberships.Contains(active.Id)
@@ -1082,7 +1083,7 @@ public sealed class ReceiverViewModel : ObservableObject
     public bool CanPlay => !_app.IsStopping && !_app.Session.NeedsCleanup
         && (Active || !_app.IsClosing && _app.EngineReady && _app.MuteReady && Receiver.Online && Receiver.Complete);
     public string PlayHint => IsStopping ? L.Get("Disconnecting…") : NeedsDisconnect ? L.Get("Stop playback / disconnect") : L.Get("Play on this device");
-    public string StateText => (NeedsDisconnect ? _app.StatusTitle : !Receiver.Online ? L.Get("Offline") : !Receiver.Complete ? L.Get("Waiting for the other member") : L.Get("Disconnected")) + (Receiver.IsGroup ? $" · {Receiver.GroupDisplayMemberCount}/2" : "");
+    public string StateText => (NeedsDisconnect ? _app.StatusTitle : !Receiver.Online ? L.Get("Offline") : !Receiver.Complete ? L.Get(Receiver.IsMultiRoom ? "Waiting for other members" : "Waiting for the other member") : L.Get("Disconnected")) + (Receiver.IsGroup ? $" · {Receiver.GroupDisplayMemberCount}/{(Receiver.IsMultiRoom ? Receiver.Members.Length : 2)}" : "");
     public AsyncCommand ToggleCommand { get; }
     public AsyncCommand MuteCommand { get; }
     public void Refresh()

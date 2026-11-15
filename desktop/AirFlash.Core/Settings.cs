@@ -33,17 +33,29 @@ public sealed class ReceiverOptions : ObservableObject
     public string Transport { get => _transport; set => Set(ref _transport, value); }
     public string Timing { get => _timing; set => Set(ref _timing, value); }
 }
+public sealed class GroupMemberConfig : ObservableObject
+{
+    private string _receiverId = "";
+    private int _offsetMs;
+    public string ReceiverId { get => _receiverId; set => Set(ref _receiverId, value); }
+    public int OffsetMs { get => _offsetMs; set => Set(ref _offsetMs, value); }
+    public GroupMemberConfig Clone() => new() { ReceiverId = ReceiverId, OffsetMs = OffsetMs };
+}
 public sealed class SoftwareStereoGroup : ObservableObject
 {
     public string Id { get; set; } = "software:" + Guid.NewGuid().ToString("N");
-    private string _name = "Stereo", _leftId = "", _rightId = "", _sampleRate = "44100";
+    private string _name = "Stereo", _leftId = "", _rightId = "", _sampleRate = "44100", _groupMode = "software_stereo";
     private int _leftOffsetMs, _rightOffsetMs;
     public string Name { get => _name; set => Set(ref _name, value); }
+    public string GroupMode { get => _groupMode; set => Set(ref _groupMode, value); }
+    [JsonIgnore] public bool IsMultiRoom => GroupMode == "multi_room";
     public string LeftId { get => _leftId; set => Set(ref _leftId, value); }
     public string RightId { get => _rightId; set => Set(ref _rightId, value); }
     public string SampleRate { get => _sampleRate; set => Set(ref _sampleRate, value); }
     public int LeftOffsetMs { get => _leftOffsetMs; set => Set(ref _leftOffsetMs, value); }
     public int RightOffsetMs { get => _rightOffsetMs; set => Set(ref _rightOffsetMs, value); }
+    public ObservableCollection<GroupMemberConfig> Members { get; set; } = [];
+    [JsonIgnore] public IEnumerable<string> MemberIds => IsMultiRoom ? Members.Select(m => m.ReceiverId) : [LeftId, RightId];
     /// <summary>
     /// The mixed-group invariant version this saved pair was checked against
     /// (QUESTIONS Q45). 0 means the config predates the invariant and the
@@ -52,11 +64,19 @@ public sealed class SoftwareStereoGroup : ObservableObject
     /// is runtime drift and is never auto-modified.
     /// </summary>
     public int MixedInvariantVersion { get; set; }
-    public SoftwareStereoGroup Clone() => new() { Id = Id, Name = Name, LeftId = LeftId, RightId = RightId, SampleRate = SampleRate, LeftOffsetMs = LeftOffsetMs, RightOffsetMs = RightOffsetMs, MixedInvariantVersion = MixedInvariantVersion };
+    public SoftwareStereoGroup Clone() => new()
+    {
+        Id = Id, Name = Name, GroupMode = GroupMode, LeftId = LeftId, RightId = RightId, SampleRate = SampleRate,
+        LeftOffsetMs = LeftOffsetMs, RightOffsetMs = RightOffsetMs, MixedInvariantVersion = MixedInvariantVersion,
+        Members = new ObservableCollection<GroupMemberConfig>(Members.Select(m => m.Clone()))
+    };
     public void CopyFrom(SoftwareStereoGroup source)
     {
-        Name = source.Name; LeftId = source.LeftId; RightId = source.RightId; SampleRate = source.SampleRate;
+        if (ReferenceEquals(this, source)) return;
+        Name = source.Name; GroupMode = source.GroupMode; LeftId = source.LeftId; RightId = source.RightId; SampleRate = source.SampleRate;
         LeftOffsetMs = source.LeftOffsetMs; RightOffsetMs = source.RightOffsetMs; MixedInvariantVersion = source.MixedInvariantVersion;
+        Members.Clear();
+        foreach (var m in source.Members) Members.Add(m.Clone());
     }
     public void Swap() { (LeftId, RightId) = (RightId, LeftId); (LeftOffsetMs, RightOffsetMs) = (RightOffsetMs, LeftOffsetMs); }
 }
@@ -153,7 +173,7 @@ public sealed class AppSettings : ObservableObject
         if (Receivers is null || ReceiverAliases is null || ManualReceivers is null || SoftwareGroups is null
             || SoftwareGroups.Any(group => group is null) || Receivers.Values.Any(value => value is null))
             return L.Get("Configuration contains invalid receiver or manual-receiver collections.");
-        if (UiLanguage is not ("system" or "en" or "zh" or "de")) return L.Get("Select a valid language.");
+        if (UiLanguage is not ("system" or "en" or "zh" or "de" or "es")) return L.Get("Select a valid language.");
         if (Theme is not ("system" or "dark" or "light")) return L.Get("Select a valid theme.");
         if (DiscoveryInterfaceId is null || (DiscoveryInterfaceId.Length > 0 && !Guid.TryParse(DiscoveryInterfaceId, out _))) return L.Get("Select a valid network interface.");
         if (MasterVolume is < 0 or > 100) return L.Get("Master volume must be between 0 and 100.");
@@ -180,10 +200,27 @@ public sealed class AppSettings : ObservableObject
         var members = new HashSet<string>(StringComparer.Ordinal);
         foreach (var group in SoftwareGroups)
         {
-            if (string.IsNullOrWhiteSpace(group.Id) || !group.Id.StartsWith("software:", StringComparison.Ordinal) || !groupIds.Add(group.Id) || string.IsNullOrWhiteSpace(group.Name) || !SampleRates.Contains(group.SampleRate)) return L.Get("Invalid software stereo group.");
-            foreach (var id in new[] { group.LeftId, group.RightId })
-                if (string.IsNullOrWhiteSpace(id) || id.StartsWith("software:", StringComparison.Ordinal) || id.StartsWith("stereo:", StringComparison.Ordinal) || !members.Add(ReceiverIdentity.Resolve(id, ReceiverAliases))) return L.Get("Stereo groups require two distinct independent receivers.");
-            if (group.LeftOffsetMs is < -500 or > 500 || group.RightOffsetMs is < -500 or > 500) return L.Get("Synchronization offset must be between -500 and 500 ms.");
+            if (string.IsNullOrWhiteSpace(group.Id) || !group.Id.StartsWith("software:", StringComparison.Ordinal)
+                || !groupIds.Add(group.Id) || string.IsNullOrWhiteSpace(group.Name) || !SampleRates.Contains(group.SampleRate)
+                || group.GroupMode is not ("software_stereo" or "multi_room")
+                || group.Members is null || group.Members.Any(member => member is null))
+                return L.Get("Invalid software stereo group.");
+            if (group.IsMultiRoom)
+            {
+                if (group.Members.Count < 2) return L.Get("Multi-room groups require at least two distinct independent receivers.");
+                foreach (var member in group.Members)
+                {
+                    var id = member.ReceiverId;
+                    if (string.IsNullOrWhiteSpace(id) || id.StartsWith("software:", StringComparison.Ordinal) || id.StartsWith("stereo:", StringComparison.Ordinal) || !members.Add(ReceiverIdentity.Resolve(id, ReceiverAliases))) return L.Get("Multi-room groups require distinct independent receivers.");
+                    if (member.OffsetMs is < -500 or > 500) return L.Get("Synchronization offset must be between -500 and 500 ms.");
+                }
+            }
+            else
+            {
+                foreach (var id in new[] { group.LeftId, group.RightId })
+                    if (string.IsNullOrWhiteSpace(id) || id.StartsWith("software:", StringComparison.Ordinal) || id.StartsWith("stereo:", StringComparison.Ordinal) || !members.Add(ReceiverIdentity.Resolve(id, ReceiverAliases))) return L.Get("Stereo groups require two distinct independent receivers.");
+                if (group.LeftOffsetMs is < -500 or > 500 || group.RightOffsetMs is < -500 or > 500) return L.Get("Synchronization offset must be between -500 and 500 ms.");
+            }
         }
         return null;
     }

@@ -48,7 +48,7 @@ internal static class UiSmoke
             "stopped and closed media clear the source while paused and playing media keep metadata", checks);
         foreach (var arguments in new string[][]
         {
-            ["--ui-pairing-smoke"], ["--ui-pairing-smoek"], ["--receiver-settings-regression"],
+            ["--ui-pairing-smoke"], ["--ui-pairing-smoek"], ["--receiver-settings-regression"], ["--ui-sound-glow-smoke"],
             ["--ui-smoke", "--ui-perf"], ["--ui-smoke", "--ui-smoke"], ["--ui-smoke", "--audio-check"],
             ["--ui-smoke", "--discovery-check"], ["--ui-smoke", "--dns-resolve-helper"],
             ["--ui-perf", "--ui-pairing-smoke"], ["--ui-perf", "--ui-unknown"], ["--ui-perf", "--receiver-settings-regression"],
@@ -103,6 +103,7 @@ internal static class UiSmoke
                 "--ui-regression" or "--ui-regression-smoke" => UiRegression.RunAsync(checks, directory),
                 "--receiver-settings-regression" => ReceiverSettingsRegression.RunAsync(checks, directory),
                 "--ui-pairing-hint-smoke" => PairingHintRegression.RunAsync(checks, directory),
+                "--ui-sound-glow-smoke" => SoundGlowRegression.RunAsync(checks, directory),
                 "--ui-ownership-smoke" => UiOwnershipRecovery.RunAsync(checks),
                 "--ui-mute-recovery-smoke" => UiMuteRecovery.RunAsync(checks, directory),
                 "--ui-settings-recovery-smoke" => UiSettingsRecovery.RunAsync(checks, directory),
@@ -836,6 +837,7 @@ internal static class UiSmoke
         public bool AutoReady = true;
         public Action<object>? EmitEvent;
         public ConcurrentQueue<JsonElement> Commands { get; } = new();
+        public bool SupportsSoundGlow { get; init; } = true;
         public int CreatedCount, DisposedCount;
         public IEngineConnection Open()
         {
@@ -855,7 +857,7 @@ internal static class UiSmoke
         public Task SendCorrelatedAsync(string requestId, string session, string command, object? parameters, CancellationToken cancellation)
         {
             factory.Commands.Enqueue(JsonSerializer.SerializeToElement(new { id = requestId, command, @params = parameters }));
-            if (command == "hello") Emit(session, new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "member_volume", "receiver_password", "standby_release", "receiver_ownership_guard", "application_capture", "forced_latency", "now_playing", "diagnostics" } });
+            if (command == "hello") Emit(session, new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "multi_room", "continuity", "buffered_audio", "member_volume", "receiver_password", "standby_release", "receiver_ownership_guard", "application_capture", "forced_latency", "now_playing", "diagnostics" }.Concat(factory.SupportsSoundGlow ? ["sound_glow_test"] : []).ToArray() });
             if (command == "pair") factory.EmitEvent = payload => Emit(session, payload);
             if (command == "start")
             {
@@ -865,7 +867,7 @@ internal static class UiSmoke
                     Emit(session, new { @event = "negotiated", receiver_id = peer.Text("receiver_id"), host = peer.Text("host"), port = peer.Integer("port"), codec = "alac", transport = "realtime", timing = "ptp", clock_role = peer.GetProperty("profile").Boolean("follow_receiver_clock") == true ? "follow" : "sender", sample_rate = data.Integer("sample_rate") });
                 factory.EmitEvent = payload => Emit(session, payload);
                 if (factory.AutoReady) Emit(session, new { @event = "streaming", session_epoch = 1 });
-                var hosts = data.Text("group_mode") == "software_stereo" ? data.GetProperty("peers").EnumerateArray().Select(p => p.Text("host")).ToArray() : [_host];
+                var hosts = data.Text("group_mode") is "software_stereo" or "multi_room" ? data.GetProperty("peers").EnumerateArray().Select(p => p.Text("host")).ToArray() : [_host];
                 foreach (var host in hosts)
                 {
                     _volumes[host] = host == _host ? 28 : 45;

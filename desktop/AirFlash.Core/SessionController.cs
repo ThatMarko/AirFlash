@@ -27,6 +27,54 @@ internal readonly record struct StreamingAttempt(long Owner, long Intent, long T
 public sealed class SessionController(IEngineFactory factory, IAudioService audio, Action<string>? log = null, SessionTiming? timing = null, Action<DesktopSessionRecord>? sessionRecords = null, TimeProvider? clock = null) : IAsyncDisposable
 {
     private readonly SemaphoreSlim _serial = new(1, 1);
+    private long _soundGlowSequence;
+    private long _soundGlowTransport;
+    private bool _soundGlowSupported;
+    private readonly SemaphoreSlim _soundGlowWriter = new(1, 1);
+    public bool SoundGlowSupported { get { lock (_sync) return _soundGlowSupported; } }
+    public event Action<JsonElement>? SoundGlowFeedback;
+    public async Task SendSoundGlowTestAsync(string palette, CancellationToken cancellation = default)
+    {
+        if (palette is not ("metadata_only" or "red" or "blue" or "green"))
+            throw new ArgumentException("Unknown test palette.", nameof(palette));
+        using var operation = TryAdmitPassiveOperation();
+        if (operation is null) throw new InvalidOperationException(L.Get("Start streaming before testing Sound Glow."));
+        IEngineConnection connection;
+        string session;
+        CancellationToken lifetime;
+        StreamingAttempt attempt;
+        lock (_sync)
+        {
+            if (!_transportStreaming || _snapshot.State != PlaybackState.Streaming || _connection is null || _sessionId is null || _lifetime is null)
+                throw new InvalidOperationException(L.Get("Start streaming before testing Sound Glow."));
+            if (!_soundGlowSupported)
+                throw new InvalidOperationException(L.Get("This audio engine does not support the Sound Glow experiment."));
+            connection = _connection;
+            session = _sessionId;
+            lifetime = _lifetime.Token;
+            attempt = new(_generation, _automaticIntent, _remoteTransport);
+        }
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime);
+        timeout.CancelAfter(TimeSpan.FromSeconds(2));
+        await _soundGlowWriter.WaitAsync(timeout.Token).ConfigureAwait(false);
+        try
+        {
+            long sequence;
+            lock (_sync)
+            {
+                timeout.Token.ThrowIfCancellationRequested();
+                if (_passiveDisposed || !_transportStreaming || _snapshot.State != PlaybackState.Streaming
+                    || attempt != new StreamingAttempt(_generation, _automaticIntent, _remoteTransport)
+                    || !ReferenceEquals(connection, _connection))
+                    throw new InvalidOperationException(L.Get("Start streaming before testing Sound Glow."));
+                sequence = ++_soundGlowSequence;
+                _soundGlowTransport = attempt.Transport;
+            }
+            await connection.SendAsync(session, "set_sound_glow", new { sequence, palette }, timeout.Token).ConfigureAwait(false);
+            log?.Invoke($"Sound Glow test requested: sequence={sequence}; palette={palette}");
+        }
+        finally { _soundGlowWriter.Release(); }
+    }
     private readonly SemaphoreSlim _audioWriter = new(1, 1);
     private readonly SemaphoreSlim _diagnosticWriter = new(1, 1);
     private readonly SemaphoreSlim _nowPlayingWriter = new(1, 1);
@@ -308,7 +356,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         var application = settings.CaptureMode == "application";
         return new()
         {
-            ["receiver"] = JsonSerializer.Serialize(new { mode = receiver.IsSoftwareGroup ? "software_stereo" : receiver.IsGroup ? "native_stereo" : "single",
+            ["receiver"] = JsonSerializer.Serialize(new { mode = receiver.PlaybackGroupMode,
                 group = receiver.IsGroup && !receiver.IsSoftwareGroup ? receiver.StereoId : null,
                 peers = receiver.Peers.OrderBy(m => m.Address, StringComparer.Ordinal).ThenBy(m => m.Port).Select(m => new { m.Address, m.Port, leader = receiver.IsGroup && m.IsLeader }) }),
             ["capture"] = JsonSerializer.Serialize(new { settings.CaptureMode, endpoint = settings.EffectiveEndpoint,
@@ -351,12 +399,13 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private static void ValidateStart(Receiver receiver, AppSettings settings)
     {
         if (!receiver.Online) throw new InvalidOperationException(L.Get("The receiver is unavailable."));
-        if (!receiver.Complete) throw new InvalidOperationException(L.Get("Both stereo pair members must be online."));
+        if (!receiver.Complete) throw new InvalidOperationException(L.Get(receiver.IsMultiRoom
+            ? "All multi-room members must be online." : "Both stereo pair members must be online."));
         if (settings.Validate() is { } validation) throw new ArgumentException(validation, nameof(settings));
         if (LatencyPolicy.ForceConflict(settings, receiver) is { } conflict) throw new InvalidOperationException(conflict);
-        if (receiver.IsSoftwareGroup && (receiver.Members.Select(m => Receiver.PhysicalKey(m.DeviceId, m.Address)).Distinct().Count() != 2
-            || receiver.Members.Select(m => m.Address).Distinct(StringComparer.OrdinalIgnoreCase).Count() != 2))
-            throw new InvalidOperationException(L.Get("Stereo groups require two distinct independent receivers."));
+        if (receiver.IsSoftwareGroup && !receiver.HasDistinctSoftwareMembers)
+            throw new InvalidOperationException(L.Get(receiver.IsMultiRoom
+                ? "Multi-room groups require distinct independent receivers." : "Stereo groups require two distinct independent receivers."));
     }
     private async Task<bool> StartExplicitAsync(Receiver receiver, AppSettings settings, Func<Receiver, CancellationToken, Task<string?>>? requestPin, long expectedIntent)
     {
@@ -679,8 +728,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     || receiver.IsGroup != previous.IsGroup || receiver.Id != migrations.GetValueOrDefault(previous.Id, previous.Id)) return;
                 var settings = _settings.Clone();
                 ReceiverCatalog.ApplyMigrations(settings, migrations, previous.Id);
-                if (receiver.Online && receiver.Complete && (!receiver.IsSoftwareGroup || receiver.Members.Select(m => Receiver.PhysicalKey(m.DeviceId, m.Address)).Distinct().Count() == 2
-                    && receiver.Members.Select(m => m.Address).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 2)) _discoveredReceiver = receiver;
+                if (receiver.Online && receiver.Complete && (!receiver.IsSoftwareGroup || receiver.HasDistinctSoftwareMembers))
+                    _discoveredReceiver = receiver;
                 Receiver Identity(Receiver active, Receiver discovered) => active with { Id = discovered.Id, Name = discovered.Name, DeviceId = discovered.DeviceId,
                     Model = discovered.Model, GroupName = discovered.GroupName, Aliases = discovered.Aliases };
                 var retained = Identity(previous, receiver);
@@ -1032,6 +1081,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         // count and the compact sequence) instead of only the latest reason.
         var reconnects = 0;
         var transportFaults = new List<string>();
+        var recovering = false;
         while (!cancellation.IsCancellationRequested)
         {
             // A new process must not replace a mute obligation left by cleanup.
@@ -1076,6 +1126,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     var deadline = DateTime.UtcNow + _timing.Connect;
                     await connection.SendAsync(session, "hello", null, cancellation).ConfigureAwait(false);
                     var hello = await ReadEventAsync(connection, session, _timing.Connect, cancellation).ConfigureAwait(false);
+                    lock (_sync) { if (epoch == _generation) _soundGlowSupported = EngineHandshake.HasCapability(hello, "sound_glow_test"); }
                     _confirmedLeadSupported = EngineHandshake.HasCapability(hello, "adaptive_lead_v2");
                     lock (_sync)
                     {
@@ -1090,6 +1141,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         throw new EngineFailure(new("forced_latency_unsupported", "", "setup", L.Get("This audio engine does not support forced latency. Update the engine or turn off forced latency."), false));
                     if (settings.CaptureMode == "application") EngineHandshake.RequireCapabilities(hello, "application_capture");
                     if (receiver.IsSoftwareGroup) EngineHandshake.RequireCapabilities(hello, "member_volume");
+                    if (receiver.IsMultiRoom) EngineHandshake.RequireCapabilities(hello, "multi_room");
                     var capabilities = await ReceiverCapabilityCatalog.QueryConnectionAsync(connection, session, hello, receiver, cancellation, hosts).ConfigureAwait(false);
                     var selected = capabilities.Select(id => ProfileOptions(receiver, receiver.Peers.Single(p => p.Id == id), settings), settings.SampleRate(receiver));
                     if (capabilities.Members.Count > 0 && selected.Count == 0) throw new InvalidOperationException(L.Get("The receiver does not support this stream profile. Choose Automatic or a supported option in Receivers."));
@@ -1106,7 +1158,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     await _equalizerWriter.WaitAsync(cancellation).ConfigureAwait(false);
                     try
                     {
-                        var startParameters = JsonSerializer.SerializeToNode(new { peers, group_mode = receiver.IsSoftwareGroup ? "software_stereo" : receiver.IsGroup ? "native_stereo" : "single", group_id = receiver.IsGroup && !receiver.IsSoftwareGroup ? receiver.StereoId : null, source = settings.CaptureMode == "application" ? "application" : "loopback", capture_application_path = settings.CaptureMode == "application" ? settings.CaptureApplicationPath : null, capture_process_id = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.ProcessId : null, capture_process_started_at = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.StartedAt : null, standby = StandbyParameters(settings, receiver.Id), duration_ms = 0, latency_ms = _adaptiveBase, gain = Gain(receiver), timing = "ptp", capture_endpoint = settings.EffectiveEndpoint, sample_rate = sampleRate, equalizer = EffectiveEqualizer().WireParameters() })!.AsObject();
+                        var groupMode = receiver.PlaybackGroupMode;
+                        var startParameters = JsonSerializer.SerializeToNode(new { peers, group_mode = groupMode, group_id = receiver.IsGroup && !receiver.IsSoftwareGroup ? receiver.StereoId : null, source = settings.CaptureMode == "application" ? "application" : "loopback", capture_application_path = settings.CaptureMode == "application" ? settings.CaptureApplicationPath : null, capture_process_id = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.ProcessId : null, capture_process_started_at = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.StartedAt : null, standby = StandbyParameters(settings, receiver.Id), duration_ms = 0, latency_ms = _adaptiveBase, gain = Gain(receiver), timing = "ptp", capture_endpoint = settings.EffectiveEndpoint, sample_rate = sampleRate, equalizer = EffectiveEqualizer().WireParameters() })!.AsObject();
                         if (forceLatency) startParameters["force_latency"] = true;
                         startParameters["intent"] = attemptIntent == SessionStartIntent.Manual ? "manual" : "automatic";
                         if (adaptiveMode && _confirmedLeadSupported)
@@ -1145,6 +1198,17 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                             continue;
                         }
                         var kind = item.Text("event");
+                        if (kind.StartsWith("sound_glow_", StringComparison.Ordinal))
+                        {
+                            lock (_sync)
+                            {
+                                if (epoch != _generation || item.Integer("sequence") is { } sequence
+                                    && (!_transportStreaming || _soundGlowTransport != _remoteTransport || sequence != _soundGlowSequence)) continue;
+                            }
+                            log?.Invoke("Sound Glow: " + item.GetRawText());
+                            SoundGlowFeedback?.Invoke(item.Clone());
+                            continue;
+                        }
                         if (kind == "error") throw new EngineFailure(EngineNotice.Parse(item));
                         if (kind == "stopped") throw new IOException(L.Get("The audio session ended unexpectedly."));
                         if (kind == "diag_summary")
@@ -1190,6 +1254,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         }
                         if (kind == "streaming")
                         {
+                            recovering = false;
                             AcceptLatency(item);
                             counterHistory.Begin(currentAttempt, item.Integer("session_epoch"));
                             startedAt = Stopwatch.GetTimestamp();
@@ -1216,6 +1281,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         else if (kind == "standby")
                         {
                             counterHistory.End();
+                            recovering = false;
                             recoveryHealth.ResetStability();
                             lock (_sync) _adaptive.Suspend();
                             startedAt = Stopwatch.GetTimestamp();
@@ -1381,7 +1447,9 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     log?.Invoke($"Session automatic recovery blocked; code={notice.Code}; manual_reconnect_required=true");
                     return;
                 }
-                if (!(_settings.ForceReconnect || receiver.IsSoftwareGroup || notice.Code is "timeline_expired" or "clock_lost" or "adaptive_rebuild") || attempts > _settings.MaxReconnectAttempts || notice.Retryable == false || notice.Retryable is null && IsAuthenticationFailure(error.Message)) return;
+                var recoveryAllowed = _settings.ForceReconnect || receiver.IsSoftwareGroup || notice.Code is "timeline_expired" or "clock_lost" or "adaptive_rebuild" || (recovering && (notice.Code is "host_error" or "network_error" || notice.Retryable == true));
+                if (!recoveryAllowed || attempts > _settings.MaxReconnectAttempts || notice.Retryable == false || notice.Retryable is null && IsAuthenticationFailure(error.Message)) return;
+                recovering = true;
                 // This is the one reconnect notion the desktop already has; the
                 // companion record only reports it, it does not add a second one.
                 ++reconnects;
@@ -1540,8 +1608,34 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         public int Target { get; } = target;
     }
     private static bool IsAuthenticationFailure(string message) => new[] { "pairing", "srp", "verification", "credentials", "signature", "identity", "authentication" }.Any(word => message.Contains(word, StringComparison.OrdinalIgnoreCase));
-    private void SetConnection(IEngineConnection connection, string session) { lock (_sync) { _connection = connection; _sessionId = session; _startSent = false; _sentStandby = null; _nowPlayingSupported = false; _nowPlayingMayBeSet = false; _diagnosticsSupported = false; _nativeSessionEpoch = null; _lastDiagnostic = null; } }
-    private void ClearConnection(IEngineConnection connection) { lock (_sync) if (ReferenceEquals(_connection, connection)) { _connection = null; _sessionId = null; _startSent = false; _sentStandby = null; } }
+    private void SetConnection(IEngineConnection connection, string session)
+    {
+        lock (_sync)
+        {
+            _connection = connection;
+            _sessionId = session;
+            _startSent = false;
+            _sentStandby = null;
+            _nowPlayingSupported = false;
+            _nowPlayingMayBeSet = false;
+            _diagnosticsSupported = false;
+            _soundGlowSupported = false;
+            _nativeSessionEpoch = null;
+            _lastDiagnostic = null;
+        }
+    }
+    private void ClearConnection(IEngineConnection connection)
+    {
+        lock (_sync)
+        {
+            if (!ReferenceEquals(_connection, connection)) return;
+            _connection = null;
+            _sessionId = null;
+            _startSent = false;
+            _sentStandby = null;
+            _soundGlowSupported = false;
+        }
+    }
     private static async Task RequestStopAsync(IEngineConnection connection, string session)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
@@ -1662,6 +1756,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             _equalizerWriter.Dispose();
             _diagnosticWriter.Dispose();
             _nowPlayingWriter.Dispose();
+            _soundGlowWriter.Dispose();
             _serial.Dispose();
             _audioWriter.Dispose();
             completion.SetResult();

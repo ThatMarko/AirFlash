@@ -79,7 +79,7 @@ public sealed class DiagnosticExportTests
         var receipt = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
         var history = Enumerable.Range(0, PlaybackCounterHistory.Capacity + 4).Select(index =>
             new PlaybackCounterDelta(receipt.AddSeconds(index), 1, 1, "transport_metrics", null,
-                Enumerable.Range(0, 5).Select(member => new MemberCounterDelta(member,
+                Enumerable.Range(0, PlaybackCounterHistory.MemberCapacity + 2).Select(member => new MemberCounterDelta(member,
                     new Dictionary<string, ulong> { ["media_send_errors"] = 1 })).ToArray())).ToArray();
 
         using var bundle = JsonDocument.Parse(DiagnosticExport.Compose("test", "test", null, history));
@@ -87,7 +87,8 @@ public sealed class DiagnosticExportTests
         Assert.Equal(PlaybackCounterHistory.Capacity, saved.GetArrayLength());
         Assert.Equal(receipt.AddSeconds(4), saved[0].GetProperty("received_at").GetDateTimeOffset());
         Assert.All(saved.EnumerateArray(), report =>
-            Assert.Equal([1L, 2L], report.GetProperty("members").EnumerateArray().Select(member => member.Integer("member")!.Value)));
+            Assert.Equal(Enumerable.Range(1, PlaybackCounterHistory.MemberCapacity).Select(ordinal => (long)ordinal),
+                report.GetProperty("members").EnumerateArray().Select(member => member.Integer("member")!.Value)));
     }
 
     [Fact]

@@ -394,7 +394,7 @@ public sealed class IpcFailureTests
             if (command == "stop") _events.Writer.TryComplete();
             return Task.CompletedTask;
         }
-        public void PublishHello() => Current("hello", new { capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_ownership_guard", "member_volume", "receiver_password", "application_capture" } });
+        public void PublishHello() => Current("hello", new { capabilities = new[] { "receiver_profiles", "software_stereo", "multi_room", "continuity", "buffered_audio", "standby_release", "receiver_ownership_guard", "member_volume", "receiver_password", "application_capture" } });
         public void Raw(string raw) => _events.Writer.TryWrite(raw);
         public void Current(string name, object? fields = null)
         {

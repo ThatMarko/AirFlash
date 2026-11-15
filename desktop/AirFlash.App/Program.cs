@@ -10,7 +10,7 @@ internal static class Program
     [
         "--ui-discovery-smoke", "--ui-session-lifecycle-smoke", "--ui-diagnostics-smoke",
         "--ui-regression", "--ui-regression-smoke", "--receiver-settings-regression",
-        "--ui-pairing-hint-smoke", "--ui-ownership-smoke", "--ui-mute-recovery-smoke",
+        "--ui-pairing-hint-smoke", "--ui-ownership-smoke", "--ui-mute-recovery-smoke", "--ui-sound-glow-smoke",
         "--ui-settings-recovery-smoke", "--ui-pairing-smoke", "--ui-password-smoke", "--ui-scroll-smoke"
     ];
     private static bool IsPrimaryUiMode(string option) => option is "--ui-smoke" or "--tray-smoke" or "--ui-perf";

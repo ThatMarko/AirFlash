@@ -4,6 +4,7 @@ namespace AirFlash.Core;
 internal sealed class PlaybackCounterHistory
 {
     internal const int Capacity = 32;
+    internal const int MemberCapacity = 128;
     private readonly Queue<PlaybackCounterDelta> _history = new(Capacity);
     private int _attempt;
     private long? _sessionEpoch;
@@ -53,7 +54,7 @@ internal sealed class PlaybackCounterHistory
         Add(ref counters, "sender_late_recoveries", Unsigned(previous.SenderLateRecoveries), Unsigned(current.SenderLateRecoveries));
         Add(ref counters, "skipped_packets", Unsigned(previous.SkippedPackets), Unsigned(current.SkippedPackets));
         List<MemberCounterDelta>? members = null;
-        for (var index = 0; index < current.Members.Count; index++)
+        for (var index = 0; index < Math.Min(current.Members.Count, MemberCapacity); index++)
         {
             var member = current.Members[index];
             if (member.Host is "" or "—" || current.Members.Count(item => item.Host == member.Host) != 1) continue;

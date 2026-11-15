@@ -60,6 +60,60 @@ public sealed class SessionTests
             Assert.All(start.GetProperty("peers").EnumerateArray(), peer => Assert.Equal(50, peer.GetProperty("profile").Integer("latency_ms")));
         }
     }
+    [Fact]
+    public async Task TimelineExpiredRecoverySurvivesTransientConnectFailureAndReconnects()
+    {
+        var first = new FakeConnection();
+        var second = new FakeConnection();
+        second.BeforeSend = (cmd, ct) =>
+        {
+            if (cmd.CommandName == "start") throw new IOException("connect 192.168.0.x:7000");
+            return Task.CompletedTask;
+        };
+        var third = new FakeConnection();
+        var factory = new FakeFactory(first, second, third);
+        await using var controller = TestSessionController.Create(factory, new FakeAudio(), timing: Fast);
+        var settings = Settings();
+        settings.ForceReconnect = false;
+        await controller.StartAsync(Pod(), settings);
+        await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+
+        first.EmitData(new { @event = "error", code = "timeline_expired", retryable = true });
+
+        await third.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+        Assert.Equal(PlaybackState.Streaming, controller.Snapshot.State);
+        Assert.Equal(3, factory.OpenCount);
+    }
+    [Theory]
+    [InlineData("engine_error")]
+    [InlineData("socket_error")]
+    public async Task TimelineExpiredRecoverySurvivesRetryableEngineFaultAndReconnects(string code)
+    {
+        var first = new FakeConnection();
+        var second = new FakeConnection(autoReady: false);
+        second.BeforeSend = (cmd, _) =>
+        {
+            if (cmd.CommandName == "start")
+                second.EmitData(new { @event = "error", code, retryable = true, message = "connect 192.168.0.x:7000" });
+            return Task.CompletedTask;
+        };
+        var third = new FakeConnection();
+        var factory = new FakeFactory(first, second, third);
+        await using var controller = TestSessionController.Create(factory, new FakeAudio(), timing: Fast);
+        var settings = Settings();
+        settings.ForceReconnect = false;
+        await controller.StartAsync(Pod(), settings);
+        await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+
+        first.EmitData(new { @event = "error", code = "timeline_expired", retryable = true });
+
+        await third.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+        Assert.Equal(PlaybackState.Streaming, controller.Snapshot.State);
+        Assert.Equal(3, factory.OpenCount);
+        Assert.Equal(2, controller.Snapshot.Diagnostics?.ReconnectCount ?? -1);
+    }
     [Theory]
     [InlineData("custom", true, true)]
     [InlineData("custom", false, false)]
@@ -352,6 +406,136 @@ public sealed class SessionTests
         await Until(() => process.Commands.Any(c => c.Command == "set_now_playing"));
         Assert.Equal("Song", process.Commands.Single(c => c.Command == "set_now_playing").Parameters.Text("title"));
     }
+    [Fact]
+    public async Task SoundGlowIsOptInAndReceiverRejectionDoesNotFailAudioSession()
+    {
+        var process = new FakeConnection();
+        var logs = new ConcurrentQueue<string>();
+        await using var controller = TestSessionController.Create(new FakeFactory(process), new FakeAudio(), logs.Enqueue,
+            Fast with { Read = SessionTiming.Default.Read });
+        await Assert.ThrowsAsync<InvalidOperationException>(() => controller.SendSoundGlowTestAsync("red"));
+        await Assert.ThrowsAsync<ArgumentException>(() => controller.SendSoundGlowTestAsync("rainbow"));
+        await controller.StartAsync(Pod(), Settings());
+        await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+        Assert.DoesNotContain(process.Commands, c => c.Command == "set_sound_glow");
+        await controller.SendSoundGlowTestAsync("red");
+        await controller.SendSoundGlowTestAsync("blue");
+        var commands = process.Commands.Where(c => c.Command == "set_sound_glow").ToArray();
+        Assert.Equal(2, commands.Length);
+        Assert.Equal("red", commands[0].Parameters.Text("palette"));
+        Assert.Equal("blue", commands[1].Parameters.Text("palette"));
+        Assert.True(commands[1].Parameters.Integer("sequence") > commands[0].Parameters.Integer("sequence"));
+        var feedback = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        controller.SoundGlowFeedback += item => feedback.TrySetResult(item);
+        process.EmitData(new { @event = "sound_glow_result", sequence = commands[1].Parameters.Integer("sequence"), accepted = false, part = "metadata", message = "415 Unsupported Media Type" });
+        var item = await feedback.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(item.Boolean("accepted"));
+        Assert.Equal(PlaybackState.Streaming, controller.Snapshot.State);
+        Assert.Contains(logs, line => line.Contains("415 Unsupported Media Type"));
+        await controller.StopAsync();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => controller.SendSoundGlowTestAsync("green"));
+    }
+    [Fact]
+    public async Task UnsupportedSoundGlowDoesNotPreventPlayback()
+    {
+        var process = new FakeConnection { SupportsSoundGlow = false };
+        await using var controller = TestSessionController.Create(new FakeFactory(process), new FakeAudio(), timing: Fast with { Read = SessionTiming.Default.Read });
+        await controller.StartAsync(Pod(), Settings());
+        await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+        Assert.False(controller.SoundGlowSupported);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => controller.SendSoundGlowTestAsync("red"));
+        Assert.DoesNotContain(process.Commands, c => c.Command == "set_sound_glow");
+        Assert.Equal(PlaybackState.Streaming, controller.Snapshot.State);
+    }
+
+    [Fact]
+    public async Task StopCancelsBlockedSoundGlowAndQueuedRequests()
+    {
+        var process = new FakeConnection();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        process.BeforeSend = async (command, cancellation) =>
+        {
+            if (command.Command != "set_sound_glow") return;
+            entered.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellation);
+        };
+        await using var controller = TestSessionController.Create(new FakeFactory(process), new FakeAudio(), timing: Fast with { Read = SessionTiming.Default.Read });
+        await controller.StartAsync(Pod(), Settings());
+        await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+        var first = controller.SendSoundGlowTestAsync("red");
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        var second = controller.SendSoundGlowTestAsync("blue");
+        await controller.StopAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
+        Assert.Equal(PlaybackState.Idle, controller.Snapshot.State);
+        Assert.DoesNotContain(process.Commands, c => c.Command == "set_sound_glow");
+    }
+
+    [Fact]
+    public async Task AQueuedSoundGlowCommandCannotTargetAResumedTransportOnTheSameEngine()
+    {
+        var process = new FakeConnection();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        process.BeforeSend = (command, cancellation) =>
+        {
+            if (command.Command != "set_sound_glow" || command.Parameters.Text("palette") != "red")
+                return Task.CompletedTask;
+            entered.TrySetResult();
+            return release.Task.WaitAsync(cancellation);
+        };
+        await using var controller = TestSessionController.Create(new FakeFactory(process), new FakeAudio(), timing: Fast with { Read = SessionTiming.Default.Read });
+        await controller.StartAsync(Pod(), Settings());
+        await SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Streaming);
+        var first = controller.SendSoundGlowTestAsync("red");
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            var queued = controller.SendSoundGlowTestAsync("blue");
+            process.Emit("standby");
+            await SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Standby);
+            process.Emit("resuming");
+            await SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Connecting);
+            process.Emit("streaming");
+            await SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Streaming);
+            release.TrySetResult();
+            await first;
+            await Assert.ThrowsAsync<InvalidOperationException>(() => queued);
+            Assert.DoesNotContain(process.Commands, command => command.Command == "set_sound_glow" && command.Parameters.Text("palette") == "blue");
+        }
+        finally { release.TrySetResult(); }
+    }
+
+    [Fact]
+    public async Task SoundGlowFiltersOldSequencesAndSessionsAndResetsOnReconnect()
+    {
+        var first = new FakeConnection(); var second = new FakeConnection();
+        await using var controller = TestSessionController.Create(new FakeFactory(first, second), new FakeAudio(), timing: Fast with { Read = SessionTiming.Default.Read });
+        var received = new ConcurrentQueue<JsonElement>();
+        controller.SoundGlowFeedback += received.Enqueue;
+        await controller.StartAsync(Pod(), Settings());
+        await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+        await controller.SendSoundGlowTestAsync("red");
+        var oldSequence = first.Commands.Single(c => c.Command == "set_sound_glow").Parameters.Integer("sequence");
+        await controller.SendSoundGlowTestAsync("blue");
+        var sequence = first.Commands.Last(c => c.Command == "set_sound_glow").Parameters.Integer("sequence");
+        first.EmitData(new { @event = "sound_glow_result", sequence = oldSequence });
+        first.EmitData(new { @event = "sound_glow_result", sequence }, "old-session");
+        first.EmitData(new { @event = "sound_glow_result", sequence, host = "127.0.0.1", accepted = true });
+        first.EmitData(new { @event = "sound_glow_result", sequence, host = "127.0.0.2", accepted = false });
+        await Until(() => received.Count == 2);
+        Assert.Equal(new[] { "127.0.0.1", "127.0.0.2" }, received.Select(e => e.Text("host")));
+        await controller.StopAsync();
+        Assert.False(controller.SoundGlowSupported);
+        await controller.StartAsync(Pod(), Settings());
+        await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+        Assert.True(controller.SoundGlowSupported);
+        Assert.DoesNotContain(second.Commands, c => c.Command == "set_sound_glow");
+        await controller.PublishNowPlayingAsync(new("Normal song", "Artist", "", "", true, 10000, 1000));
+        Assert.Contains(second.Commands, c => c.Command == "set_now_playing" && c.Parameters.Text("title") == "Normal song");
+    }
+
     [Fact]
     public async Task ClockStartupFailureRetainsPerPeerDiagnosticsAndEnginePathInLog()
     {
@@ -1238,6 +1422,29 @@ public sealed class SessionTests
         Assert.Equal("b", controller.Snapshot.Diagnostics!.Warnings![0].Host); Assert.True(audio.Muted);
     }
     [Fact]
+    public async Task ClockRecoveryWarningClearsTheOriginalFault()
+    {
+        var process = new FakeConnection();
+        await using var controller = TestSessionController.Create(new FakeFactory(process), new FakeAudio(), timing: Fast);
+        await controller.StartAsync(Pod(), Settings());
+        await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+
+        process.EmitData(new
+        {
+            @event = "warning", channel = "clock", code = "recovery_original_fault",
+            host = "a", fault_code = "clock_lost", recovered = false, message = "PTP stopped"
+        });
+        await Until(() => controller.Snapshot.Diagnostics?.Warnings?.Count == 1);
+
+        process.EmitData(new
+        {
+            @event = "warning", channel = "clock", code = "recovery_original_fault",
+            host = "a", fault_code = "clock_lost", recovered = true, message = "PTP resumed"
+        });
+        await Until(() => controller.Snapshot.Diagnostics?.Warnings?.Count == 0);
+        Assert.Empty(controller.Snapshot.Diagnostics!.Warnings ?? []);
+    }
+    [Fact]
     public async Task ReconnectRetainsFailureAndMetricsUntilANewPlayback()
     {
         var first = new FakeConnection(); var second = new FakeConnection(); var third = new FakeConnection(); var factory = new FakeFactory(first, second, third);
@@ -1548,6 +1755,41 @@ public sealed class SessionTests
         Assert.True(first.Disposed); Assert.Equal(2, second.Commands.Single(c => c.Command == "start").Parameters.GetProperty("peers").GetArrayLength()); Assert.DoesNotContain(first.Commands, c => c.Command == "set_device_volume");
     }
     [Fact]
+    public async Task MultiRoomGroupSerializesAllMembersAndStartsMultiRoomStreaming()
+    {
+        var first = new FakeConnection(); var factory = new FakeFactory(first);
+        var settings = Settings();
+        var group = new SoftwareStereoGroup
+        {
+            Id = "software:multi",
+            Name = "Whole Home",
+            GroupMode = "multi_room",
+            Members = [
+                new() { ReceiverId = "a", OffsetMs = 0 },
+                new() { ReceiverId = "b", OffsetMs = -20 },
+                new() { ReceiverId = "c", OffsetMs = 35 }
+            ]
+        };
+        settings.SoftwareGroups.Add(group);
+        var catalog = new[] { Pod("a"), Pod("b") with { Address = "127.0.0.2" }, Pod("c") with { Address = "127.0.0.3" } };
+        var receiver = SoftwareStereo.Resolve(catalog, settings).Single();
+        Assert.True(receiver.Complete && receiver.Online);
+        Assert.Equal(L.Format("Multi-room · {0} speakers", 3), receiver.Detail);
+
+        await using var controller = TestSessionController.Create(factory, new FakeAudio(), timing: Fast);
+        await controller.StartAsync(receiver, settings);
+        await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+
+        var start = first.Commands.Single(c => c.Command == "start").Parameters;
+        Assert.Equal("multi_room", start.Text("group_mode"));
+        Assert.Equal(3, start.GetProperty("peers").GetArrayLength());
+        for (var i = 0; i < 3; i++)
+            Assert.Equal("stereo", start.GetProperty("peers")[i].GetProperty("profile").Text("channel"));
+        Assert.Equal(0, start.GetProperty("peers")[0].GetProperty("profile").Integer("sync_offset_ms"));
+        Assert.Equal(-20, start.GetProperty("peers")[1].GetProperty("profile").Integer("sync_offset_ms"));
+        Assert.Equal(35, start.GetProperty("peers")[2].GetProperty("profile").Integer("sync_offset_ms"));
+    }
+    [Fact]
     public async Task SoftwareGroupMemberVolumeTargetsOnlyItsHostAndGroupRemovalStopsPlayback()
     {
         var connection = new FakeConnection(); var (receiver, settings) = SoftwareGroup(); await using var controller = TestSessionController.Create(new FakeFactory(connection), new FakeAudio(), timing: Fast);
@@ -1630,6 +1872,7 @@ public sealed class SessionTests
         public bool Disposed { get; private set; }
         public bool RespondHello { get; init; } = true;
         public bool SupportsForcedLatency { get; init; } = true;
+        public bool SupportsSoundGlow { get; init; } = true;
         public bool SupportsAdaptiveLead { get; init; } = true;
         public bool SupportsOwnershipGuard { get; init; } = true;
         private int _latencyBase;
@@ -1656,7 +1899,7 @@ public sealed class SessionTests
                 case "set_gain": GainEntered?.TrySetResult(); if (GainGate is not null) await GainGate.Task.WaitAsync(cancellation); break;
             }
         }
-        public void EmitHello() => EmitData(new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "continuity", "buffered_audio", "member_volume", "receiver_password", "standby_release", "receiver_ownership_guard", "application_capture", "now_playing", "diagnostics" }.Where(c => SupportsOwnershipGuard || c != "receiver_ownership_guard").Concat(ReceiverCapabilityResponse is null ? [] : new[] { "receiver_capabilities" }).Concat(SupportsForcedLatency ? ["forced_latency"] : Array.Empty<string>()).Concat(SupportsAdaptiveLead ? ["adaptive_lead_v2"] : Array.Empty<string>()).ToArray() });
+        public void EmitHello() => EmitData(new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "multi_room", "continuity", "buffered_audio", "member_volume", "receiver_password", "standby_release", "receiver_ownership_guard", "application_capture", "now_playing", "diagnostics" }.Where(c => SupportsOwnershipGuard || c != "receiver_ownership_guard").Concat(ReceiverCapabilityResponse is null ? [] : new[] { "receiver_capabilities" }).Concat(SupportsSoundGlow ? ["sound_glow_test"] : Array.Empty<string>()).Concat(SupportsForcedLatency ? ["forced_latency"] : Array.Empty<string>()).Concat(SupportsAdaptiveLead ? ["adaptive_lead_v2"] : Array.Empty<string>()).ToArray() });
         public void ConfirmLead(int extra)
         {
             var command = Commands.Last(c => c.Command == "set_lead");

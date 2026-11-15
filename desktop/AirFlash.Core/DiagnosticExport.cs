@@ -54,10 +54,11 @@ public static class DiagnosticExport
                     var counters = SelectCounters(report.Counters, report.Source == "capture_metrics"
                         ? ["underrun_packets", "padded_frames", "fully_padded_packets", "dropped_frames"]
                         : ["sender_late_recoveries", "skipped_packets"]);
-                    // A supported playback transport has at most two members. Only
-                    // ordinal numbers and known counters enter the saved history.
+                    // Keep evidence bounded independently from group admission.
+                    // Only ordinal numbers and known counters enter the saved history.
                     var members = report.Source == "transport_metrics" ? report.Members?
-                        .Where(member => member.Member is 1 or 2).Take(2)
+                        .Where(member => member.Member is >= 1 and <= PlaybackCounterHistory.MemberCapacity)
+                        .DistinctBy(member => member.Member).Take(PlaybackCounterHistory.MemberCapacity)
                         .Select(member => new MemberCounterDelta(member.Member, SelectCounters(member.Counters,
                             ["retransmit_requests", "retransmits_sent", "retransmit_expired", "retransmit_missing",
                                 "retransmit_queue_drops", "media_send_errors", "sync_send_errors"])))

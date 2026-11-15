@@ -10,9 +10,8 @@
 //! - `application/x-dmap-tagged` with a `mlit` item holding `minm` (title),
 //!   `asar` (artist), `asal` (album) and `asgn` (genre).
 //!
-//! Artwork is deliberately not sent yet: the receiver accepts `image/jpeg`, but we
-//! cannot verify the size/format constraints without a device, and a rejected
-//! artwork request must never interfere with audio.
+//! Player artwork is omitted. The opt-in Sound Glow experiment owns metadata
+//! output once enabled, until a fresh session restores normal updates.
 //!
 //! An empty update (no title, artist or album; see [`NowPlaying::is_empty`])
 //! sends nothing at all, so the receiver keeps its previous display. The desktop
@@ -20,9 +19,8 @@
 //! also keeps a transport rebuilt in the same IPC session (standby resume) from
 //! re-sending the old track. A new `start` clears the stored value.
 //!
-//! [`Worker`] shares each member's control connection with the volume worker.
-//! The session drops it before closing the members, so it never contends for
-//! the connection lock during teardown or writes after `TEARDOWN`.
+//! [`Worker`] shares each member's control connection with volume and Sound
+//! Glow. The session joins these workers before closing the members.
 
 use crate::rtsp::{Cancellation, Connection, WireError};
 use anyhow::{Result, ensure};
@@ -170,7 +168,12 @@ pub struct Worker {
     pub events: mpsc::Receiver<Value>,
 }
 impl Worker {
-    pub fn start(peers: Vec<Peer>, control: Control, timeline: Timeline) -> Result<Self> {
+    pub fn start(
+        peers: Vec<Peer>,
+        control: Control,
+        timeline: Timeline,
+        glow: crate::sound_glow::Control,
+    ) -> Result<Self> {
         ensure!(!peers.is_empty(), "metadata worker requires a receiver");
         let stop = Cancellation::default();
         let done = stop.clone();
@@ -183,6 +186,10 @@ impl Worker {
                 let mut progress_enabled = vec![true; peers.len()];
                 let mut tags_enabled = vec![true; peers.len()];
                 while !done.is_cancelled() {
+                    if glow.is_active() {
+                        thread::sleep(Duration::from_millis(50));
+                        continue;
+                    }
                     let Some((sequence, now, sampled)) = control.latest() else {
                         thread::sleep(Duration::from_millis(100));
                         continue;
@@ -207,6 +214,11 @@ impl Worker {
                             return;
                         }
                         let mut connection = connection.lock().unwrap();
+                        // Check again under the transaction lock so an in-flight
+                        // normal update cannot overwrite the experiment's tags.
+                        if glow.is_active() {
+                            break;
+                        }
                         let current = timeline.current();
                         let progress = now.progress_body(
                             current,
@@ -479,10 +491,12 @@ mod tests {
             "/stream".to_string(),
             connect(addr),
         )];
+        let glow = crate::sound_glow::Control::default();
         let worker = Worker::start(
             peers,
             control.clone(),
             Timeline::new(42_000 * 441 / 10, 44100),
+            glow.clone(),
         )
         .unwrap();
         let first = received
@@ -518,6 +532,14 @@ mod tests {
             .recv_timeout(Duration::from_secs(3))
             .expect("progress after a position change");
         assert!(String::from_utf8_lossy(&third.1).starts_with("progress: "));
+        glow.set(crate::sound_glow::Command {
+            sequence: 1,
+            palette: crate::sound_glow::Palette::Red,
+        })
+        .unwrap();
+        moved.title = "Normal metadata must not overwrite the experiment".into();
+        control.set(3, moved);
+        assert!(received.recv_timeout(Duration::from_millis(250)).is_err());
         drop(worker);
         drop(received);
         let _ = server.join();
@@ -529,8 +551,13 @@ mod tests {
         let control = Control::default();
         control.set(1, NowPlaying::default());
         let connection = connect(addr);
-        let worker =
-            Worker::start(peer(&connection), control.clone(), Timeline::new(0, 44100)).unwrap();
+        let worker = Worker::start(
+            peer(&connection),
+            control.clone(),
+            Timeline::new(0, 44100),
+            crate::sound_glow::Control::default(),
+        )
+        .unwrap();
         assert!(
             received.recv_timeout(Duration::from_millis(300)).is_err(),
             "an empty track must not reset the receiver's display"
@@ -553,8 +580,13 @@ mod tests {
         let control = Control::default();
         control.set(1, sample());
         let connection = connect(addr);
-        let worker =
-            Worker::start(peer(&connection), control.clone(), Timeline::new(0, 44100)).unwrap();
+        let worker = Worker::start(
+            peer(&connection),
+            control.clone(),
+            Timeline::new(0, 44100),
+            crate::sound_glow::Control::default(),
+        )
+        .unwrap();
         for payload in ["progress", "tags"] {
             received
                 .recv_timeout(Duration::from_secs(2))
@@ -595,7 +627,13 @@ mod tests {
         let control = Control::default();
         control.set(1, sample());
         let connection = connect(addr);
-        let worker = Worker::start(peer(&connection), control, Timeline::new(0, 44100)).unwrap();
+        let worker = Worker::start(
+            peer(&connection),
+            control,
+            Timeline::new(0, 44100),
+            crate::sound_glow::Control::default(),
+        )
+        .unwrap();
         for payload in ["progress", "tags"] {
             received
                 .recv_timeout(Duration::from_secs(2))
@@ -619,7 +657,13 @@ mod tests {
         let mut receiver = Connection::from_stream(socket, Cancellation::default()).unwrap();
         let control = Control::default();
         control.set(1, sample());
-        let worker = Worker::start(peer(&connection), control, Timeline::new(0, 44100)).unwrap();
+        let worker = Worker::start(
+            peer(&connection),
+            control,
+            Timeline::new(0, 44100),
+            crate::sound_glow::Control::default(),
+        )
+        .unwrap();
 
         // Read a complete progress request, then hang up before answering, even on timeout.
         let progress = receiver.read_for(Duration::from_secs(2), None);

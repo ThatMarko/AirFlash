@@ -43,10 +43,27 @@ public sealed class SessionSettingsContext
             // An ordinary save must not replace owned members with the latest
             // catalog. This also works after an adapter restart loses all alias
             // evidence. Explicit membership edits use the separate admission path.
+            if (receiver.IsMultiRoom && group.IsMultiRoom)
+            {
+                var incomingMembers = group.Members.ToArray();
+                group.Members.Clear();
+                for (var index = 0; index < receiver.Members.Length; index++)
+                {
+                    var member = receiver.Members[index];
+                    var offset = index < incomingMembers.Length ? incomingMembers[index].OffsetMs : member.SyncOffsetMs;
+                    group.Members.Add(new() { ReceiverId = member.Id, OffsetMs = offset });
+                }
+            }
+            else if (!receiver.IsMultiRoom && !group.IsMultiRoom)
+            {
+                foreach (var member in receiver.Members)
+                {
+                    if (member.Channel == "left") group.LeftId = member.Id;
+                    else if (member.Channel == "right") group.RightId = member.Id;
+                }
+            }
             foreach (var member in receiver.Members)
             {
-                if (member.Channel == "left") group.LeftId = member.Id;
-                else if (member.Channel == "right") group.RightId = member.Id;
                 effective.ReceiverAliases.Remove(member.Id);
             }
         }

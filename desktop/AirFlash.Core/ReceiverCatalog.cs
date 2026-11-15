@@ -106,8 +106,16 @@ public static class ReceiverCatalog
         if (settings.LastReceiverId is { } last && !manual.Contains(last) && migrations.TryGetValue(last, out var target)) settings.LastReceiverId = target;
         foreach (var group in settings.SoftwareGroups)
         {
-            group.LeftId = migrations.GetValueOrDefault(group.LeftId, group.LeftId);
-            group.RightId = migrations.GetValueOrDefault(group.RightId, group.RightId);
+            if (group.IsMultiRoom)
+            {
+                foreach (var member in group.Members)
+                    member.ReceiverId = migrations.GetValueOrDefault(member.ReceiverId, member.ReceiverId);
+            }
+            else
+            {
+                group.LeftId = migrations.GetValueOrDefault(group.LeftId, group.LeftId);
+                group.RightId = migrations.GetValueOrDefault(group.RightId, group.RightId);
+            }
         }
     }
 
