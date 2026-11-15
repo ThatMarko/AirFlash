@@ -168,7 +168,7 @@ jobs:
               if ($observed.ok -ne $true) { $problems.Add('The fixture report did not pass.') }
               if ($observed.mode -cne $Mode) { $problems.Add("Unexpected route: '$($observed.mode)', expected '$Mode'.") }
               if ($observed.culture -cne $Culture) { $problems.Add("Unexpected regional culture: '$($observed.culture)', expected '$Culture'.") }
-              $expectedUi = @{ en = 'en-US'; 'zh-CN' = 'zh-CN'; 'zh-TW' = 'zh-TW'; de = 'de-DE' }[$Language]
+              $expectedUi = @{ en = 'en-US'; 'zh-CN' = 'zh-CN'; 'zh-TW' = 'zh-TW'; de = 'de-DE'; es = 'es-ES' }[$Language]
               if ($observed.ui_culture -cne $expectedUi) { $problems.Add("Unexpected UI culture: '$($observed.ui_culture)', expected '$expectedUi'.") }
               if ($observed.checks -isnot [Array] -or @($observed.checks).Count -eq 0) { $problems.Add('The report contains no executed assertions.') }
               if ($Clipboard -and $observed.checks -cnotcontains 'real PIN paste applies the single-line and sixteen-character editing bounds') { $problems.Add('Clipboard route omitted actual PIN paste assertions.') }
@@ -220,7 +220,8 @@ jobs:
             @{ name = 'scrolling'; mode = '--ui-scroll-smoke' },
             @{ name = 'discovery'; mode = '--ui-discovery-smoke' },
             @{ name = 'regression'; mode = '--ui-regression' },
-            @{ name = 'receiver-settings'; mode = '--receiver-settings-regression' }
+            @{ name = 'receiver-settings'; mode = '--receiver-settings-regression' },
+            @{ name = 'sound-glow'; mode = '--ui-sound-glow-smoke' }
           )
           foreach ($cell in $focused) { Invoke-DesktopCell $cell.name $cell.mode 'en-US' 'en' }
           Invoke-DesktopCell 'pairing-clipboard' '--ui-pairing-smoke' 'en-US' 'en' $true
@@ -228,6 +229,7 @@ jobs:
             foreach ($language in @('en', 'zh-CN', 'zh-TW')) { Invoke-DesktopCell "full-$culture-$language" 'full' $culture $language }
           }
           Invoke-DesktopCell 'full-de-DE-de' 'full' 'de-DE' 'de'
+          Invoke-DesktopCell 'full-es-ES-es' 'full' 'es-ES' 'es'
           [ordered]@{ source_sha = $env:REQUESTED_SOURCE; binary_sha256 = $binaryRecord.sha256; cells = @($results); failed_cells = @($results | Where-Object { -not $_.ok }).Count } |
             ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $env:DESKTOP_OUTPUT 'desktop-results.json') -Encoding utf8
           if (@($results | Where-Object { -not $_.ok }).Count) { throw 'One or more desktop cells failed. Raster, assertion, route and process failures are not waived.' }
