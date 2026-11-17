@@ -288,8 +288,12 @@ internal static class UiScrolling
         var audio = new PanelAudio();
         var receivers = Enumerable.Range(1, 12).Select(i => new Receiver($"panel-scroll-{i}", $"Panel scroll receiver {i}", $"127.0.0.{i}")
             { Model = "HomePod mini" }).ToArray();
+        var settings = store.Load();
+        settings.Options(receivers[0].Id).LastVolume = 28;
+        store.Save(settings);
         var discovery = new UiSmoke.MockDiscovery { Items = receivers };
         await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), audio, engine, Application.Current.Dispatcher, isolatedVerification: true);
+        app.UseControlledScheduling();
         var requestedDpi = 96;
         var panel = new ControlPanel(app, () => new MonitorArea(new PixelRect(0, 0, 1600, 1200), requestedDpi / 96d))
             { SizeToContent = SizeToContent.Manual, Height = 600, MenuOpen = true };
@@ -332,36 +336,17 @@ internal static class UiScrolling
                     var gutters = cards.Select(card => barBounds.Left - Bounds(card.Card, scroll).Right).ToArray();
                     var minimumGutter = gutters.DefaultIfEmpty(double.NaN).Min();
                     var controlsFit = cards.All(card =>
-                    {
-                        var controls = UiSmoke.Descendants(card.Card).OfType<FrameworkElement>()
-                            .Where(element => element is Button or Slider).ToArray();
-                        return controls.OfType<Button>().Any(button => ReferenceEquals(button.Command, card.Row.PlaybackCommand))
-                            && controls.OfType<Button>().Any(button => ReferenceEquals(button.Command, card.Row.MuteCommand))
-                            && controls.OfType<Slider>().Any() && controls.OfType<Slider>().All(slider => slider.ActualWidth >= 60 - .5)
-                        && controls.All(control =>
-                        {
-                            var bounds = Bounds(control, scroll);
-                            var cardBounds = Bounds(card.Card, scroll);
-                            return control.IsVisible && control.ActualWidth > 0 && control.ActualHeight > 0
-                                && bounds.Left >= cardBounds.Left - .5 && bounds.Right <= cardBounds.Right + .5
-                                && bounds.Right <= barBounds.Left - 8 + .5;
-                        });
-                    });
+                        VisibleControls(card.Card).OfType<Button>().Any(button => ReferenceEquals(button.Command, card.Row.PlaybackCommand))
+                            && ControlsClearScrollbar(card.Card, scroll, barBounds));
                     Observe(cards.Length == receivers.Length && scroll.ScrollableHeight > 1
                         && vertical.IsVisible && vertical.ActualWidth > 0 && panel.DeviceScrollGutter.IsVisible, $"{label}: all receiver cards render with a visible overflow scrollbar", checks, failures);
                     Observe(minimumGutter >= 8 - .5, $"{label}: every receiver card clears the actual scrollbar by at least 8 DIP (minimum {minimumGutter:F2})", checks, failures);
-                    Observe(controlsFit, $"{label}: playback, mute and volume controls stay inside their cards and clear the scrollbar", checks, failures);
-                    Observe(cards.All(card =>
-                    {
-                        var slider = UiSmoke.Descendants(card.Card).OfType<Slider>().Single();
-                        var innerLeft = card.Card.Padding.Left + card.Card.BorderThickness.Left;
-                        var bounds = Bounds(slider, card.Card);
-                        var row = (Grid)slider.Parent;
-                        var percentage = row.Children.OfType<TextBlock>().Single(text => Grid.GetRow(text) == 0);
-                        return Math.Abs(bounds.Left - innerLeft) <= 1
-                            && Math.Abs(slider.ActualWidth - row.ColumnDefinitions[0].ActualWidth) <= 1
-                            && Bounds(percentage, card.Card).Left >= bounds.Right - .5;
-                    }), $"{label}: receiver volume tracks fill the row from its left padding to the percentage", checks, failures);
+                    Observe(controlsFit, $"{label}: disconnected playback controls stay inside their cards and clear the scrollbar", checks, failures);
+                    Observe(cards.All(card => UiSmoke.Descendants(card.Card).OfType<StackPanel>()
+                        .Single(group => group.Name == "ReceiverVolumeControls").Visibility == Visibility.Collapsed
+                        && !VisibleControls(card.Card).Any(control => control is Slider || control is Button button
+                            && ReferenceEquals(button.Command, card.Row.MuteCommand))),
+                        $"{label}: disconnected cards collapse their mute and volume controls", checks, failures);
                     Observe(scroll.ScrollableWidth == 0, $"{label}: receiver controls need no horizontal scrolling", checks, failures);
                     UiSmoke.Render(panel, Path.Combine(directory, $"receiver-scroll-{(dark ? "dark" : "light")}-{width:F0}-{dpi}-top.png"), dpi / 96d);
 
@@ -409,6 +394,66 @@ internal static class UiScrolling
             Observe(engine.Commands.Count == commandsBefore && audio.Mutes == mutesBefore && audio.Restores == restoresBefore
                 && app.Snapshot.State == PlaybackState.Idle,
                 "receiver scrolling never starts playback or mutates local audio", checks, failures);
+
+            await ReceiversAsync(app, discovery, receivers);
+            var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void ConfirmVolume(SessionSnapshot snapshot)
+            {
+                if (snapshot.State == PlaybackState.Streaming && snapshot.Receiver?.Id == receivers[0].Id
+                    && snapshot.DeviceVolume?.Available == true) ready.TrySetResult();
+            }
+            app.Session.Changed += ConfirmVolume;
+            try
+            {
+                await app.Session.StartAsync(receivers[0], settings);
+                await ready.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                await Pump();
+                var activeCommands = engine.Commands.Count;
+                var activeRestores = audio.Restores;
+                foreach (var dark in new[] { false, true })
+                {
+                    ThemeService.SetForVerification(dark); await Pump();
+                    foreach (var dpi in new[] { 96, 120 })
+                    {
+                        requestedDpi = dpi;
+                        await UseDpiAsync(panel, dpi);
+                        var scroll = panel.DeviceScroll;
+                        scroll.ScrollToTop(); await Pump();
+                        var card = ReceiverCards(scroll, app).Single(entry => entry.Row.Receiver.Id == receivers[0].Id);
+                        var vertical = ScrollBarFor(scroll);
+                        var barBounds = Bounds(vertical, scroll);
+                        var controls = VisibleControls(card.Card).ToArray();
+                        var slider = controls.OfType<Slider>().Single();
+                        var label = $"active receiver scroll {(dark ? "dark" : "light")} {ControlPanel.CompactWidth:F0} DIP {dpi} DPI";
+                        Observe(vertical.IsVisible && scroll.ScrollableHeight > 1 && scroll.ScrollableWidth == 0
+                            && controls.OfType<Button>().Any(button => ReferenceEquals(button.Command, app.StopCommand) && button.IsEnabled)
+                            && controls.OfType<Button>().Any(button => ReferenceEquals(button.Command, card.Row.MuteCommand) && button.IsEnabled)
+                            && slider.IsEnabled && slider.ActualWidth >= 60 - .5 && ControlsClearScrollbar(card.Card, scroll, barBounds),
+                            $"{label}: streaming Stop, mute and volume stay inside the card and clear the scrollbar", checks, failures);
+                        var row = (Grid)slider.Parent;
+                        var percentage = row.Children.OfType<TextBlock>().Single(text => Grid.GetColumn(text) == 2);
+                        var track = Bounds(slider, row);
+                        Observe(Grid.GetColumn(slider) == 1 && Math.Abs(row.ColumnDefinitions[0].Width.Value - 22) <= .1
+                            && Math.Abs(track.Left - row.ColumnDefinitions[0].ActualWidth) <= 1
+                            && Math.Abs(slider.ActualWidth - row.ColumnDefinitions[1].ActualWidth) <= 1
+                            && Bounds(percentage, row).Left >= track.Right - .5,
+                            $"{label}: the active volume track fills the column between the status slot and percentage", checks, failures);
+                        UiSmoke.Render(panel, Path.Combine(directory, $"receiver-scroll-active-{(dark ? "dark" : "light")}-{dpi}.png"), dpi / 96d);
+                        var volume = slider.Value;
+                        Wheel(slider, -120); await Pump();
+                        Observe(scroll.VerticalOffset > 0 && slider.Value == volume,
+                            $"{label}: wheel over the active slider scrolls receivers without changing volume", checks, failures);
+                    }
+                }
+                Observe(engine.Commands.Count == activeCommands && store.Saves == savesBefore && Fingerprint(store.Saved) == savedBefore
+                    && audio.Mutes == mutesBefore && audio.Restores == activeRestores && app.Snapshot.State == PlaybackState.Streaming,
+                    "receiver scrolling during simulated playback sends no commands and saves no settings", checks, failures);
+            }
+            finally
+            {
+                app.Session.Changed -= ConfirmVolume;
+                await app.Session.StopAsync();
+            }
             File.WriteAllText(Path.Combine(directory, "ui-panel-scrolling-report.json"), JsonSerializer.Serialize(new
             {
                 ok = failures.Count == 0, failures, measurements,
@@ -417,6 +462,21 @@ internal static class UiScrolling
             if (failures.Count > 0) throw new InvalidOperationException($"Receiver scrolling regression: {failures.Count} failed checks; first: {failures[0]}. See ui-panel-scrolling-report.json.");
         }
         finally { panel.ShutdownPanel(); }
+    }
+
+    private static IEnumerable<FrameworkElement> VisibleControls(Border card)
+        => UiSmoke.Descendants(card).OfType<FrameworkElement>().Where(element => element.IsVisible && element is Button or Slider);
+
+    private static bool ControlsClearScrollbar(Border card, ScrollViewer scroll, Rect barBounds)
+    {
+        var cardBounds = Bounds(card, scroll);
+        return VisibleControls(card).All(control =>
+        {
+            var bounds = Bounds(control, scroll);
+            return control.ActualWidth > 0 && control.ActualHeight > 0
+                && bounds.Left >= cardBounds.Left - .5 && bounds.Right <= cardBounds.Right + .5
+                && bounds.Right <= barBounds.Left - 8 + .5;
+        });
     }
 
     private static IEnumerable<(Border Card, ReceiverViewModel Row)> ReceiverCards(ScrollViewer scroll, AppViewModel app)
