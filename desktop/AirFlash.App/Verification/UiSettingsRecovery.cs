@@ -49,7 +49,8 @@ internal static class UiSettingsRecovery
         Check(!string.IsNullOrEmpty(store.LoadWarning), name + ": first load reports recovery", checks);
         var discovery = new FixtureDiscovery(); var autostart = new FixtureAutostart(); var audio = new FixtureAudio(); var engine = new UiSmoke.MockFactory();
         await using var app = new AppViewModel(store, discovery, autostart, audio, engine, Application.Current.Dispatcher, isolatedVerification: true);
-        var panel = new ControlPanel(app);
+        // Keep the fixture visible when the interactive desktop transfers focus.
+        var panel = new ControlPanel(app) { MenuOpen = true };
         try
         {
             Check(app.Settings.Validate() is null && app.Settings.ManualReceivers.Count == 0 && app.Settings.Receivers.Count == 0, name + ": second constructor load cannot expose invalid manual entries or rates", checks);
@@ -59,7 +60,8 @@ internal static class UiSettingsRecovery
             await Until(() => app.AllReceivers.Any(r => r.Id == FixtureDiscovery.ReceiverId));
             await Pump();
             Check(!string.IsNullOrEmpty(app.Notice) && app.Notice == store.LoadWarning, name + ": startup retains the recovery notice across both loads", checks);
-            Check(UiSmoke.Descendants(panel).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == app.Notice), name + ": recovery notice reaches the panel text binding", checks);
+            Check(UiSmoke.Descendants(panel.NoticeBanner).OfType<TextBlock>().Any(t => t.IsVisible && t.Text == app.Notice),
+                name + ": recovery notice reaches the panel text binding", checks);
             await app.TryAutoConnectAsync(); await Pump();
             Check(autostart.Values.SequenceEqual(new[] { false }), name + ": rejected startup flags cannot enable autostart", checks);
             Check(discovery.StartCount == 1 && discovery.Publications == 1 && app.Snapshot.State == PlaybackState.Idle, name + ": mock discovery completes without automatic playback", checks);
