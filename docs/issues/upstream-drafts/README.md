@@ -1,6 +1,12 @@
 # Upstream issue drafts and prepared review branches
 
-## Current prepared package — 2026-11-06
+## Current prepared package — 2026-11-17
+
+The unsent [umbrella issue](reliability-current-issue.md) and [eight-section draft PR](reliability-current-pr.md) target codex/reliability-refresh-v062 at 8473d75 against original Main at 60e3390 (v0.7.0). The [integration review](../RELIABILITY-REVIEW-2026-11-05.md#november-17-upstream-v070-sync) records exact-source checks and the desktop fixture repairs.
+
+Upstream has no open PRs at this review. Issues #6, #7, #14 and #24 are closed, and PR #25 is merged. The proposed PR follows up on stored receiver passwords and prompt lifetime. The open iOS 27 audio report (#37), master-volume feature request (#43), and grouping request for an existing HomePod stereo pair (#55) are separate from the acceptance claims. The draft awaits a separately authorized upstream submission.
+
+## Historical prepared package — 2026-11-06
 
 The unsent [umbrella issue](reliability-current-issue.md) and [draft PR](reliability-current-pr.md) target `codex/reliability-refresh-v062` at `d6de3adade3306f72bb74a369e5eeb4352bf96dd` on original Main `a52803dac1696a56b7067356e09bd7e7ebb9dab6` after v0.6.2. The draft keeps eight review sections and covers the WASAPI missed-wake fix, the squash of fork PR #2, and the follow-up shutdown, remote authority, and metadata fixes. Fork planning stays on fork Main. [Fork audit PR](https://github.com/ThatMarko/AirFlash/pull/2)
 
