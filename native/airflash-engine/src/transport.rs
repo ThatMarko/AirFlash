@@ -281,6 +281,20 @@ impl Health {
     pub fn ownership_uncertain(&self) -> bool {
         self.0.lock().unwrap().ownership_uncertain
     }
+    /// The ownership probe settled on `ours_active`: the receiver is still
+    /// serving this session, so a timing or feedback symptom was not a
+    /// takeover. Clear the cleanup guard so an ordinary stop tears the session
+    /// down instead of leaking it.
+    pub(crate) fn clear_ownership_uncertain_if_current(&self) -> bool {
+        let mut state = self.0.lock().unwrap();
+        if state.preemption_signals.iter().any(|signal| {
+            signal.ends_session() || matches!(signal, Signal::FeedbackLost | Signal::ClockLost)
+        }) {
+            return false;
+        }
+        state.ownership_uncertain = false;
+        true
+    }
     /// Take the symptoms collected since the previous poll.
     pub fn take_preemption_signals(&self) -> Vec<Signal> {
         std::mem::take(&mut self.0.lock().unwrap().preemption_signals)
@@ -659,6 +673,8 @@ impl Drop for FeedbackWorker {
 pub struct MediaMetrics {
     pub packets_sent: u64,
     pub media_send_errors: u64,
+    /// Failed sends that the immediate retry recovered.
+    pub media_send_retries: u64,
     pub sync_send_errors: u64,
     pub control_receive_errors: u64,
     pub retransmit_requests: u64,
@@ -671,6 +687,29 @@ pub struct MediaMetrics {
     pub invalid_requests: u64,
     /// Whether the socket accepted the DSCP EF mark (diagnostic only).
     pub qos_marked: bool,
+}
+/// A failed datagram send is usually a transient local socket condition
+/// (`WSAENOBUFS` 10055 or `WouldBlock`) rather than proof that the receiver is
+/// gone. One immediate retry recovers most of those without moving the
+/// timeline; a second failure follows the existing warning and failure-timeout
+/// path, and the original error is what gets reported.
+fn send_with_retry<F>(mut send: F, retries: &mut u64) -> std::io::Result<usize>
+where
+    F: FnMut() -> std::io::Result<usize>,
+{
+    match send() {
+        Ok(written) => Ok(written),
+        Err(first) => {
+            std::thread::yield_now();
+            match send() {
+                Ok(written) => {
+                    *retries += 1;
+                    Ok(written)
+                }
+                Err(_) => Err(first),
+            }
+        }
+    }
 }
 pub struct MediaTransport {
     buffered: Option<crate::buffered::Sender>,
@@ -810,7 +849,10 @@ impl MediaTransport {
             self.metrics.packets_sent += 1;
             Ok(())
         } else {
-            self.observe_send(self.audio.send(&packet).map(|_| ()), now, health)
+            let audio = &self.audio;
+            let retries = &mut self.metrics.media_send_retries;
+            let result = send_with_retry(|| audio.send(&packet), retries);
+            self.observe_send(result.map(|_| ()), now, health)
         }
     }
     // One failed datagram is media loss, not evidence of a dead RTSP session.
@@ -1153,6 +1195,37 @@ impl MediaSchedule {
 #[cfg(test)]
 mod schedule_tests {
     use super::*;
+    #[test]
+    fn a_transient_send_failure_is_retried_once() {
+        let mut attempts = 0;
+        let mut retries = 0;
+        let result = send_with_retry(
+            || {
+                attempts += 1;
+                if attempts == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::WouldBlock))
+                } else {
+                    Ok(12)
+                }
+            },
+            &mut retries,
+        );
+        assert_eq!(result.unwrap(), 12);
+        assert_eq!((attempts, retries), (2, 1));
+        // A persistent failure is reported from the first attempt, once, and
+        // never spins: the existing failure-timeout path still owns it.
+        let mut attempts = 0;
+        let mut retries = 0;
+        let result = send_with_retry(
+            || {
+                attempts += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::WouldBlock))
+            },
+            &mut retries,
+        );
+        assert!(result.is_err());
+        assert_eq!((attempts, retries), (2, 0));
+    }
     #[test]
     fn an_immediately_closed_rebuilt_event_channel_keeps_its_new_fault() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();

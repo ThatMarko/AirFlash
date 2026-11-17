@@ -30,7 +30,7 @@ public partial class SettingsWindow : Window
         ViewModel.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(SettingsViewModel.SelectedPage)) ShowPage(); };
         IsVisibleChanged += (_, _) => UpdatePageVisibility();
         Closing += (_, args) => { if (ViewModel.IsApplying) args.Cancel = true; };
-        Closed += (_, _) => { app.SetReceiversPageVisible(false); app.SetMonitorVisible(false); ViewModel.Dispose(); };
+        Closed += (_, _) => { foreach (var panel in _pages.Values.OfType<SoundGlowPanel>()) panel.Dispose(); app.SetReceiversPageVisible(false); app.SetMonitorVisible(false); ViewModel.Dispose(); };
         ShowPage();
     }
     private void ShowPage()

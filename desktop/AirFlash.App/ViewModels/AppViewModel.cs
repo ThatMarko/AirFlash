@@ -15,6 +15,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private readonly Dispatcher _dispatcher;
     private readonly EngineInitialization? _engine;
     private readonly IRestartService _restart;
+    private static readonly System.Net.Http.HttpClient UpdateClient = new() { MaxResponseContentBufferSize = 1024 * 1024 };
     private bool _resetting, _resetCompleted;
     public IReceiverCapabilityCatalog ReceiverCapabilities { get; }
     public event Action? ResetCompleted;
@@ -43,6 +44,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private readonly Dictionary<string, string> _monitorValues = [];
     public EndpointCatalog Endpoints { get; }
     public IApplicationCatalog Applications { get; }
+    public UpdateCheckState Updates { get; }
     public bool IsClosing => _closing;
     public SessionController Session { get; }
     public NowPlayingPump NowPlaying { get; }
@@ -193,11 +195,12 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         public Task<NowPlaying?> ReadAsync(CancellationToken cancellation) => Task.FromResult<NowPlaying?>(null);
     }
 
-    public AppViewModel(ISettingsStore store, IDiscoveryService discovery, IAutostart autostart, IAudioService audio, IEngineFactory factory, Dispatcher dispatcher, EngineInitialization? engine = null, IApplicationCatalog? applications = null, IReceiverCapabilityCatalog? receiverCapabilities = null, IRestartService? restart = null, bool isolatedVerification = false)
+    public AppViewModel(ISettingsStore store, IDiscoveryService discovery, IAutostart autostart, IAudioService audio, IEngineFactory factory, Dispatcher dispatcher, EngineInitialization? engine = null, IApplicationCatalog? applications = null, IReceiverCapabilityCatalog? receiverCapabilities = null, IRestartService? restart = null, bool isolatedVerification = false, UpdateCheckState? updates = null)
     {
         DismissNoticeCommand = new(DismissNotice, () => HasNotice);
         _engine = engine;
         _restart = restart ?? new RestartService();
+        Updates = updates ?? new UpdateCheckState(new UpdateService(UpdateClient), Version.TryParse(AppPaths.Version, out var version) ? version : new Version(0, 0, 0));
         ReceiverCapabilities = receiverCapabilities ?? new ReceiverCapabilityCatalog(factory);
         RetryEngineCommand = new(() => _engine?.InitializeAsync() ?? Task.CompletedTask, ShowError, () => EngineFailed && !_closing);
         if (_engine is not null) _engine.Changed += EngineChanged;
@@ -333,6 +336,12 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
 
     private void NotifyMuteChanged() { Notify(nameof(Muted)); Notify(nameof(MuteLabel)); }
     public Task Startup => _startup;
+    internal async Task CheckUpdatesAtStartupAsync()
+    {
+        if (_closing || !_settings.CheckUpdatesOnStartup) return;
+        try { await Updates.CheckAsync(); }
+        catch (Exception error) { AppPaths.Log("Startup update check failed: " + error); }
+    }
     private async Task StartAsync()
     {
         // Recovery does not display UI and runs before settings/lifecycle locks.
@@ -637,6 +646,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         var title = StatusTitle; var detail = StatusDetail; var errors = ErrorDetails; var hint = ActionHint;
         var previous = _snapshot;
         _snapshot = snapshot;
+        RememberSessionVolume(snapshot);
         if (Session.RequiresManualReconnect) _autoSuppressed = true;
         RefreshGlobalLatency();
         Notify(nameof(Snapshot)); Notify(nameof(LatencyDetail)); Notify(nameof(PanelStatusDetail));
@@ -829,7 +839,39 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         }
         else await Session.SetDeviceVolumeAsync(id, 0);
     }
-    public Task SetReceiverVolumeAsync(string id, int value) => Session.SetDeviceVolumeAsync(id, value);
+    public Task SetReceiverVolumeAsync(string id, int value)
+    {
+        RememberDeviceVolume(id, value);
+        return Session.SetDeviceVolumeAsync(id, value);
+    }
+    /// <summary>
+    /// Remember the last confirmed device volume so the next session can restore
+    /// it before streaming starts. Zero is the mute state, not a volume, and
+    /// never overwrites the last audible level.
+    /// </summary>
+    private void RememberSessionVolume(SessionSnapshot snapshot)
+    {
+        if (snapshot.State is not (PlaybackState.Streaming or PlaybackState.Standby)) return;
+        if (snapshot.Receiver is { IsSoftwareGroup: true })
+        {
+            if (snapshot.MemberVolumes is not { } members) return;
+            foreach (var (id, state) in members)
+                if (state.Status == "confirmed") RememberDeviceVolume(id, state.Actual);
+            return;
+        }
+        if (snapshot.Receiver is { } receiver && snapshot.DeviceVolume is { Status: "confirmed" } volume)
+            RememberDeviceVolume(receiver.Id, volume.Actual);
+    }
+    private void RememberDeviceVolume(string id, int? value)
+    {
+        if (_closing || _resetting || value is not > 0) return;
+        if (_snapshot.State is not (PlaybackState.Streaming or PlaybackState.Standby)) return;
+        if (_snapshot.Receiver is not { } receiver) return;
+        var active = receiver.IsSoftwareGroup ? _snapshot.MemberVolumes?.ContainsKey(id) == true : receiver.Id == id;
+        if (!active || _settings.ReadOptions(id).LastVolume == value) return;
+        _settings.Options(id).LastVolume = value;
+        VolumeChanged();
+    }
     private void VolumeChanged() { Interlocked.Increment(ref _automaticEligibilityRevision); _editRevision++; _volumeDirty = true; _volumeTimer.Stop(); if (!_closing && !_controlledScheduling) _volumeTimer.Start(); }
     private SessionSettingsContext CaptureSessionSettingsContext(IEnumerable<string>? clearedOptions = null, IEnumerable<string>? changedMemberships = null)
         => new(AllReceivers, ReceiverMigrations, clearedOptions, changedMemberships);
@@ -1022,7 +1064,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     }
     private async Task DisposeCoreAsync()
     {
-        BeginShutdown(); _discovery.Dispose();
+        BeginShutdown(); Updates.Dispose(); _discovery.Dispose();
         if (_recovery is not null) _recovery.RecoveryChanged -= RecoveryChanged;
         _nowPlayingStop.Cancel();
         await _nowPlayingWork;
@@ -1071,8 +1113,14 @@ public sealed class ReceiverViewModel : ObservableObject
     public string VolumeStatus => DeviceVolume.Status switch {
         "pending" => L.Get("Synchronizing…"), "unconfirmed" => L.Get("Volume not confirmed"),
         "unsynced" => L.Get("Volume not synchronized"), _ => "" };
+    // The volume row renders fixed-size icons instead of status text so translations cannot wrap or add a row.
+    public bool VolumeSyncing => DeviceVolume.Status == "pending";
+    public bool VolumeWarning => DeviceVolume.Status is "unconfirmed" or "unsynced";
+    public bool VolumeAlert => VolumeSyncing || VolumeWarning;
     public bool CanSetVolume => DeviceVolume.Available;
     public bool HasSingleVolume => !Receiver.IsSoftwareGroup;
+    public bool ShowVolumeControls => !IsStopping && _app.Snapshot.Receiver?.Id == Receiver.Id
+        && _app.Snapshot.State is PlaybackState.Streaming or PlaybackState.Standby;
     public bool CanMute => CanSetVolume && (!Muted || DeviceVolume.LastNonZero is > 0);
     public bool Muted => DeviceVolume.Display == 0;
     public string MuteLabel => Muted ? L.Get("Unmute") : L.Get("Mute");
@@ -1092,7 +1140,8 @@ public sealed class ReceiverViewModel : ObservableObject
         foreach (var row in MemberVolumes.Where(r => members.All(m => m.Id != r.Receiver.Id)).ToArray()) MemberVolumes.Remove(row);
         foreach (var member in members)
         { var row = MemberVolumes.FirstOrDefault(r => r.Receiver.Id == member.Id); if (row is null) MemberVolumes.Add(row = new(_app, member)); else row.Receiver = member; row.Refresh(); }
-        var values = new Dictionary<string, object?> { [nameof(IsStopping)] = IsStopping, [nameof(NeedsDisconnect)] = NeedsDisconnect, [nameof(PlaybackCommand)] = PlaybackCommand, [nameof(HasSingleVolume)] = HasSingleVolume, [nameof(Name)] = Name, [nameof(Detail)] = Detail, [nameof(Volume)] = Volume, [nameof(VolumeText)] = VolumeText, [nameof(VolumeStatus)] = VolumeStatus, [nameof(CanSetVolume)] = CanSetVolume, [nameof(CanMute)] = CanMute, [nameof(Muted)] = Muted, [nameof(MuteLabel)] = MuteLabel, [nameof(Active)] = Active, [nameof(CanPlay)] = CanPlay, [nameof(PlayHint)] = PlayHint, [nameof(StateText)] = StateText };
+        var values = new Dictionary<string, object?> { [nameof(IsStopping)] = IsStopping, [nameof(NeedsDisconnect)] = NeedsDisconnect, [nameof(PlaybackCommand)] = PlaybackCommand, [nameof(HasSingleVolume)] = HasSingleVolume, [nameof(ShowVolumeControls)] = ShowVolumeControls, [nameof(Name)] = Name, [nameof(Detail)] = Detail, [nameof(Volume)] = Volume, [nameof(VolumeText)] = VolumeText, [nameof(VolumeStatus)] = VolumeStatus, [nameof(VolumeSyncing)] = VolumeSyncing,
+            [nameof(VolumeWarning)] = VolumeWarning, [nameof(VolumeAlert)] = VolumeAlert, [nameof(CanSetVolume)] = CanSetVolume, [nameof(CanMute)] = CanMute, [nameof(Muted)] = Muted, [nameof(MuteLabel)] = MuteLabel, [nameof(Active)] = Active, [nameof(CanPlay)] = CanPlay, [nameof(PlayHint)] = PlayHint, [nameof(StateText)] = StateText };
         foreach (var (name, value) in values)
             if (!_display.TryGetValue(name, out var old) || !Equals(old, value))
             {

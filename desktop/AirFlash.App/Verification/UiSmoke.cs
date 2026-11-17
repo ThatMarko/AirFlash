@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Net;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Collections.Concurrent;
 using System.Text.Json;
@@ -123,13 +125,15 @@ internal static class UiSmoke
         object? iconEnvironment = null;
         var pageEndLayouts = new List<object>();
         var store = new MemoryStore(); var engine = new MockFactory();
+        using var updateClient = new HttpClient(new UpdateHandler());
+        var updates = new UpdateCheckState(new UpdateService(updateClient), Version.TryParse(AppPaths.Version, out var currentVersion) ? currentVersion : new Version(0, 0, 0));
         var discovery = new MockDiscovery(); var audio = new MockAudio();
         discovery.Items = discovery.Items.Select(row => row with
         {
             DeviceId = row.Id,
             Members = row.Members.Select(member => member with { DeviceId = member.Id }).ToArray()
         }).ToArray();
-        await using var app = new AppViewModel(store, discovery, new MockAutostart(), audio, engine, Application.Current.Dispatcher, isolatedVerification: true) { EngineVersion = "0.1.0（模拟）" };
+        await using var app = new AppViewModel(store, discovery, new MockAutostart(), audio, engine, Application.Current.Dispatcher, updates: updates, isolatedVerification: true) { EngineVersion = "0.1.0（模拟）" };
         var panel = new ControlPanel(app); SettingsWindow? settings = null;
         // Verification must never bind the production GUID to a test executable path.
         var trayGuid = Program.StartupValue(args, "--tray-guid") is { } guid ? Guid.Parse(guid) : Guid.NewGuid();
@@ -174,6 +178,18 @@ internal static class UiSmoke
             Check(customLatency.Label == L.Format("Custom · {0} ms", app.Settings.CustomBufferMs), "global latency menu shows the configured custom delay", checks);
             Check(((IEnumerable<StreamChoice>)mode.ItemsSource).All(c => !Equals(c.Value, "adaptive")), "global latency menu omits the retired adaptive mode", checks);
             CheckPanelIcons(panel, app, checks);
+            Check(Descendants(panel).OfType<Button>().All(b => b.Content is not string text || text != L.Get("Sound Glow experiment")), "control panel no longer duplicates the Sound Glow experiment", checks);
+            var updateButton = Descendants(panel).OfType<Button>().Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == L.Get("Update"));
+            Check(updateButton.Visibility != Visibility.Visible, "update entry remains hidden until a newer release is found", checks);
+            await app.CheckUpdatesAtStartupAsync(); await Pump(); panel.UpdateLayout();
+            Check(updateButton.Visibility == Visibility.Visible && updateButton.IsVisible, "startup update check surfaces the localized update entry", checks);
+            Check(Descendants(updateButton).OfType<TextBlock>().Any(text => text.Text == L.Get("Update")), "update entry shows its localized label", checks);
+            var updateRequested = false;
+            void OnUpdateRequested() => updateRequested = true;
+            panel.UpdateRequested += OnUpdateRequested;
+            Invoke(updateButton); await Pump();
+            panel.UpdateRequested -= OnUpdateRequested;
+            Check(updateRequested, "update entry requests the About page", checks);
             Render(panel, Path.Combine(directory, "panel-icons-idle.png"), 1);
             var settingsButton = Descendants(panel).OfType<Button>().Single(b => System.Windows.Automation.AutomationProperties.GetName(b) == L.Get("Settings"));
             Check(settingsButton.Focus() && settingsButton.IsKeyboardFocused, "vector settings button remains keyboard focusable", checks);
@@ -218,8 +234,8 @@ internal static class UiSmoke
             Check(!engine.Commands.Any(c => c.Text("command") == "set_device_volume"), "initial volume comes from receiver without a write", checks);
             var volumeRow = app.Receivers[0];
             volumeRow.Volume = 44;
-            await Until(() => volumeRow.VolumeStatus == L.Get("Synchronizing…"));
-            await Until(() => volumeRow.Volume == 44 && volumeRow.VolumeStatus.Length == 0);
+            await Until(() => volumeRow.VolumeSyncing);
+            await Until(() => volumeRow.Volume == 44 && !volumeRow.VolumeSyncing && volumeRow.VolumeStatus.Length == 0);
             Check(volumeRow.CanSetVolume && app.MasterVolume == 100, "delayed receiver confirmation preserves independent master volume", checks);
             await app.ToggleReceiverMuteAsync(volumeRow.Receiver.Id);
             await Until(() => volumeRow.Muted);
@@ -294,6 +310,12 @@ internal static class UiSmoke
             Check(app.Receivers.Any(r => r.Receiver.Id == firstId), "unhide receiver", checks);
             settings.Close(); settings = new(app); settings.Show(); await Pump();
             Check(settings.ViewModel.Receivers.Count >= 3, "nullable overrides reopen", checks);
+            settings.ViewModel.SelectedPage = SettingsViewModel.AboutPage; await Pump();
+            Check(settings.ViewModel.Pages[SettingsViewModel.AboutPage] == L.Get("About")
+                && Descendants(settings).OfType<Button>().Any(b => (string?)b.Content == L.Get("Check for updates")),
+                "About page exposes manual update actions", checks);
+            Check(Descendants(settings).OfType<Button>().Any(b => (string?)b.Content == L.Get("Open download page") && b.IsVisible),
+                "About page shares the startup update result", checks);
             foreach (var dark in new[] { false, true })
             {
                 ThemeService.SetForVerification(dark); await Pump();
@@ -328,7 +350,7 @@ internal static class UiSmoke
                 settings.Show();
             }
             Check(app.MonitorMembers.Count == 1 && app.MonitorRecoveries == "2", "transport metrics reach monitoring view", checks);
-            checks.Add("eight pages rendered in light/dark; panel at 100/125/150/175/200 percent");
+            checks.Add("nine pages rendered in light/dark; panel at 100/125/150/175/200 percent");
             await app.StopAsync(); await Until(() => app.Snapshot.State == PlaybackState.Idle);
             settings.Hide(); panel.ShowPanel(); await Pump();
             CheckPanelIcons(panel, app, checks);
@@ -724,6 +746,14 @@ internal static class UiSmoke
         var image = new RenderTargetBitmap((int)Math.Ceiling(visual.ActualWidth * scale), (int)Math.Ceiling(visual.ActualHeight * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32); image.Render(visual);
         var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(image)); using var output = File.Create(file); encoder.Save(output);
     }
+    private sealed class UpdateHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"tag_name":"v999.0.0","draft":false,"prerelease":false}""")
+            });
+    }
     internal sealed class MemoryStore : ISettingsStore
     {
         public bool Fail;
@@ -837,6 +867,8 @@ internal static class UiSmoke
         public bool AutoReady = true;
         public Action<object>? EmitEvent;
         public ConcurrentQueue<JsonElement> Commands { get; } = new();
+        /// <summary>Simulated per-host hardware volume, shared across connections.</summary>
+        public ConcurrentDictionary<string, int> DeviceVolumes { get; } = new();
         public bool SupportsSoundGlow { get; init; } = true;
         public int CreatedCount, DisposedCount;
         public IEngineConnection Open()
@@ -857,22 +889,28 @@ internal static class UiSmoke
         public Task SendCorrelatedAsync(string requestId, string session, string command, object? parameters, CancellationToken cancellation)
         {
             factory.Commands.Enqueue(JsonSerializer.SerializeToElement(new { id = requestId, command, @params = parameters }));
-            if (command == "hello") Emit(session, new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "multi_room", "continuity", "buffered_audio", "member_volume", "receiver_password", "standby_release", "receiver_ownership_guard", "application_capture", "forced_latency", "now_playing", "diagnostics" }.Concat(factory.SupportsSoundGlow ? ["sound_glow_test"] : []).ToArray() });
+            if (command == "hello") Emit(session, new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "multi_room", "continuity", "buffered_audio", "member_volume", "initial_volume", "receiver_password", "standby_release", "receiver_ownership_guard", "application_capture", "forced_latency", "now_playing", "diagnostics" }.Concat(factory.SupportsSoundGlow ? ["sound_glow_test"] : []).ToArray() });
             if (command == "pair") factory.EmitEvent = payload => Emit(session, payload);
             if (command == "start")
             {
-                _host = JsonSerializer.SerializeToElement(parameters).GetProperty("peers")[0].Text("host");
                 var data = JsonSerializer.SerializeToElement(parameters);
+                _host = data.GetProperty("peers")[0].Text("host");
                 foreach (var peer in data.GetProperty("peers").EnumerateArray())
-                    Emit(session, new { @event = "negotiated", receiver_id = peer.Text("receiver_id"), host = peer.Text("host"), port = peer.Integer("port"), codec = "alac", transport = "realtime", timing = "ptp", clock_role = peer.GetProperty("profile").Boolean("follow_receiver_clock") == true ? "follow" : "sender", sample_rate = data.Integer("sample_rate") });
+                {
+                    var host = peer.Text("host");
+                    var fallback = host == _host ? 28 : 45;
+                    var volume = peer.TryGetProperty("volume", out var requested) && requested.ValueKind == JsonValueKind.Number
+                        ? (int)requested.GetDouble()
+                        : factory.DeviceVolumes.GetValueOrDefault(host, fallback);
+                    _volumes[host] = volume;
+                    factory.DeviceVolumes[host] = volume;
+                    Emit(session, new { @event = "negotiated", receiver_id = peer.Text("receiver_id"), host, port = peer.Integer("port"), codec = "alac", transport = "realtime", timing = "ptp", clock_role = peer.GetProperty("profile").Boolean("follow_receiver_clock") == true ? "follow" : "sender", sample_rate = data.Integer("sample_rate") });
+                }
                 factory.EmitEvent = payload => Emit(session, payload);
                 if (factory.AutoReady) Emit(session, new { @event = "streaming", session_epoch = 1 });
                 var hosts = data.Text("group_mode") is "software_stereo" or "multi_room" ? data.GetProperty("peers").EnumerateArray().Select(p => p.Text("host")).ToArray() : [_host];
                 foreach (var host in hosts)
-                {
-                    _volumes[host] = host == _host ? 28 : 45;
                     Emit(session, new { @event = "device_volume", host, volume = _volumes[host], sequence = 0, status = "confirmed", available = true });
-                }
                 _metrics = new(); var token = _metrics.Token;
                 _ = Task.Run(async () => { try { while (!token.IsCancellationRequested) { Emit(session, new { @event = "capture_metrics", metrics = new { capture_to_send_p95_ms = 10.8, max_queue_age_ms = 11.8, underrun_packets = 0, dropped_frames = 0, input_rate = 48000 } }); Emit(session, new { @event = "transport_metrics", session_uptime_ms = 123456, sender_late_recoveries = 2, skipped_packets = 10, members = new[] { new { host = "192.0.2.1", media = new { packets_sent = 12000, media_send_errors = 1, sync_send_errors = 0, retransmit_requests = 6, retransmits_sent = 5, retransmit_missing = 0, retransmit_expired = 1, retransmit_queue_drops = 0, retransmit_send_errors = 0, receiver_latency_ms = 150, receiver_latency_estimated = true }, health = new { feedback_rtt_ms = 4.2, feedback_failures = 0, feedback_delayed = false } } } }); await Task.Delay(350, token); } } catch (OperationCanceledException) { } }, CancellationToken.None);
             }
@@ -885,7 +923,7 @@ internal static class UiSmoke
                 var host = data.Text("host"); if (host.Length == 0) host = _host;
                 Emit(session, new { @event = "device_volume", host, volume = _volumes[host], sequence, status = "pending", available = true });
                 _ = Task.Run(async () => {
-                    await Task.Delay(350); _volumes[host] = value;
+                    await Task.Delay(350); _volumes[host] = value; factory.DeviceVolumes[host] = value;
                     Emit(session, new { @event = "device_volume", host, volume = _volumes[host], sequence, status = "confirmed", available = true });
                 });
             }

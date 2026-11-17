@@ -5,6 +5,7 @@ using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using AirFlash.App.Services;
 using AirFlash.App.Ui;
@@ -37,6 +38,12 @@ internal static class UiRegression
             await Pump();
             Check(catalogChanges == 0 && audio.Enumerations == 0, "unchanged discovery does not refresh catalogs", checks);
 
+            vm.SelectedPage = vm.Pages.Length - 1; await Pump();
+            var coffeeButton = UiSmoke.Descendants(window).OfType<Button>().Single(b => b.Name == "CoffeeButton");
+            Check(coffeeButton.Visibility == Visibility.Visible && Equals(coffeeButton.Content, L.Get("Buy the author a cup of milk tea~")),
+                "About page exposes the donation button regardless of language", checks);
+            vm.SelectedPage = 0; await Pump();
+
             var retries = UiSmoke.Descendants(window).OfType<TextBox>().Single(t => System.Windows.Automation.AutomationProperties.GetName(t) == L.Get("Maximum retry attempts"));
             retries.Text = "invalid"; await Pump(); vm.SelectedPage = SettingsViewModel.AudioCapturePage;
             await Until(() => !vm.IsEndpointLoading); await Pump(); vm.SelectedPage = 0;
@@ -59,8 +66,8 @@ internal static class UiRegression
             Check(!await vm.ApplyAsync() && store.Saves == saves, "method guard rejects duplicate apply", checks);
             window.Close(); vm.CancelCommand.Execute(null);
             Check(window.IsVisible, "closing and cancel cannot interrupt a settings transaction", checks);
-            vm.SelectedPage = 1; await Pump();
-            Check(vm.SelectedPage == 1 && window.Navigation.IsEnabled, "navigation stays enabled during apply", checks);
+            vm.SelectedPage = SettingsViewModel.StreamingPage; await Pump();
+            Check(vm.SelectedPage == SettingsViewModel.StreamingPage && window.Navigation.IsEnabled, "navigation stays enabled during apply", checks);
             app.MasterVolume = 37;
             var flush = app.FlushVolumeAsync();
             store.SaveGate.TrySetResult();
@@ -213,6 +220,37 @@ internal static class UiRegression
         await RunStereoIdentityRegressionAsync(checks, directory);
         await RunSoftwareStereoRegressionAsync(checks, directory);
         await ReceiverSettingsRegression.RunAsync(checks, directory);
+        await RunPaymentQrRegressionAsync(checks, directory);
+    }
+    private static async Task RunPaymentQrRegressionAsync(List<string> checks, string directory)
+    {
+        var originallyChinese = L.IsChinese;
+        try
+        {
+            foreach (var (language, asset, descriptionKey) in new[]
+            {
+                ("zh-CN", "PayQrcode.png", "WeChat and Alipay payment QR codes"),
+                ("en-US", "PayPalQrcode.jpg", "PayPal payment QR code")
+            })
+            {
+                L.Initialize([language]);
+                var coffee = new CoffeeWindow(); coffee.Show(); await Pump();
+                var image = UiSmoke.Descendants(coffee).OfType<Image>().Single();
+                var bitmap = (BitmapImage)image.Source;
+                await Until(() => bitmap.PixelWidth > 0);
+                Check(bitmap.UriSource?.OriginalString.EndsWith(asset, StringComparison.Ordinal) == true,
+                    $"{language} donation QR uses the embedded {asset}", checks);
+                Check(System.Windows.Automation.AutomationProperties.GetName(image) == L.Get(descriptionKey),
+                    $"{language} donation QR exposes a localized accessible name", checks);
+                var panel = (Grid)coffee.Content;
+                var close = panel.Children.OfType<Button>().Single();
+                Check(close.TranslatePoint(new Point(0, 0), panel).Y + close.ActualHeight <= panel.ActualHeight + 0.5,
+                    $"{language} donation dialog keeps its close button fully visible", checks);
+                UiSmoke.Render(coffee, Path.Combine(directory, $"coffee-{language}.png"), 1);
+                coffee.Close(); await Pump();
+            }
+        }
+        finally { L.Initialize([originallyChinese ? "zh-CN" : "en-US"]); }
     }
     private static async Task RunSoftwareStereoRegressionAsync(List<string> checks, string directory)
     {
@@ -236,9 +274,16 @@ internal static class UiRegression
             var combos = UiSmoke.Descendants(window).OfType<ComboBox>().Where(box => box.ItemsSource == vm.GroupCandidates).ToArray();
             Check(combos.Length == 2 && combos.Select(box => box.SelectedValue).ToHashSet().SetEquals(new[] { "a", "b" }), "software member selectors bind stable IDs", checks);
             Check(await vm.ApplyAsync() && store.Saved.SoftwareGroups.Single().Id == id, "software group creation saves stable ID and common rate", checks);
+            panel.ShowPanel(); await Pump();
+            var card = app.Receivers.Single(r => r.Receiver.Id == id);
+            var volumeControls = VolumeControls(panel, card);
+            var cardBorder = (Border)((FrameworkElement)volumeControls.Parent).Parent;
+            var disconnectedHeight = cardBorder.ActualHeight;
+            Check(volumeControls.Visibility == Visibility.Collapsed && volumeControls.DesiredSize.Height == 0
+                && !UiSmoke.Descendants(volumeControls).OfType<FrameworkElement>().Any(element => element.IsVisible),
+                "disconnected software group collapses all member volume controls and spacing", checks);
             await app.ToggleAsync(app.AllReceivers.Single(r => r.Id == id));
             await Until(() => app.Snapshot.State == PlaybackState.Streaming && app.Receivers.Single(r => r.Receiver.Id == id).MemberVolumes.All(m => m.CanSetVolume));
-            var card = app.Receivers.Single(r => r.Receiver.Id == id);
             Check(!card.HasSingleVolume && card.MemberVolumes.Count == 2 && card.MemberVolumes.Select(m => m.Volume).ToArray().SequenceEqual(new[] { 28, 45 }), "software panel exposes two independent hardware volume readouts", checks);
             Check(!engine.Commands.Any(command => command.Text("command") == "set_device_volume"), "creating a software group does not write hardware volume", checks);
             await Pump();
@@ -250,8 +295,20 @@ internal static class UiRegression
             UiSmoke.Render(window, Path.Combine(directory, "settings-software-stereo.png"), 1);
             panel.ShowPanel(); await Pump();
             panel.DeviceScroll.ScrollToBottom(); await Pump();
-            Check(UiSmoke.Descendants(panel).OfType<Slider>().Count(slider => slider.DataContext is ReceiverViewModel member && card.MemberVolumes.Contains(member) && slider.IsEnabled) == 2, "software panel renders both enabled member sliders", checks);
+            Check(volumeControls.IsVisible && cardBorder.ActualHeight > disconnectedHeight
+                && UiSmoke.Descendants(panel).OfType<Slider>().Count(slider => slider.DataContext is ReceiverViewModel member && card.MemberVolumes.Contains(member) && slider.IsVisible && slider.IsEnabled) == 2,
+                "software panel renders both enabled member sliders and expands the connected card", checks);
+            Check(app.Receivers.Where(row => row != card).All(row => !row.ShowVolumeControls
+                && VolumeControls(panel, row).Visibility == Visibility.Collapsed),
+                "only the active software group shows volume controls among multiple discovered devices", checks);
             UiSmoke.Render(panel, Path.Combine(directory, "panel-software-stereo.png"), 1);
+            await app.StopAsync(); await Pump();
+            Check(volumeControls.Visibility == Visibility.Collapsed && volumeControls.DesiredSize.Height == 0
+                && Math.Abs(cardBorder.ActualHeight - disconnectedHeight) <= 1,
+                "stopping a software group removes member controls and restores the compact card height", checks);
+            UiSmoke.Render(panel, Path.Combine(directory, "panel-software-stereo-stopped.png"), 1);
+            await app.ToggleAsync(app.AllReceivers.Single(r => r.Id == id));
+            await Until(() => app.Snapshot.State == PlaybackState.Streaming && card.MemberVolumes.All(member => member.CanSetVolume));
             var starts = engine.CreatedCount;
             editor.SwapCommand.Execute(null);
             Check(await vm.ApplyAsync(), "software left-right swap applies", checks);
@@ -463,6 +520,17 @@ internal static class UiRegression
             var panel = new ControlPanel(app);
             try
             {
+                panel.ShowPanel(); await Pump();
+                var row = app.Receivers.Single();
+                var volumeControls = VolumeControls(panel, row);
+                var card = (Border)((FrameworkElement)volumeControls.Parent).Parent;
+                var disconnectedHeight = card.ActualHeight;
+                var master = UiSmoke.Descendants(panel).OfType<Slider>().Single(slider => AutomationProperties.GetName(slider) == L.Get("Master volume"));
+                Check(volumeControls.Visibility == Visibility.Collapsed && volumeControls.DesiredSize.Height == 0
+                    && !UiSmoke.Descendants(volumeControls).OfType<FrameworkElement>().Any(element => element.IsVisible)
+                    && master.IsVisible && master.IsEnabled,
+                    $"{label}: disconnected card hides the entire volume region without spacing or affecting master volume", checks);
+                UiSmoke.Render(panel, Path.Combine(directory, $"compact-panel-{label}-disconnected.png"), 1.25);
                 await app.Session.StartAsync(receiver, app.Settings);
                 await Until(() => app.Snapshot.State == PlaybackState.Streaming);
                 foreach (var member in receiver.Peers)
@@ -472,6 +540,8 @@ internal static class UiRegression
                 var count = receiver.Peers.Count();
                 await Until(() => app.LatencyDetail.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length == count);
                 panel.ShowPanel(); await Pump();
+                Check(row.ShowVolumeControls && volumeControls.IsVisible && card.ActualHeight > disconnectedHeight,
+                    $"{label}: connecting expands the card and restores its volume controls", checks);
                 var status = (TextBlock)panel.FindName("StatusDetailText");
                 var latency = (TextBlock)panel.FindName("LatencyDetailText");
                 Check(status.Visibility == Visibility.Collapsed && latency.IsVisible
@@ -493,7 +563,21 @@ internal static class UiRegression
                     return origin.X >= 0 && origin.X + element.ActualWidth <= panel.ActualWidth + 1;
                 }) && controls.OfType<Slider>().All(slider => slider.ActualWidth >= 60),
                     $"{label}: volume sliders, buttons and latency selector fit the compact panel", checks);
-                await CheckCompactVolumeLayoutAsync(panel, app, engine, receiver, label, checks, directory);
+                await CheckCompactVolumeLayoutAsync(panel, app, card, engine, receiver, label, checks, directory);
+                var writes = engine.Commands.Count(command => command.Text("command") == "set_device_volume");
+                engine.EmitEvent!(new { @event = "standby" });
+                await Until(() => app.Snapshot.State == PlaybackState.Standby); await Pump();
+                Check(volumeControls.IsVisible && row.CanSetVolume
+                    && UiSmoke.Descendants(volumeControls).OfType<Slider>().Single().IsEnabled,
+                    $"{label}: standby retains visible and usable volume controls", checks);
+                engine.EmitEvent!(new { @event = "resuming" });
+                await Until(() => app.Snapshot.State == PlaybackState.Connecting); await Pump();
+                Check(volumeControls.Visibility == Visibility.Collapsed && volumeControls.DesiredSize.Height == 0 && master.IsVisible,
+                    $"{label}: reconnecting collapses device volume while keeping master volume", checks);
+                engine.EmitEvent!(new { @event = "streaming" });
+                await Until(() => app.Snapshot.State == PlaybackState.Streaming); await Pump();
+                Check(volumeControls.IsVisible && writes == engine.Commands.Count(command => command.Text("command") == "set_device_volume"),
+                    $"{label}: reconnecting restores volume controls without writing hardware volume", checks);
                 foreach (var scale in new[] { 1d, 1.25d, 1.5d, 2d })
                     UiSmoke.Render(panel, Path.Combine(directory, $"compact-panel-{label}-{scale * 100}.png"), scale);
                 var playingHeight = panel.ActualHeight;
@@ -502,43 +586,75 @@ internal static class UiRegression
                 Check(status.IsVisible && latency.Visibility == Visibility.Collapsed && app.LatencyDetail.Length == 0
                     && (count == 1 || panel.ActualHeight < playingHeight),
                     $"{label}: stopping clears latency rows and their spacing, and restores the ready prompt", checks);
+                Check(volumeControls.Visibility == Visibility.Collapsed && volumeControls.DesiredSize.Height == 0
+                    && Math.Abs(card.ActualHeight - disconnectedHeight) <= 1 && master.IsVisible && master.IsEnabled,
+                    $"{label}: stopping hides all device volume controls and restores the original compact card height", checks);
                 UiSmoke.Render(panel, Path.Combine(directory, $"compact-panel-{label}-stopped.png"), 1);
             }
             finally { panel.ShutdownPanel(); }
         }
     }
-    private static async Task CheckCompactVolumeLayoutAsync(ControlPanel panel, AppViewModel app,
+    private static StackPanel VolumeControls(ControlPanel panel, ReceiverViewModel row)
+        => UiSmoke.Descendants(panel).OfType<StackPanel>().Single(element => element.Name == "ReceiverVolumeControls" && ReferenceEquals(element.DataContext, row));
+
+    private static async Task CheckCompactVolumeLayoutAsync(ControlPanel panel, AppViewModel app, Border card,
         UiSmoke.MockFactory engine, Receiver receiver, string label, List<string> checks, string directory)
     {
         var sliders = UiSmoke.Descendants(panel).OfType<Slider>().Where(slider => slider.IsVisible).ToArray();
         var master = sliders.Single(slider => AutomationProperties.GetName(slider) == L.Get("Master volume"));
         var device = sliders.Single(slider => AutomationProperties.GetName(slider) == L.Get("Device volume"));
         var masterRow = (Grid)master.Parent;
-        var title = masterRow.Children.OfType<TextBlock>().Single(text => Grid.GetColumn(text) == 0);
-        var gap = master.TranslatePoint(new(), masterRow).X - title.TranslatePoint(new(title.ActualWidth, 0), masterRow).X;
-        Check(Math.Abs(gap - 8) <= 1,
-            $"{label}: master volume uses only an 8 DIP gap after its localized label", checks);
+        var masterTitle = (TextBlock)panel.FindName("MasterVolumeLabel");
+        var masterTitleBottom = masterTitle.TranslatePoint(new(0, masterTitle.ActualHeight), panel).Y;
+        var masterTop = master.TranslatePoint(new(), panel).Y;
+        Check(masterTitle.IsVisible && masterTitle.Text == L.Get("Master volume")
+            && masterTitle.TextTrimming == TextTrimming.CharacterEllipsis
+            && masterTitleBottom <= masterTop + 1
+            && Math.Abs(masterRow.ColumnDefinitions[0].Width.Value - 22) <= 0.1
+            && Grid.GetColumn(master) == 1 && master.ActualWidth >= 160,
+            $"{label}: master volume label renders above a full-width slider row", checks);
 
         var deviceRow = (Grid)device.Parent;
-        var status = deviceRow.Children.OfType<TextBlock>().Single(text => Grid.GetRow(text) == 1);
+        var indicator = UiSmoke.Descendants(deviceRow).OfType<Grid>().Single(element => element.Name == "VolumeIndicator");
+        var sync = UiSmoke.Descendants(indicator).OfType<System.Windows.Shapes.Path>().Single(path => path.Name == "VolumeSyncIcon");
+        var warning = UiSmoke.Descendants(indicator).OfType<System.Windows.Shapes.Path>().Single(path => path.Name == "VolumeWarningIcon");
         var row = (ReceiverViewModel)device.DataContext;
         var deviceWidth = device.ActualWidth;
         var rowHeight = deviceRow.ActualHeight;
-        CheckStatus(false, "confirmed");
+        var cardHeight = card.ActualHeight;
+        CheckIndicator(false, false, "confirmed");
         checks.Add($"{label}: volume layout measured at {VisualTreeHelper.GetDpi(panel).PixelsPerDip * 100:0}% physical display scaling");
 
+        var masterWidth = master.ActualWidth;
+        var panelHeight = panel.ActualHeight;
+        var originalTitle = masterTitle.Text;
+        masterTitle.Text = string.Concat(Enumerable.Repeat("Gesamtlautstärke ", 4));
+        await Pump();
+        Check(Math.Abs(master.ActualWidth - masterWidth) <= 1
+            && Math.Abs(device.ActualWidth - deviceWidth) <= 1
+            && Math.Abs(panel.ActualHeight - panelHeight) <= 1
+            && masterTitle.ActualWidth <= ((FrameworkElement)masterTitle.Parent).ActualWidth + 1,
+            $"{label}: a long localized master label cannot squeeze either volume track", checks);
+        masterTitle.Text = originalTitle; await Pump();
+
         device.SetCurrentValue(Slider.ValueProperty, 50d);
-        await Until(() => row.VolumeStatus == L.Get("Synchronizing…")); await Pump();
-        CheckStatus(true, "pending");
+        await Until(() => row.VolumeSyncing); await Pump();
+        CheckIndicator(true, false, "pending");
+        CheckVector(sync, "VolumeSyncIconGeometry", "AccentBrush", "volume synchronization icon");
         UiSmoke.Render(panel, Path.Combine(directory, $"compact-volume-{label}-pending-125.png"), 1.25);
-        await Until(() => row.Volume == 50 && row.VolumeStatus.Length == 0); await Pump();
-        CheckStatus(false, "confirmed after edit");
+        await Until(() => row.Volume == 50 && !row.VolumeSyncing && row.VolumeStatus.Length == 0); await Pump();
+        CheckIndicator(false, false, "confirmed after edit");
         foreach (var state in new[] { "unconfirmed", "unsynced", "confirmed" })
         {
-            engine.EmitEvent!(new { @event = "device_volume", host = receiver.Address, volume = 50,
-                sequence = app.ReceiverVolume(receiver.Id).Sequence, status = state, available = true });
+            engine.EmitEvent!(new { @event = "device_volume", host = receiver.Address, volume = state == "unsynced" ? (int?)null : 50,
+                sequence = app.ReceiverVolume(receiver.Id).Sequence, status = state, available = state != "unsynced" });
             await Until(() => app.ReceiverVolume(receiver.Id).Status == state); await Pump();
-            CheckStatus(state != "confirmed", state);
+            CheckIndicator(false, state != "confirmed", state);
+            if (state == "unconfirmed")
+                CheckVector(warning, "VolumeWarningIconGeometry", "ErrorBrush", "volume warning icon");
+            if (state == "unsynced")
+                Check(device.IsVisible && !device.IsEnabled && warning.IsVisible,
+                    $"{label}: a missing volume read disables the connected slider and keeps its synchronization icon visible", checks);
         }
 
         foreach (var slider in new[] { master, device })
@@ -566,7 +682,7 @@ internal static class UiRegression
                 var percentColumn = Grid.GetColumn(slider) + 1;
                 var percent = grid.Children.OfType<TextBlock>().Single(text => Grid.GetRow(text) == 0 && Grid.GetColumn(text) == percentColumn);
                 var button = grid.Children.OfType<Button>().Single();
-                Check(slider.Value == value && percent.Text == $"{value}%"
+                Check(slider.IsVisible && slider.Value == value && percent.Text == $"{value}%"
                     && slider.TranslatePoint(new(slider.ActualWidth, 0), grid).X <= percent.TranslatePoint(new(), grid).X + 1
                     && percent.TranslatePoint(new(percent.ActualWidth, 0), grid).X <= button.TranslatePoint(new(), grid).X,
                     $"{label}: dragging {AutomationProperties.GetName(slider)} to {value}% preserves binding and non-overlapping readout", checks);
@@ -605,21 +721,47 @@ internal static class UiRegression
                 $"{label}: {AutomationProperties.GetName(slider)} '{button.Content}' fits while retaining a usable slider", checks);
         }
 
-        void CheckStatus(bool visible, string state)
+        void CheckIndicator(bool syncing, bool warningVisible, string state)
         {
             CheckVolumeTracks();
+            var alert = syncing || warningVisible;
             Check(Math.Abs(device.ActualWidth - deviceWidth) <= 1
-                && (visible ? status.IsVisible && status.TranslatePoint(new(), deviceRow).Y >= device.ActualHeight
-                    : status.Visibility == Visibility.Collapsed && Math.Abs(deviceRow.ActualHeight - rowHeight) <= 1),
-                $"{label}: {state} volume status sits below a stable-width slider and leaves no empty row", checks);
+                && Math.Abs(deviceRow.ActualHeight - rowHeight) <= 1
+                && Math.Abs(card.ActualHeight - cardHeight) <= 1
+                && deviceRow.RowDefinitions.Count == 0
+                && indicator.IsVisible && Math.Abs(indicator.ActualWidth - 16) <= 1 && Math.Abs(indicator.ActualHeight - 16) <= 1
+                && indicator.TranslatePoint(new(indicator.ActualWidth, 0), deviceRow).X <= device.TranslatePoint(new(), deviceRow).X + 1
+                && sync.IsVisible == syncing && warning.IsVisible == warningVisible
+                && ToolTipService.GetIsEnabled(indicator) == alert
+                && (string?)indicator.ToolTip == row.VolumeStatus
+                && AutomationProperties.GetHelpText(device) == row.VolumeStatus,
+                $"{label}: {state} volume status stays a fixed icon in the row, leaving the card, track and translated hint stable", checks);
+        }
+
+        void CheckVector(System.Windows.Shapes.Path icon, string geometryKey, string brushKey, string name)
+        {
+            var pen = new Pen(icon.Stroke, icon.StrokeThickness)
+            { StartLineCap = icon.StrokeStartLineCap, EndLineCap = icon.StrokeEndLineCap, LineJoin = icon.StrokeLineJoin };
+            var bounds = icon.RenderedGeometry.GetRenderBounds(pen);
+            var bitmap = new RenderTargetBitmap(24, 24, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(icon);
+            var pixels = new byte[24 * 24 * 4]; bitmap.CopyPixels(pixels, 24 * 4, 0);
+            var brush = icon.Stroke as SolidColorBrush;
+            var expected = (SolidColorBrush)panel.FindResource(brushKey);
+            Check(ReferenceEquals(icon.Data, panel.FindResource(geometryKey)) && !icon.Data.IsEmpty()
+                && icon.IsVisible && icon.ActualWidth > 0 && icon.ActualHeight > 0 && !bounds.IsEmpty
+                && new Rect(0, 0, icon.ActualWidth, icon.ActualHeight).Contains(bounds)
+                && Enumerable.Range(0, 24 * 24).Any(index => pixels[index * 4 + 3] != 0)
+                && brush is not null && brush.Color == expected.Color,
+                $"{label}: {name} uses its built-in vector, renders nontransparent pixels and follows the current theme", checks);
         }
 
         void CheckVolumeTracks()
         {
             Check(FillsColumn(master, masterRow) && FillsColumn(device, deviceRow)
-                && device.TranslatePoint(new(), panel).X < master.TranslatePoint(new(), panel).X
-                && device.ActualWidth > master.ActualWidth,
-                $"{label}: volume tracks fill their own columns and the device uses the space beside the master label", checks);
+                && Math.Abs(device.TranslatePoint(new(), panel).X - master.TranslatePoint(new(), panel).X) <= 1
+                && Math.Abs(device.ActualWidth - master.ActualWidth) <= 1,
+                $"{label}: volume tracks fill their columns and align across the active receiver and master rows", checks);
         }
 
         static bool FillsColumn(Slider slider, Grid row)

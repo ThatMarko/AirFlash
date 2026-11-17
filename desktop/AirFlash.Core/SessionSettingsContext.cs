@@ -45,12 +45,20 @@ public sealed class SessionSettingsContext
             // evidence. Explicit membership edits use the separate admission path.
             if (receiver.IsMultiRoom && group.IsMultiRoom)
             {
-                var incomingMembers = group.Members.ToArray();
+                var manualIds = incoming.ManualReceivers.Select(member => member.Id)
+                    .Concat(receiver.Members.Where(member => member.IsManual).Select(member => member.Id))
+                    .ToHashSet(StringComparer.Ordinal);
+                (bool Manual, string Id) MemberKey(string id) => manualIds.Contains(id)
+                    ? (true, id)
+                    : (false, ReceiverIdentity.Resolve(_migrations.GetValueOrDefault(id, id), incoming.ReceiverAliases));
+                var incomingMembers = group.Members.ToLookup(member => MemberKey(member.ReceiverId));
+                var ownedMembers = receiver.Members.ToLookup(member => MemberKey(member.Id));
                 group.Members.Clear();
-                for (var index = 0; index < receiver.Members.Length; index++)
+                foreach (var member in receiver.Members)
                 {
-                    var member = receiver.Members[index];
-                    var offset = index < incomingMembers.Length ? incomingMembers[index].OffsetMs : member.SyncOffsetMs;
+                    var key = MemberKey(member.Id);
+                    var saved = incomingMembers[key].Take(2).ToArray();
+                    var offset = saved.Length == 1 && !ownedMembers[key].Skip(1).Any() ? saved[0].OffsetMs : member.SyncOffsetMs;
                     group.Members.Add(new() { ReceiverId = member.Id, OffsetMs = offset });
                 }
             }

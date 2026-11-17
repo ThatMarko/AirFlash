@@ -508,6 +508,61 @@ public sealed class SessionTests
     }
 
     [Fact]
+    public async Task SoundGlowResetRestartsTheOwnedReceiverWithoutReplayingTheExperiment()
+    {
+        var first = new FakeConnection(); var second = new FakeConnection();
+        var factory = new FakeFactory(first, second);
+        await using var controller = TestSessionController.Create(factory, new FakeAudio(), timing: Fast with { Read = SessionTiming.Default.Read });
+        var receiver = Pod();
+        var settings = Settings(); settings.Options(receiver.Id).LastVolume = 37;
+        await controller.StartAsync(receiver, settings);
+        await SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Streaming);
+        await controller.SendSoundGlowTestAsync("red");
+
+        Assert.True(await controller.TryRestartForSoundGlowAsync());
+        await second.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Streaming);
+
+        Assert.True(first.Disposed);
+        Assert.Equal(2, factory.OpenCount);
+        var start = Assert.Single(second.Commands, command => command.Command == "start");
+        var peer = start.Parameters.GetProperty("peers")[0];
+        Assert.Equal(receiver.Id, peer.Text("receiver_id"));
+        Assert.Equal(37d, peer.Number("volume"));
+        Assert.DoesNotContain(second.Commands, command => command.Command == "set_sound_glow");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SoundGlowResetDoesNotRestartAfterNewerStopOrCancellation(bool cancel)
+    {
+        var limit = TimeSpan.FromSeconds(5);
+        var releaseDispose = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = new FakeConnection { BlockDispose = releaseDispose };
+        var factory = new FakeFactory(first, new FakeConnection());
+        await using var controller = TestSessionController.Create(factory, new FakeAudio(), timing: Fast with { Read = SessionTiming.Default.Read });
+        using var cancellation = new CancellationTokenSource();
+        await controller.StartAsync(Pod(), Settings());
+        await SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Streaming);
+        var reset = controller.TryRestartForSoundGlowAsync(cancellation.Token);
+        Task? stop = null;
+        try
+        {
+            await first.Disposing.Task.WaitAsync(limit);
+            if (cancel) await cancellation.CancelAsync();
+            else stop = controller.StopAsync();
+            releaseDispose.TrySetResult();
+
+            Assert.False(await reset.WaitAsync(limit));
+            if (stop is not null) await stop.WaitAsync(limit);
+            Assert.Equal(1, factory.OpenCount);
+            Assert.Equal(PlaybackState.Idle, controller.Snapshot.State);
+        }
+        finally { releaseDispose.TrySetResult(); }
+    }
+
+    [Fact]
     public async Task SoundGlowFiltersOldSequencesAndSessionsAndResetsOnReconnect()
     {
         var first = new FakeConnection(); var second = new FakeConnection();
@@ -960,6 +1015,95 @@ public sealed class SessionTests
         var command = process.Commands.Single(c => c.Command == "start"); Assert.Equal(.1, command.Parameters.Number("gain")); Assert.Equal(200, command.Parameters.Number("latency_ms"));
         Assert.Equal(44100, command.Parameters.Number("sample_rate"));
         Assert.Equal(JsonValueKind.Array, command.Parameters.GetProperty("peers")[0].GetProperty("codecs").ValueKind);
+    }
+    [Fact]
+    public async Task ABlockedHealthLogDoesNotHoldTheEngineReader()
+    {
+        var limit = TimeSpan.FromSeconds(5);
+        var process = new FakeConnection();
+        var entered = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var advisory = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        void Log(string line)
+        {
+            if (line.StartsWith("Session health:", StringComparison.Ordinal) && entered.TrySetResult(line))
+                release.Wait(TimeSpan.FromSeconds(10));
+            if (line.StartsWith("Fixed latency looks tight:", StringComparison.Ordinal))
+                advisory.TrySetResult(line);
+        }
+        await using var controller = TestSessionController.Create(new FakeFactory(process), new FakeAudio(), Log,
+            timing: Fast with { Read = SessionTiming.Default.Read });
+        await controller.StartAsync(Pod(), Settings());
+        await SnapshotAsync(controller, snapshot => snapshot.State == PlaybackState.Streaming);
+        try
+        {
+            process.Emit("capture_metrics", metrics: new
+            {
+                underrun_packets = 1, rebinds = 2, silent_probes = 1, padded_frames = 5, fully_padded_packets = 0
+            });
+            await SnapshotAsync(controller, snapshot => snapshot.Metrics?.PaddedFrames == 5);
+            process.EmitData(new { @event = "transport_metrics", session_uptime_ms = 300000, lateness_interval = new { p99_ms = 4.0 } });
+            var health = await entered.Task.WaitAsync(limit);
+            Assert.Contains("capture_rebinds=2; silent_probes=1", health);
+
+            process.EmitData(new { @event = "transport_metrics", session_uptime_ms = 360000 });
+            await SnapshotAsync(controller, snapshot => snapshot.Diagnostics?.Transport?.SessionUptimeMs == 360000);
+            Assert.False(advisory.Task.IsCompleted);
+        }
+        finally { release.Set(); }
+        Assert.Contains("uptime_s=300", await advisory.Task.WaitAsync(limit));
+    }
+
+    [Fact]
+    public async Task RememberedVolumeIsSentWhenTheEngineSupportsRestoration()
+    {
+        var process = new FakeConnection(); var factory = new FakeFactory(process);
+        await using var controller = TestSessionController.Create(factory, new FakeAudio(), timing: Fast);
+        var settings = Settings(); settings.Options("a").LastVolume = 37;
+        await controller.StartAsync(Pod(), settings); await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+        var peer = process.Commands.Single(c => c.Command == "start").Parameters.GetProperty("peers")[0];
+        Assert.Equal(37d, peer.Number("volume"));
+    }
+    [Fact]
+    public async Task OldEngineAndFirstConnectionDoNotReceiveAVolume()
+    {
+        var settings = Settings(); settings.Options("a").LastVolume = 37;
+        var old = new FakeConnection { SupportsInitialVolume = false };
+        await using var oldController = TestSessionController.Create(new FakeFactory(old), new FakeAudio(), timing: Fast);
+        await oldController.StartAsync(Pod(), settings); await Until(() => oldController.Snapshot.State == PlaybackState.Streaming);
+        Assert.False(old.Commands.Single(c => c.Command == "start").Parameters.GetProperty("peers")[0].TryGetProperty("volume", out _));
+
+        var fresh = new FakeConnection();
+        await using var freshController = TestSessionController.Create(new FakeFactory(fresh), new FakeAudio(), timing: Fast);
+        await freshController.StartAsync(Pod(), Settings()); await Until(() => freshController.Snapshot.State == PlaybackState.Streaming);
+        Assert.False(fresh.Commands.Single(c => c.Command == "start").Parameters.GetProperty("peers")[0].TryGetProperty("volume", out _));
+        Assert.DoesNotContain(fresh.Commands, c => c.Command == "set_device_volume");
+    }
+    [Fact]
+    public async Task SoftwareGroupMembersRestoreTheirOwnRememberedVolumes()
+    {
+        var process = new FakeConnection();
+        var (receiver, settings) = SoftwareGroup();
+        settings.Options("a").LastVolume = 31; settings.Options("b").LastVolume = 62;
+        await using var controller = TestSessionController.Create(new FakeFactory(process), new FakeAudio(), timing: Fast);
+        await controller.StartAsync(receiver, settings); await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+        var peers = process.Commands.Single(c => c.Command == "start").Parameters.GetProperty("peers").EnumerateArray().ToArray();
+        Assert.Equal(31d, peers.Single(p => p.Text("receiver_id") == "a").Number("volume"));
+        Assert.Equal(62d, peers.Single(p => p.Text("receiver_id") == "b").Number("volume"));
+    }
+    [Fact]
+    public async Task DeviceVolumeReadIsAcceptedWhileConnecting()
+    {
+        var process = new FakeConnection(false);
+        await using var controller = TestSessionController.Create(new FakeFactory(process), new FakeAudio(), timing: Fast);
+        await controller.StartAsync(Pod(), Settings()); await Until(() => controller.Snapshot.State == PlaybackState.Connecting);
+        // The engine session is assigned by hello, which runs on the background start task.
+        // Emitting before it would carry an empty session id and be discarded by the read loop.
+        await process.Started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        process.EmitData(new { @event = "device_volume", host = "127.0.0.1", volume = 33, sequence = 0, status = "confirmed", available = true });
+        await Until(() => controller.Snapshot.DeviceVolume?.Actual == 33);
+        Assert.Equal(PlaybackState.Connecting, controller.Snapshot.State);
+        Assert.DoesNotContain(process.Commands, c => c.Command == "set_device_volume");
     }
     [Fact]
     public async Task ChangingStreamRateRestartsSessionWithNewRate()
@@ -1874,6 +2018,7 @@ public sealed class SessionTests
         public bool SupportsForcedLatency { get; init; } = true;
         public bool SupportsSoundGlow { get; init; } = true;
         public bool SupportsAdaptiveLead { get; init; } = true;
+        public bool SupportsInitialVolume { get; init; } = true;
         public bool SupportsOwnershipGuard { get; init; } = true;
         private int _latencyBase;
         private long _streamEpoch = 1;
@@ -1899,7 +2044,7 @@ public sealed class SessionTests
                 case "set_gain": GainEntered?.TrySetResult(); if (GainGate is not null) await GainGate.Task.WaitAsync(cancellation); break;
             }
         }
-        public void EmitHello() => EmitData(new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "multi_room", "continuity", "buffered_audio", "member_volume", "receiver_password", "standby_release", "receiver_ownership_guard", "application_capture", "now_playing", "diagnostics" }.Where(c => SupportsOwnershipGuard || c != "receiver_ownership_guard").Concat(ReceiverCapabilityResponse is null ? [] : new[] { "receiver_capabilities" }).Concat(SupportsSoundGlow ? ["sound_glow_test"] : Array.Empty<string>()).Concat(SupportsForcedLatency ? ["forced_latency"] : Array.Empty<string>()).Concat(SupportsAdaptiveLead ? ["adaptive_lead_v2"] : Array.Empty<string>()).ToArray() });
+        public void EmitHello() => EmitData(new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "multi_room", "continuity", "buffered_audio", "member_volume", "receiver_password", "standby_release", "receiver_ownership_guard", "application_capture", "now_playing", "diagnostics" }.Where(c => SupportsOwnershipGuard || c != "receiver_ownership_guard").Concat(ReceiverCapabilityResponse is null ? [] : new[] { "receiver_capabilities" }).Concat(SupportsSoundGlow ? ["sound_glow_test"] : Array.Empty<string>()).Concat(SupportsForcedLatency ? ["forced_latency"] : Array.Empty<string>()).Concat(SupportsAdaptiveLead ? ["adaptive_lead_v2"] : Array.Empty<string>()).Concat(SupportsInitialVolume ? ["initial_volume"] : Array.Empty<string>()).ToArray() });
         public void ConfirmLead(int extra)
         {
             var command = Commands.Last(c => c.Command == "set_lead");

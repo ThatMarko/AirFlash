@@ -6,7 +6,7 @@ namespace AirFlash.Core;
 public enum PlaybackState { Idle, Connecting, Streaming, Standby, Pairing, Error, Preempted }
 public enum SessionStartIntent { Manual, Automatic }
 public sealed record StreamMetrics(double? CaptureToSendP95 = null, double? MaxQueueAge = null, long? Underruns = null, long? DroppedFrames = null, int? InputRate = null,
-    ulong? PaddedFrames = null, ulong? FullyPaddedPackets = null);
+    ulong? PaddedFrames = null, ulong? FullyPaddedPackets = null, long? Rebinds = null, long? SilentProbes = null, long? RebindStorms = null);
 public sealed record SessionSnapshot(PlaybackState State, Receiver? Receiver = null, string Message = "", StreamMetrics? Metrics = null, int TargetLatency = 0, PlaybackDiagnostics? Diagnostics = null, int StreamRate = 0, DeviceVolumeState? DeviceVolume = null, IReadOnlyDictionary<string, DeviceVolumeState>? MemberVolumes = null)
 {
     public bool IsActive => State is PlaybackState.Connecting or PlaybackState.Streaming or PlaybackState.Standby or PlaybackState.Pairing;
@@ -33,6 +33,34 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private readonly SemaphoreSlim _soundGlowWriter = new(1, 1);
     public bool SoundGlowSupported { get { lock (_sync) return _soundGlowSupported; } }
     public event Action<JsonElement>? SoundGlowFeedback;
+    internal async Task<bool> TryRestartForSoundGlowAsync(CancellationToken cancellation = default)
+    {
+        using var operation = TryAdmitPassiveOperation();
+        if (operation is null || cancellation.IsCancellationRequested) return false;
+        StreamingAttempt attempt;
+        lock (_sync)
+        {
+            if (!_soundGlowSupported || CaptureStreamingAttempt() is not { } current) return false;
+            attempt = current.Attempt with { Intent = ++_automaticIntent };
+        }
+        try { await _serial.WaitAsync(cancellation).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return false; }
+        try
+        {
+            Receiver receiver;
+            AppSettings settings;
+            lock (_sync)
+            {
+                if (CaptureStreamingAttempt() is not { } current || current.Attempt != attempt) return false;
+                receiver = current.Receiver;
+                settings = _settings;
+            }
+            return await StartLockedAsync(receiver, settings, null, "sound_glow_reset", intent: SessionStartIntent.Manual,
+                expectedIntent: attempt.Intent, canAdmit: () => !cancellation.IsCancellationRequested).ConfigureAwait(false);
+        }
+        finally { _serial.Release(); }
+    }
+
     public async Task SendSoundGlowTestAsync(string palette, CancellationToken cancellation = default)
     {
         if (palette is not ("metadata_only" or "red" or "blue" or "green"))
@@ -280,7 +308,32 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         // Hold the state lock through publication so an old state cannot replace stop/reconnect.
         lock (_sync) { if (epoch == _generation) Publish(epoch, _snapshot.State, _snapshot.Message, isRetrying: _snapshot.IsRetrying); }
     }
+    /// <summary>
+    /// Device volume reads are accepted while an attempt is preparing or active,
+    /// so a restored initial value racing the streaming event is not dropped.
+    /// Writes stay limited to Streaming/Standby.
+    /// </summary>
+    private bool AcceptsVolumeReads() => Snapshot.State is PlaybackState.Connecting or PlaybackState.Streaming or PlaybackState.Standby;
     private PlaybackDiagnostics _diagnostics = new();
+    private int _healthLogPending;
+
+    private void QueueHealthLog(string sample, bool advisory)
+    {
+        if (log is not { } write || Interlocked.CompareExchange(ref _healthLogPending, 1, 0) != 0) return;
+        // Keep at most one write in flight so a slow disk cannot stall the
+        // engine reader or build up a queue across playback attempts.
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                write($"Session health: {sample}");
+                if (advisory) write($"Fixed latency looks tight: {sample}");
+            }
+            catch (Exception) { /* Health logging is best effort. */ }
+            finally { Volatile.Write(ref _healthLogPending, 0); }
+        });
+    }
+
     private async Task SetMemberVolumeAsync(string memberId, int value)
     {
         long epoch, sequence; string host, session; IEngineConnection connection; CancellationToken token;
@@ -338,6 +391,16 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             follow_receiver_clock = options.Timing == "follow" || options.Timing == "auto" && member.FollowReceiverClock, features = member.Features,
             channel = receiver.IsSoftwareGroup ? member.Channel : "stereo", sync_offset_ms = receiver.IsSoftwareGroup ? member.SyncOffsetMs : 0,
             latency_ms = adaptiveTarget ?? InitialLatency(receiver, member, settings, negotiated) };
+    }
+    /// <summary>
+    /// The last audible volume to restore for this peer. Single receivers and
+    /// native stereo groups share one group-level value; software group members
+    /// remember their own hardware volume.
+    /// </summary>
+    private static int? RememberedVolume(Receiver receiver, Receiver member, AppSettings settings)
+    {
+        var options = settings.ReadOptions(receiver.IsSoftwareGroup ? member.Id : receiver.Id);
+        return options.LastVolume is > 0 and var volume ? volume : null;
     }
     private static int InitialLatency(Receiver receiver, Receiver member, AppSettings settings, ReceiverProfile? negotiated)
     {
@@ -1096,6 +1159,9 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             }
             var startedAt = 0L;
             var hasStreamed = false;
+            var healthUptimeMs = 0L;
+            var advisoryUptimeMs = 0L;
+            HealthSample? previousHealth = null;
             try
             {
                 var settings = _settings;
@@ -1135,6 +1201,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     }
                     EngineHandshake.RequireStreamingCapabilities(hello);
                     EngineHandshake.RequireCapabilities(hello, "standby_release");
+                    var restoreVolume = EngineHandshake.HasCapability(hello, "initial_volume");
                     if (!EngineHandshake.HasCapability(hello, "receiver_ownership_guard"))
                         throw new EngineFailure(new("ownership_guard_required", "", "ipc", L.Get("Incompatible engine protocol version."), false));
                     if (forceLatency && !EngineHandshake.HasCapability(hello, "forced_latency"))
@@ -1152,9 +1219,18 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     _adaptiveBase = adaptiveMode ? Math.Max(_adaptiveInitial, _adaptive.RecoveryTarget ?? 0) : _adaptiveInitial;
                     lock (_sync) _adaptive.BeginAttempt(_adaptiveBase);
                     foreach (var member in receiver.Peers.OrderByDescending(p => p.IsLeader))
-                        peers.Add(new { receiver_id = member.Id, host = hosts[member.Id], port = member.Port,
-                            codecs = member.Codecs.Select(x => (int)x).ToArray(),
-                            profile = PeerProfile(receiver, member, settings, selected.FirstOrDefault(s => s.ReceiverId == member.Id)?.Profile, adaptiveMode ? _adaptiveBase : null) });
+                    {
+                        var peer = new Dictionary<string, object?>
+                        {
+                            ["receiver_id"] = member.Id, ["host"] = hosts[member.Id], ["port"] = member.Port,
+                            ["codecs"] = member.Codecs.Select(x => (int)x).ToArray(),
+                            ["profile"] = PeerProfile(receiver, member, settings, selected.FirstOrDefault(s => s.ReceiverId == member.Id)?.Profile, adaptiveMode ? _adaptiveBase : null)
+                        };
+                        // Only send the field when the engine understands it, so an
+                        // older engine keeps reading the receiver's own volume.
+                        if (restoreVolume && RememberedVolume(receiver, member, settings) is { } volume) peer["volume"] = volume;
+                        peers.Add(peer);
+                    }
                     await _equalizerWriter.WaitAsync(cancellation).ConfigureAwait(false);
                     try
                     {
@@ -1307,12 +1383,12 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                                 : L.Get(hasStreamed ? "Audio detected; reconnecting…" : "Audio detected; connecting…");
                             Publish(epoch, PlaybackState.Connecting, status, isRetrying: current.IsRetrying);
                         }
-                        else if (kind == "device_volume" && startedAt != 0 && receiver.IsSoftwareGroup)
+                        else if (kind == "device_volume" && AcceptsVolumeReads() && receiver.IsSoftwareGroup)
                         {
                             lock (_sync) { if (epoch != _generation) continue; var id = _memberHosts.FirstOrDefault(p => p.Value == item.Text("host")).Key; if (id is not null) _memberVolumes[id] = (_memberVolumes.GetValueOrDefault(id) ?? new()).Receive(item); }
                             PublishCurrent(epoch);
                         }
-                        else if (kind == "device_volume" && startedAt != 0 && item.Text("host") == volumeHost)
+                        else if (kind == "device_volume" && AcceptsVolumeReads() && item.Text("host") == volumeHost)
                         {
                             lock (_sync)
                             {
@@ -1380,6 +1456,26 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                                 var history = counterHistory.ObserveTransport(receivedAt, metrics);
                                 _diagnostics = _diagnostics with { Transport = metrics, CounterDeltaHistory = history ?? _diagnostics.CounterDeltaHistory };
                             }
+                            // One health line per minute in every latency mode; the
+                            // adaptive ladder keeps its own line below.
+                            if (metrics.SessionUptimeMs is { } reportedUptimeMs && reportedUptimeMs >= 0)
+                            {
+                                var uptimeMs = (long)reportedUptimeMs;
+                                // A reconnect restarts the engine's uptime; start over.
+                                if (uptimeMs < healthUptimeMs) { healthUptimeMs = 0; advisoryUptimeMs = 0; previousHealth = null; }
+                                if (SessionHealth.Due(uptimeMs, healthUptimeMs))
+                                {
+                                    healthUptimeMs = uptimeMs;
+                                    var sample = HealthSample.From(metrics, Snapshot.Metrics, Snapshot.TargetLatency);
+                                    // Fixed targets cannot raise their own headroom, so the
+                                    // log states the case instead of changing playback.
+                                    var advisory = SessionHealth.LooksTight(sample, previousHealth)
+                                        && AdaptivePlan() is null && SessionHealth.AdvisoryDue(uptimeMs, advisoryUptimeMs);
+                                    previousHealth = sample;
+                                    if (advisory) advisoryUptimeMs = uptimeMs;
+                                    QueueHealthLog(sample.Describe(), advisory);
+                                }
+                            }
                             if (AdaptivePlan() is not null)
                             {
                                 bool fresh; lock (_sync) fresh = _adaptive.Observe(metrics);
@@ -1392,7 +1488,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         {
                             var receivedAt = _clock.GetUtcNow();
                             var parsed = new StreamMetrics(metrics.Number("capture_to_send_p95_ms"), metrics.Number("max_queue_age_ms"), metrics.Integer("underrun_packets"), metrics.Integer("dropped_frames"), metrics.Integer("input_rate") is { } rate ? (int)rate : null,
-                                metrics.Unsigned("padded_frames"), metrics.Unsigned("fully_padded_packets"));
+                                metrics.Unsigned("padded_frames"), metrics.Unsigned("fully_padded_packets"),
+                                metrics.Integer("rebinds"), metrics.Integer("silent_probes"), metrics.Integer("rebind_storms"));
                             lock (_sync)
                             {
                                 if (epoch != _generation) continue;

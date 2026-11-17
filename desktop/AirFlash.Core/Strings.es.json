@@ -3,6 +3,7 @@
   "Discovery paused. Showing previous results.": "Búsqueda pausada. Mostrando resultados anteriores.",
   "Check for updates": "Buscar actualizaciones",
   "Open download page": "Abrir página de descarga",
+  "Update": "Actualizar",
   "Checking for updates…": "Buscando actualizaciones…",
   "No stable release is available yet.": "Aún no hay una versión estable disponible.",
   "You are up to date.": "AirFlash está actualizado.",
@@ -152,6 +153,7 @@
   "AirFlash settings": "Configuración de AirFlash",
   "Startup and connection": "Inicio y conexión",
   "Start when signing in to Windows": "Iniciar al iniciar sesión en Windows",
+  "Check for updates on startup": "Buscar actualizaciones al iniciar",
   "Connect automatically when a receiver is found": "Conectar automáticamente al encontrar un receptor",
   "Reconnect automatically after a disconnect": "Reconectar automáticamente tras una desconexión",
   "Retry up to": "Reintentar hasta",
@@ -198,6 +200,7 @@
   "Buy the author a cup of milk tea~": "Invita al autor a una taza de té con leche~",
   "Thanks~": "¡Gracias~!",
   "WeChat and Alipay payment QR codes": "Códigos QR de pago de WeChat y Alipay",
+  "PayPal payment QR code": "Código QR de pago de PayPal",
   "Copy diagnostics": "Copiar diagnósticos",
   "Settings and devices": "Configuración y dispositivos",
   "Settings navigation": "Navegación de configuración",
@@ -402,7 +405,7 @@
   "Reconnected with normal song information. HomePod may retain the previous cover.": "Se ha reconectado con la información normal de la canción. El HomePod puede conservar la portada anterior.",
   "Try song information, then red and blue. Song information alone does not clear an old cover; reconnect first.": "Prueba la información de la canción, después rojo y azul. La información sola no borra la portada anterior; reconecta primero.",
   "Open diagnostic logs": "Abrir registros de diagnóstico",
-  "No test covers are sent by default. Accepted requests do not prove visible lighting. Closing stops cycling; the last cover may remain.": "No se envían portadas de prueba de forma predeterminada. Una solicitud aceptada no confirma un efecto visible. Cerrar detiene el ciclo; la última portada puede permanecer.",
+  "No test covers are sent by default. Accepted requests do not prove visible lighting. Leaving this page stops cycling; the last cover may remain.": "No se envían portadas de prueba de forma predeterminada. Una solicitud aceptada no confirma un efecto visible. Salir de esta página detiene el ciclo; la última portada puede permanecer.",
   "Not sent": "Sin enviar",
   "Requested: {0}; waiting for receiver response.": "Solicitado: {0}; esperando la respuesta del receptor.",
   "Queued by the engine; receiver acceptance is not yet confirmed.": "En cola en el motor; aún no se ha confirmado la aceptación del receptor.",
@@ -444,5 +447,8 @@
   "Local padded output frames: {0}; wholly padded capture pulls: {1}": "Tramas de salida rellenadas localmente: {0}. Bloques de captura rellenados por completo: {1}",
   "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "El relleno cuenta las tramas que faltan a la frecuencia de salida antes de la ecualización. Un bloque rellenado por completo sustituye las 352 tramas. El silencio capturado y el silencio programado para el fundido o la recuperación no cuentan como captura faltante. Estos contadores son de la captura local. Los valores no disponibles se muestran como —.",
   "The receiver is unavailable.": "El receptor no está disponible.",
-  "The receiver selection is ambiguous.": "La selección del receptor es ambigua."
+  "The receiver selection is ambiguous.": "La selección del receptor es ambigua.",
+  "Sound Glow": "Sound Glow",
+  "Test HomePod light effects with synthetic covers and metadata.": "Prueba los efectos de luz con portadas y metadatos.",
+  "Log": "Registro"
 }

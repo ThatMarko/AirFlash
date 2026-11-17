@@ -7,6 +7,19 @@
     <Geometry x:Key="PlayIconGeometry">M 6,3 L 21,12 6,21 Z</Geometry>
     <Geometry x:Key="StopIconGeometry">M 4,4 H 20 V 20 H 4 Z</Geometry>
     <Geometry x:Key="LatencyIconGeometry">M 3,6 H 21 M 8,3 V 9 M 3,12 H 21 M 16,9 V 15 M 3,18 H 21 M 11,15 V 21</Geometry>
+    <Geometry x:Key="VolumeSyncIconGeometry">M 12,3 A 9,9 0 1 1 3,12</Geometry>
+    <Geometry x:Key="VolumeWarningIconGeometry">M 12,3 L 22,21 H 2 Z M 12,9 V 13.5 M 12,17 V 17.5</Geometry>
+    <Geometry x:Key="UpdateIconGeometry">M 20,12 A 8,8 0 1 1 12,4 M 9,1 L 12,4 L 9,7</Geometry>
+    <Style x:Key="UpdateChipButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+      <Setter Property="Padding" Value="8,2"/>
+      <Setter Property="Margin" Value="10,0,0,0"/>
+      <Setter Property="VerticalAlignment" Value="Center"/>
+      <Setter Property="FontSize" Value="11"/>
+      <Setter Property="Foreground" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+      <Setter Property="Background" Value="{DynamicResource TintBrush}"/>
+      <Setter Property="ToolTipService.ShowDuration" Value="5000"/>
+    </Style>
     <Style x:Key="VolumeSlider" TargetType="Slider" BasedOn="{StaticResource {x:Type Slider}}">
       <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
       <Style.Resources>
@@ -52,6 +65,16 @@
         <StackPanel Orientation="Horizontal">
           <Image Source="{StaticResource AppLogo}" Width="26" Height="26" VerticalAlignment="Center" Margin="0,2,10,0"/>
           <TextBlock Text="AirFlash" FontSize="21" FontWeight="SemiBold" VerticalAlignment="Center"/>
+          <Button x:Name="UpdateButton" Style="{StaticResource UpdateChipButton}" Click="OnUpdate" Visibility="{Binding Updates.HasUpdate, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding Updates.Status}" AutomationProperties.Name="{loc:Text 'Update'}" AutomationProperties.HelpText="{Binding Updates.Status}">
+            <StackPanel Orientation="Horizontal">
+              <Viewbox Width="13" Height="13" Stretch="Uniform">
+                <Grid Width="24" Height="24">
+                  <Path x:Name="UpdateIcon" Data="{StaticResource UpdateIconGeometry}" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType={x:Type Button}}}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+                </Grid>
+              </Viewbox>
+              <TextBlock Text="{loc:Text 'Update'}" Margin="5,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+          </Button>
         </StackPanel>
         <Button Grid.Column="1" Style="{StaticResource IconButton}" ToolTip="{loc:Text 'Settings'}" AutomationProperties.Name="{loc:Text 'Settings'}" Click="OnSettings" Margin="0,0,7,0">
           <Viewbox Width="18" Height="18" Stretch="Uniform">
@@ -63,7 +86,6 @@
         <Button Grid.Column="2" Style="{StaticResource IconButton}" ToolTip="{loc:Text 'Quit'}" AutomationProperties.Name="{loc:Text 'Quit'}" Click="OnQuit" Margin="0,0,0,0"><Viewbox Width="18" Height="18"><Path Data="M 10,3 L 3,3 3,21 10,21 M 8,12 L 22,12 M 17,7 L 22,12 17,17" Stroke="{DynamicResource TextBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/></Viewbox></Button>
       </Grid>
       <StackPanel Grid.Row="1">
-      <Button Content="{loc:Text 'Sound Glow experiment'}" Click="OnSoundGlowTest" HorizontalAlignment="Left" Margin="0,0,0,10"/>
       <Border x:Name="MuteRecoveryBanner" Padding="10" CornerRadius="6" Background="{DynamicResource TintBrush}" Margin="0,0,0,12" Visibility="{Binding HasMuteRecovery, Converter={StaticResource BoolVisibility}}">
         <StackPanel>
           <TextBlock Text="{Binding MuteRecoveryMessage}" Style="{StaticResource Hint}"/>
@@ -133,7 +155,6 @@
                     <Grid.RowDefinitions>
                       <RowDefinition Height="Auto"/>
                       <RowDefinition Height="Auto"/>
-                      <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <Border Background="{DynamicResource TintBrush}" Width="32" Height="36" CornerRadius="8" VerticalAlignment="Top">
                       <Viewbox Width="19" Height="19" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -186,35 +207,71 @@
                         </Grid>
                       </Viewbox>
                     </Button>
-                    <Grid Grid.Row="1" Grid.ColumnSpan="3" Margin="0,9,0,0" Visibility="{Binding HasSingleVolume, Converter={StaticResource BoolVisibility}}">
-                      <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                      </Grid.RowDefinitions>
-                      <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="40"/>
-                        <ColumnDefinition Width="Auto" SharedSizeGroup="VolumeMute"/>
-                      </Grid.ColumnDefinitions>
-                      <Slider IsEnabled="{Binding CanSetVolume}" Style="{StaticResource VolumeSlider}" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding Volume, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" AutomationProperties.Name="{loc:Text 'Device volume'}" PreviewMouseLeftButtonDown="OnSliderPreviewMouseLeftButtonDown"/>
-                      <TextBlock Grid.Column="1" Text="{Binding VolumeText}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"/>
-                      <Button Grid.Column="2" Style="{StaticResource VolumeMuteButton}" Content="{Binding MuteLabel}" Command="{Binding MuteCommand}" AutomationProperties.Name="{Binding MuteLabel}"/>
-                      <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Text="{Binding VolumeStatus}" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,4,0,0" Visibility="{Binding VolumeStatus, Converter={StaticResource NonEmpty}}"/>
-                    </Grid>
-                    <ItemsControl Grid.Row="2" Grid.ColumnSpan="3" ItemsSource="{Binding MemberVolumes}" Margin="0,8,0,0">
-                      <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                          <StackPanel Margin="0,4,0,4">
-                            <TextBlock Text="{Binding Name}" Style="{StaticResource Hint}"/>
-                            <Grid>
-                              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="44"/></Grid.ColumnDefinitions>
-                              <Slider Style="{StaticResource VolumeSlider}" Minimum="0" Maximum="100" IsEnabled="{Binding CanSetVolume}" Value="{Binding Volume, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsSnapToTickEnabled="True" TickFrequency="1" AutomationProperties.Name="{loc:Text 'Hardware volume'}"/>
-                              <TextBlock Grid.Column="1" Text="{Binding VolumeText}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    <StackPanel x:Name="ReceiverVolumeControls" Grid.Row="1" Grid.ColumnSpan="3" Visibility="{Binding ShowVolumeControls, Converter={StaticResource BoolVisibility}}">
+                      <Grid Margin="0,9,0,0" Visibility="{Binding HasSingleVolume, Converter={StaticResource BoolVisibility}}">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="22"/>
+                          <ColumnDefinition Width="*"/>
+                          <ColumnDefinition Width="40"/>
+                          <ColumnDefinition Width="Auto" SharedSizeGroup="VolumeMute"/>
+                        </Grid.ColumnDefinitions>
+                        <!-- Always measured: a fixed 22 DIP slot keeps every device slider aligned with the master row. -->
+                        <Grid x:Name="VolumeIndicator" Grid.Column="0" Width="16" Height="16" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0" Background="Transparent" ToolTip="{Binding VolumeStatus}" ToolTipService.IsEnabled="{Binding VolumeAlert}">
+                          <Viewbox Width="14" Height="14" Stretch="Uniform">
+                            <Grid Width="24" Height="24">
+                              <Path x:Name="VolumeSyncIcon" Data="{StaticResource VolumeSyncIconGeometry}" Stroke="{DynamicResource AccentBrush}" StrokeThickness="2.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" RenderTransformOrigin="0.5,0.5">
+                                <Path.RenderTransform><RotateTransform/></Path.RenderTransform>
+                                <Path.Style>
+                                  <Style TargetType="Path">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                      <DataTrigger Binding="{Binding VolumeSyncing}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                        <DataTrigger.EnterActions>
+                                          <BeginStoryboard Name="VolumeSyncAnimation">
+                                            <Storyboard><DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)" From="0" To="360" Duration="0:0:1" RepeatBehavior="Forever"/></Storyboard>
+                                          </BeginStoryboard>
+                                        </DataTrigger.EnterActions>
+                                        <DataTrigger.ExitActions><StopStoryboard BeginStoryboardName="VolumeSyncAnimation"/></DataTrigger.ExitActions>
+                                      </DataTrigger>
+                                    </Style.Triggers>
+                                  </Style>
+                                </Path.Style>
+                              </Path>
+                              <Path x:Name="VolumeWarningIcon" Data="{StaticResource VolumeWarningIconGeometry}" Stroke="{DynamicResource ErrorBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round">
+                                <Path.Style>
+                                  <Style TargetType="Path">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                      <DataTrigger Binding="{Binding VolumeWarning}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                      </DataTrigger>
+                                    </Style.Triggers>
+                                  </Style>
+                                </Path.Style>
+                              </Path>
                             </Grid>
-                          </StackPanel>
-                        </DataTemplate>
-                      </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                          </Viewbox>
+                        </Grid>
+                        <Slider Grid.Column="1" IsEnabled="{Binding CanSetVolume}" Style="{StaticResource VolumeSlider}" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding Volume, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" AutomationProperties.Name="{loc:Text 'Device volume'}" AutomationProperties.HelpText="{Binding VolumeStatus}" PreviewMouseLeftButtonDown="OnSliderPreviewMouseLeftButtonDown"/>
+                        <TextBlock Grid.Column="2" Text="{Binding VolumeText}" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}"/>
+                        <Button Grid.Column="3" Style="{StaticResource VolumeMuteButton}" Content="{Binding MuteLabel}" Command="{Binding MuteCommand}" AutomationProperties.Name="{Binding MuteLabel}"/>
+                      </Grid>
+                      <ItemsControl ItemsSource="{Binding MemberVolumes}" Margin="0,8,0,0">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate>
+                            <StackPanel Margin="0,4,0,4">
+                              <TextBlock Text="{Binding Name}" Style="{StaticResource Hint}"/>
+                              <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="44"/></Grid.ColumnDefinitions>
+                                <Slider Style="{StaticResource VolumeSlider}" Minimum="0" Maximum="100" IsEnabled="{Binding CanSetVolume}" Value="{Binding Volume, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsSnapToTickEnabled="True" TickFrequency="1" AutomationProperties.Name="{loc:Text 'Hardware volume'}"/>
+                                <TextBlock Grid.Column="1" Text="{Binding VolumeText}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                              </Grid>
+                            </StackPanel>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
                   </Grid>
                 </Border>
               </DataTemplate>
@@ -247,18 +304,21 @@
         </Grid>
         <TextBlock Text="{Binding GlobalLatencyHint}" Style="{StaticResource Hint}" Margin="2,0,2,12" Visibility="{Binding GlobalLatencyHint, Converter={StaticResource NonEmpty}}"/>
         <Border Padding="12" Margin="0,0,0,10" CornerRadius="10" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource LineBrush}" BorderThickness="1" Visibility="{Binding Settings.ShowMasterControl, Converter={StaticResource BoolVisibility}}">
-          <Grid>
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="Auto"/>
-              <ColumnDefinition Width="*"/>
-              <ColumnDefinition Width="40"/>
-              <ColumnDefinition Width="Auto" SharedSizeGroup="VolumeMute"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Text="{loc:Text 'Master volume'}" VerticalAlignment="Center" Margin="0,0,8,0" FontWeight="SemiBold"/>
-            <Slider Style="{StaticResource VolumeSlider}" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding MasterVolume, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" AutomationProperties.Name="{loc:Text 'Master volume'}" PreviewMouseLeftButtonDown="OnSliderPreviewMouseLeftButtonDown"/>
-            <TextBlock Grid.Column="2" Text="{Binding MasterVolume, StringFormat={}{0}%}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-            <Button Grid.Column="3" Style="{StaticResource VolumeMuteButton}" Content="{Binding MuteLabel}" Command="{Binding MuteCommand}" AutomationProperties.Name="{Binding MuteLabel}"/>
-          </Grid>
+          <StackPanel>
+            <!-- Own row: a long localized label can never take width away from the slider. -->
+            <TextBlock x:Name="MasterVolumeLabel" Text="{loc:Text 'Master volume'}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{loc:Text 'Master volume'}" Margin="0,0,0,6"/>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="22"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="40"/>
+                <ColumnDefinition Width="Auto" SharedSizeGroup="VolumeMute"/>
+              </Grid.ColumnDefinitions>
+              <Slider Style="{StaticResource VolumeSlider}" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding MasterVolume, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" AutomationProperties.Name="{loc:Text 'Master volume'}" PreviewMouseLeftButtonDown="OnSliderPreviewMouseLeftButtonDown"/>
+              <TextBlock Grid.Column="2" Text="{Binding MasterVolume, StringFormat={}{0}%}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+              <Button Grid.Column="3" Style="{StaticResource VolumeMuteButton}" Content="{Binding MuteLabel}" Command="{Binding MuteCommand}" AutomationProperties.Name="{Binding MuteLabel}"/>
+            </Grid>
+          </StackPanel>
         </Border>
       </StackPanel>
       <StackPanel Grid.Row="4" Margin="2,4,2,0">

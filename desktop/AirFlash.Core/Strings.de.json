@@ -3,6 +3,7 @@
   "Discovery paused. Showing previous results.": "Die Gerätesuche ist pausiert. Die vorherigen Ergebnisse werden angezeigt.",
   "Check for updates": "Nach Updates suchen",
   "Open download page": "Downloadseite öffnen",
+  "Update": "Aktualisieren",
   "Checking for updates…": "Updates werden gesucht…",
   "No stable release is available yet.": "Es ist noch keine stabile Version verfügbar.",
   "You are up to date.": "Sie verwenden bereits die neueste Version.",
@@ -159,6 +160,7 @@
   "AirFlash settings": "AirFlash-Einstellungen",
   "Startup and connection": "Start und Verbindung",
   "Start when signing in to Windows": "Bei der Windows-Anmeldung starten",
+  "Check for updates on startup": "Beim Start nach Updates suchen",
   "Connect automatically when a receiver is found": "Automatisch verbinden, wenn ein Empfänger gefunden wird",
   "Reconnect automatically after a disconnect": "Nach einer Trennung automatisch erneut verbinden",
   "Retry up to": "Wiederholen bis zu",
@@ -205,6 +207,7 @@
   "Buy the author a cup of milk tea~": "Spenden Sie dem Autor eine Tasse Milchtee~",
   "Thanks~": "Danke~",
   "WeChat and Alipay payment QR codes": "QR-Codes für WeChat und Alipay",
+  "PayPal payment QR code": "PayPal-Zahlungs-QR-Code",
   "Copy diagnostics": "Diagnose kopieren",
   "Settings and devices": "Einstellungen und Geräte",
   "Settings navigation": "Navigation durch die Einstellungen",
@@ -436,7 +439,7 @@
   "Reconnected with normal song information. HomePod may retain the previous cover.": "Mit normalen Titelinformationen neu verbunden. Der HomePod kann das vorherige Cover beibehalten.",
   "Try song information, then red and blue. Song information alone does not clear an old cover; reconnect first.": "Testen Sie Titelinformationen, dann Rot und Blau. Titelinformationen allein löschen alte Cover nicht; verbinden Sie sich vorher neu.",
   "Open diagnostic logs": "Diagnoseprotokolle öffnen",
-  "No test covers are sent by default. Accepted requests do not prove visible lighting. Closing stops cycling; the last cover may remain.": "Standardmäßig werden keine Testcover gesendet. Akzeptierte Anfragen bestätigen keinen sichtbaren Lichteffekt. Schließen beendet den Farbwechsel; das letzte Cover kann bleiben.",
+  "No test covers are sent by default. Accepted requests do not prove visible lighting. Leaving this page stops cycling; the last cover may remain.": "Standardmäßig werden keine Testcover gesendet. Akzeptierte Anfragen bestätigen keinen sichtbaren Lichteffekt. Beim Verlassen dieser Seite endet der Farbwechsel; das letzte Cover kann bleiben.",
   "Not sent": "Nicht gesendet",
   "Requested: {0}; waiting for receiver response.": "Angefordert: {0}; Antwort des Empfängers ausstehend.",
   "Queued by the engine; receiver acceptance is not yet confirmed.": "In der Engine eingereiht; Annahme durch den Empfänger noch nicht bestätigt.",
@@ -444,5 +447,8 @@
   "Failed: {0}": "Fehlgeschlagen: {0}",
   "This audio engine does not support the Sound Glow experiment.": "Diese Audio-Engine unterstützt das Sound Glow-Experiment nicht.",
   "Playback: {0} · Requested palette: {1}": "Wiedergabe: {0} · Angeforderte Farbe: {1}",
-  "Start streaming before testing Sound Glow.": "Starten Sie die Wiedergabe, bevor Sie Sound Glow testen."
+  "Start streaming before testing Sound Glow.": "Starten Sie die Wiedergabe, bevor Sie Sound Glow testen.",
+  "Sound Glow": "Sound Glow",
+  "Test HomePod light effects with synthetic covers and metadata.": "HomePod-Lichteffekte mit Testcovern und Metadaten prüfen.",
+  "Log": "Protokoll"
 }
