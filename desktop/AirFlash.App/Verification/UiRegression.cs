@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
@@ -224,7 +225,8 @@ internal static class UiRegression
     }
     private static async Task RunPaymentQrRegressionAsync(List<string> checks, string directory)
     {
-        var originallyChinese = L.IsChinese;
+        var originalLanguage = CultureInfo.CurrentUICulture.Name;
+        var originalCatalogMarker = L.Get("Settings and devices");
         try
         {
             foreach (var (language, asset, descriptionKey) in new[]
@@ -250,7 +252,9 @@ internal static class UiRegression
                 coffee.Close(); await Pump();
             }
         }
-        finally { L.Initialize([originallyChinese ? "zh-CN" : "en-US"]); }
+        finally { L.Initialize([originalLanguage]); }
+        Check(CultureInfo.CurrentUICulture.Name == originalLanguage && L.Get("Settings and devices") == originalCatalogMarker,
+            "donation QR verification restores the original UI catalog", checks);
     }
     private static async Task RunSoftwareStereoRegressionAsync(List<string> checks, string directory)
     {
