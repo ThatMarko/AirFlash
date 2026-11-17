@@ -209,8 +209,14 @@ impl Health {
     pub fn commands(&self) -> Vec<crate::events::ParsedEvent> {
         self.0.lock().unwrap().commands.drain()
     }
+    /// Event messages evicted from this member's bounded inbox, cumulative for the
+    /// member's lifetime (event-channel rebuilds share the same `Health`).
     pub fn commands_dropped(&self) -> u64 {
         self.0.lock().unwrap().commands.dropped()
+    }
+    #[cfg(test)]
+    pub(crate) fn push_command_for_test(&self, event: crate::events::ParsedEvent) {
+        self.0.lock().unwrap().commands.push(event);
     }
     fn fail(&self, fault: Fault) {
         let mut state = self.0.lock().unwrap();
@@ -279,8 +285,15 @@ impl Health {
     /// serving this session, so a timing or feedback symptom was not a
     /// takeover. Clear the cleanup guard so an ordinary stop tears the session
     /// down instead of leaking it.
-    pub fn clear_ownership_uncertain(&self) {
-        self.0.lock().unwrap().ownership_uncertain = false;
+    pub(crate) fn clear_ownership_uncertain_if_current(&self) -> bool {
+        let mut state = self.0.lock().unwrap();
+        if state.preemption_signals.iter().any(|signal| {
+            signal.ends_session() || matches!(signal, Signal::FeedbackLost | Signal::ClockLost)
+        }) {
+            return false;
+        }
+        state.ownership_uncertain = false;
+        true
     }
     /// Take the symptoms collected since the previous poll.
     pub fn take_preemption_signals(&self) -> Vec<Signal> {
@@ -702,6 +715,9 @@ pub struct MediaTransport {
     buffered: Option<crate::buffered::Sender>,
     pub packetizer: Packetizer,
     pub metrics: MediaMetrics,
+    /// Age of each nonempty retransmit request behind the live edge (see
+    /// [`crate::telemetry::SessionTelemetry::rtx_gap`]); cumulative.
+    pub rtx_gap: crate::telemetry::Histogram,
     audio: UdpSocket,
     control: UdpSocket,
     remote: SocketAddr,
@@ -724,6 +740,7 @@ impl MediaTransport {
             buffered: None,
             packetizer,
             metrics: MediaMetrics::default(),
+            rtx_gap: crate::telemetry::Histogram::default(),
             audio,
             control,
             remote,
@@ -917,6 +934,14 @@ impl MediaTransport {
             };
             self.metrics.retransmit_requests += 1;
             self.metrics.retransmit_requested_packets += u64::from(count);
+            // Empty requests and requests at or ahead of the live edge have no gap sample.
+            let behind = self.packetizer.seq.wrapping_sub(start);
+            if count != 0 && (1..0x8000).contains(&behind) {
+                self.rtx_gap.observe(
+                    f64::from(behind) * rtp::FRAMES as f64 * 1000.0
+                        / f64::from(self.packetizer.rate),
+                );
+            }
             let accepted = usize::from(count).min(MAX_PENDING - self.pending.len());
             self.metrics.retransmit_queue_drops +=
                 usize::from(count).saturating_sub(accepted) as u64;
