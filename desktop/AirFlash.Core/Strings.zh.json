@@ -3,6 +3,7 @@
   "Discovery paused. Showing previous results.": "已暂停发现，显示上次结果。",
   "Check for updates": "检查更新",
   "Open download page": "打开下载页",
+  "Update": "更新",
   "Checking for updates…": "正在检查更新…",
   "No stable release is available yet.": "尚无正式发布版本。",
   "You are up to date.": "当前已是最新版本。",
@@ -159,6 +160,7 @@
   "AirFlash settings": "AirFlash 设置",
   "Startup and connection": "启动与连接",
   "Start when signing in to Windows": "登录 Windows 时启动",
+  "Check for updates on startup": "启动时检查更新",
   "Connect automatically when a receiver is found": "发现接收器时自动连接",
   "Reconnect automatically after a disconnect": "连接中断后自动重连",
   "Retry up to": "最多重试",
@@ -205,6 +207,7 @@
   "Buy the author a cup of milk tea~": "请作者喝一杯奶茶~",
   "Thanks~": "感谢~",
   "WeChat and Alipay payment QR codes": "微信和支付宝收款二维码",
+  "PayPal payment QR code": "PayPal 收款二维码",
   "Copy diagnostics": "复制诊断摘要",
   "Settings and devices": "设置与设备",
   "Settings navigation": "设置导航",
@@ -436,7 +439,7 @@
   "Reconnected with normal song information. HomePod may retain the previous cover.": "已重连并恢复正常歌曲信息。HomePod 可能暂时保留旧封面。",
   "Try song information, then red and blue. Song information alone does not clear an old cover; reconnect first.": "建议依次测试歌曲信息、红色和蓝色。仅歌曲信息不会清除旧封面，请先重连。",
   "Open diagnostic logs": "打开诊断日志",
-  "No test covers are sent by default. Accepted requests do not prove visible lighting. Closing stops cycling; the last cover may remain.": "默认不发送测试封面。请求被接受不代表灯效已触发。关闭窗口会停止换色，最后封面可能保留。",
+  "No test covers are sent by default. Accepted requests do not prove visible lighting. Leaving this page stops cycling; the last cover may remain.": "默认不发送测试封面。请求被接受不代表灯效已触发。离开此页面会停止换色，最后封面可能保留。",
   "Not sent": "未发送",
   "Requested: {0}; waiting for receiver response.": "已请求：{0}；等待接收端响应。",
   "Queued by the engine; receiver acceptance is not yet confirmed.": "引擎已排队；尚未确认接收端接受。",
@@ -444,5 +447,8 @@
   "Failed: {0}": "失败：{0}",
   "This audio engine does not support the Sound Glow experiment.": "此音频引擎不支持 Sound Glow 灯效实验。",
   "Playback: {0} · Requested palette: {1}": "播放状态：{0} · 请求的配色：{1}",
-  "Start streaming before testing Sound Glow.": "请先开始播放，再测试 Sound Glow。"
+  "Start streaming before testing Sound Glow.": "请先开始播放，再测试 Sound Glow。",
+  "Sound Glow": "Sound Glow",
+  "Test HomePod light effects with synthetic covers and metadata.": "使用虚构封面和歌曲信息测试 HomePod 灯效。",
+  "Log": "日志"
 }

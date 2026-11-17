@@ -17,18 +17,6 @@ public partial class ControlPanel : Window
     public const double CompactWidth = 400;
     private readonly AppViewModel _viewModel;
     private readonly Func<MonitorArea>? _workArea;
-    private SoundGlowWindow? _soundGlowWindow;
-    private void OnSoundGlowTest(object sender, RoutedEventArgs args)
-    {
-        if (_viewModel.IsClosing) return;
-        if (_soundGlowWindow is null)
-        {
-            _soundGlowWindow = new SoundGlowWindow(_viewModel);
-            _soundGlowWindow.Closed += (_, _) => _soundGlowWindow = null;
-        }
-        _soundGlowWindow.Show();
-        _soundGlowWindow.Activate();
-    }
     private bool _allowClose;
     private bool _placing;
     private DispatcherOperation? _placement;
@@ -37,6 +25,7 @@ public partial class ControlPanel : Window
     public TrayService? Tray { get; set; }
     public event Action? SettingsRequested;
     public event Action<int>? LatencySettingsRequested;
+    public event Action? UpdateRequested;
     public event Action? QuitRequested;
     public ControlPanel(AppViewModel viewModel) : this(viewModel, null) { }
     internal ControlPanel(AppViewModel viewModel, Func<MonitorArea>? workArea)
@@ -73,7 +62,8 @@ public partial class ControlPanel : Window
             var maxDip = area.Rect.Height * .7 / area.Scale;
             var constraintsChanged = MaxHeight != maxDip || Width != CompactWidth;
             Width = CompactWidth;
-            DeviceScroll.MaxHeight = Math.Max(80, maxDip - 280);
+            // Fixed rows include the master volume label line; keep the scroll cap in sync so MaxHeight cannot clip them.
+            DeviceScroll.MaxHeight = Math.Max(80, maxDip - 304);
             MaxHeight = maxDip;
             if (constraintsChanged || ActualHeight <= 0) UpdateLayout();
             // Native placement converts this DIP width to monitor pixels once.
@@ -122,6 +112,7 @@ public partial class ControlPanel : Window
     private void OnPopupOpened(object? sender, EventArgs args) => MenuOpen = true;
     private void OnPopupClosed(object? sender, EventArgs args) { MenuOpen = false; if (!IsActive) Hide(); }
     private void OnSettings(object sender, RoutedEventArgs args) => SettingsRequested?.Invoke();
+    private void OnUpdate(object sender, RoutedEventArgs args) => UpdateRequested?.Invoke();
     private void OnLatencySettings(object sender, RoutedEventArgs args)
         => LatencySettingsRequested?.Invoke(_viewModel.CanEditGlobalLatency ? SettingsViewModel.StreamingPage : SettingsViewModel.ReceiversPage);
     private void OnQuit(object sender, RoutedEventArgs args) => QuitRequested?.Invoke();
@@ -131,7 +122,6 @@ public partial class ControlPanel : Window
     {
         _viewModel.Receivers.CollectionChanged -= OnReceiversChanged;
         _placement?.Abort();
-        _soundGlowWindow?.Close();
         _allowClose = true; Close();
     }
 }

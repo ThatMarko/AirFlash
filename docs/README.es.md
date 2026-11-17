@@ -50,7 +50,7 @@ o una herramienta similar, y enruta el audio que deseas transmitir hacia ese dis
 - Proporciona un ecualizador de diez bandas con ajustes predefinidos y previsualización en vivo en Configuración.
 - Captura una aplicación seleccionada o dispositivos de reproducción/grabación, incluidos dispositivos de audio virtuales.
 - Libera las sesiones de AirPlay tras un período de silencio configurable y se reconecta cuando el audio regresa.
-- Disponible como aplicación portable x64 para Windows con interfaz en inglés, chino simplificado, chino tradicional, alemán y español.
+- Disponible como aplicación portable x64 para Windows con interfaz en inglés, chino simplificado, chino tradicional, alemán, español, francés, italiano, portugués de Brasil, japonés, coreano y ruso.
 
 ## Plan de características
 
@@ -163,8 +163,9 @@ AirFlash utiliza intencionalmente almacenamiento limpio de la aplicación bajo `
 `%LOCALAPPDATA%/AirFlash`. No lee configuraciones, credenciales o cachés del motor creadas por el nombre de
 producto anterior; los usuarios deben configurar y emparejar nuevamente tras instalar AirFlash.
 
-Utiliza **Configuración > Acerca de > Buscar actualizaciones** para buscar una versión estable y abrir su página
-de descarga. Las comprobaciones solo se ejecutan cuando se solicitan.
+AirFlash busca una versión estable al iniciar de forma predeterminada; puedes desactivarlo en **Configuración > General**.
+Utiliza **Configuración > Acerca de > Buscar actualizaciones** para buscar manualmente y abrir la página de descarga.
+Cuando hay una versión más reciente, el panel de control muestra una entrada **Actualizar** que abre la página Acerca de.
 
 El perfil de tiempo real tiene como objetivo 120 ms; los tiempos objetivo y de transporte local no son mediciones
 de latencia acústica de extremo a extremo.

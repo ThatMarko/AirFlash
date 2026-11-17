@@ -9,7 +9,7 @@ The full `--ui-smoke` suite includes scrolling checks. From the directory contai
 .\AirFlash.exe --ui-smoke --ui-scroll-smoke --ui-language zh-CN --output artifacts/settings-scroll-zh/report.json
 ```
 
-The fixture visits all eight pages in light and dark themes, requesting window sizes of 880×640 and 640×440. Reports record the realized sizes, which may be constrained by the desktop. It measures clearance from realized scrollbars, checks access to the last content and frequency band, and sends routed wheel input over Equalizer labels and sliders. That input must move the surrounding page exactly once without changing band gains, horizontal position, saved settings or playback. Reports include measurements, failures and Monitor/Equalizer renders.
+The fixture visits all nine pages in light and dark themes, requesting window sizes of 880×640 and 640×440. Reports record the realized sizes, which may be constrained by the desktop. It measures clearance from realized scrollbars, checks access to the last content and frequency band, and sends routed wheel input over Equalizer labels and sliders. That input must move the surrounding page exactly once without changing band gains, horizontal position, saved settings or playback. Reports include measurements, failures and Monitor/Equalizer renders.
 
 For a bounded manual pointer check, add `--ui-scroll-hold` to a focused command. After the automated checks, the same isolated Settings window remains open on Equalizer for 60 seconds. Check wheel scrolling over bands, drag the page scrollbar to both ends, and visit other pages. The fixture checks settings and playback again after the hold, then closes its own window.
 
@@ -24,7 +24,7 @@ on stop or reconnect, and appears in the copied summary. Raw fault details, moni
 history and the JSON diagnostic export are retained separately.
 
 Run the isolated fixture for each supported UI language (`en-US`, `zh-CN`, `zh-TW`,
-`de-DE`, `es-ES`):
+`de-DE`, `es-ES`, `fr-FR`, `it-IT`, `pt-BR`, `ja-JP`, `ko-KR`, `ru-RU`):
 
 ```powershell
 .\AirFlash.exe --ui-smoke --ui-pairing-hint-smoke --ui-language de-DE --output artifacts/pairing-hint-de/report.json

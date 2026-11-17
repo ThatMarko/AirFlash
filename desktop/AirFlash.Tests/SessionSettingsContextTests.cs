@@ -470,7 +470,39 @@ public sealed class SessionSettingsContextTests
         Assert.Equal(new[] { first.Id, second.Id, third.Id }, resolved.Peers.Select(member => member.Id));
         Assert.Equal(17, resolved.Members[2].SyncOffsetMs);
         Assert.Equal(canonicalThird.Id, incoming.SoftwareGroups[0].Members[2].ReceiverId);
+    }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void MultiRoomProjectionMatchesOffsetsToUniqueSpeakerIdentity(bool ambiguous)
+    {
+        var first = Legacy();
+        var second = Legacy("192.0.2.11");
+        var third = Legacy("192.0.2.12");
+        var canonicalThird = Canonical(third, "canonical-third");
+        var settings = Settings(first);
+        settings.SoftwareGroups.Add(new()
+        {
+            Id = "software:fixture", GroupMode = "multi_room",
+            Members = [new() { ReceiverId = first.Id, OffsetMs = 10 }, new() { ReceiverId = second.Id, OffsetMs = 20 },
+                new() { ReceiverId = third.Id, OffsetMs = 30 }]
+        });
+        var receiver = SoftwareStereo.Resolve([first, second, third], settings).Single();
+        var incoming = settings.Clone();
+        incoming.ReceiverAliases["new-third-alias"] = canonicalThird.Id;
+        incoming.SoftwareGroups[0].Members =
+        [
+            new() { ReceiverId = "new-third-alias", OffsetMs = 300 },
+            new() { ReceiverId = second.Id, OffsetMs = 200 },
+            new() { ReceiverId = ambiguous ? canonicalThird.Id : "unrelated", OffsetMs = 400 }
+        ];
+
+        var projected = new SessionSettingsContext([canonicalThird], Migration(third, canonicalThird)).Project(incoming, settings, receiver);
+        var members = Assert.Single(projected.SoftwareGroups).Members;
+
+        Assert.Equal(new[] { first.Id, second.Id, third.Id }, members.Select(member => member.ReceiverId));
+        Assert.Equal(new[] { 10, 200, ambiguous ? 30 : 300 }, members.Select(member => member.OffsetMs));
     }
 
     [Fact]

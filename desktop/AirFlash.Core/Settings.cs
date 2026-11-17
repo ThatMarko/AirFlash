@@ -8,7 +8,7 @@ public sealed class ReceiverOptions : ObservableObject
 {
     public void CopyFrom(ReceiverOptions source)
     {
-        AutoConnect = source.AutoConnect; Hidden = source.Hidden; Volume = source.Volume;
+        AutoConnect = source.AutoConnect; Hidden = source.Hidden; Volume = source.Volume; LastVolume = source.LastVolume;
         LatencyMode = source.LatencyMode; CustomBufferMs = source.CustomBufferMs; ForceLatency = source.ForceLatency; StandbySeconds = source.StandbySeconds;
         Codec = source.Codec; SampleRate = source.SampleRate; Transport = source.Transport; Timing = source.Timing;
     }
@@ -18,6 +18,12 @@ public sealed class ReceiverOptions : ObservableObject
     public bool Hidden { get => _Hidden; set => Set(ref _Hidden, value); }
     private int? _Volume = null;
     public int? Volume { get => _Volume; set => Set(ref _Volume, value); }
+    /// <summary>
+    /// Last audible device volume observed for this receiver. Restored at the
+    /// start of the next session; null means the receiver has no history yet.
+    /// </summary>
+    private int? _LastVolume = null;
+    public int? LastVolume { get => _LastVolume; set => Set(ref _LastVolume, value); }
     private string? _LatencyMode = null;
     public string? LatencyMode { get => _LatencyMode; set => Set(ref _LatencyMode, value); }
     private bool? _ForceLatency;
@@ -94,6 +100,8 @@ public sealed class AppSettings : ObservableObject
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     private bool _StartAtLogin = false;
     public bool StartAtLogin { get => _StartAtLogin; set => Set(ref _StartAtLogin, value); }
+    private bool _CheckUpdatesOnStartup = true;
+    public bool CheckUpdatesOnStartup { get => _CheckUpdatesOnStartup; set => Set(ref _CheckUpdatesOnStartup, value); }
     private bool _MuteWhileStreaming = true;
     public bool MuteWhileStreaming { get => _MuteWhileStreaming; set => Set(ref _MuteWhileStreaming, value); }
     private bool _AutoConnectOnDiscover = false;
@@ -173,7 +181,7 @@ public sealed class AppSettings : ObservableObject
         if (Receivers is null || ReceiverAliases is null || ManualReceivers is null || SoftwareGroups is null
             || SoftwareGroups.Any(group => group is null) || Receivers.Values.Any(value => value is null))
             return L.Get("Configuration contains invalid receiver or manual-receiver collections.");
-        if (UiLanguage is not ("system" or "en" or "zh" or "de" or "es")) return L.Get("Select a valid language.");
+        if (UiLanguage is not ("system" or "en" or "zh" or "zh-TW" or "de" or "es" or "fr" or "it" or "pt" or "ja" or "ko" or "ru")) return L.Get("Select a valid language.");
         if (Theme is not ("system" or "dark" or "light")) return L.Get("Select a valid theme.");
         if (DiscoveryInterfaceId is null || (DiscoveryInterfaceId.Length > 0 && !Guid.TryParse(DiscoveryInterfaceId, out _))) return L.Get("Select a valid network interface.");
         if (MasterVolume is < 0 or > 100) return L.Get("Master volume must be between 0 and 100.");
@@ -190,6 +198,7 @@ public sealed class AppSettings : ObservableObject
             if (options.Codec is not ("auto" or "pcm" or "alac") || options.Transport is not ("auto" or "realtime" or "buffered") || options.Timing is not ("auto" or "ptp" or "ntp" or "follow")) return L.Get("Invalid receiver stream profile.");
             if (options.SampleRate is not null && !SampleRates.Contains(options.SampleRate)) return L.Get("Select a valid stream sample rate.");
             if (options.Volume is < 0 or > 100) return L.Get("Device volume must be between 0 and 100.");
+            if (options.LastVolume is < 0 or > 100) return L.Get("Device volume must be between 0 and 100.");
             if (options.LatencyMode is not null && !Modes.Contains(options.LatencyMode)) return L.Get("Invalid device latency mode.");
             if (options.CustomBufferMs is < 0 or > 2000) return L.Get("Device custom latency must be between 0 and 2000 ms.");
             if (options.StandbySeconds is { } seconds && (!double.IsFinite(seconds) || seconds is < 5 or > 300)) return L.Get("Device standby threshold must be between 5 and 300 seconds.");
@@ -227,7 +236,7 @@ public sealed class AppSettings : ObservableObject
     public void CopyFrom(AppSettings source)
     {
         SchemaVersion = source.SchemaVersion;
-        StartAtLogin = source.StartAtLogin; MuteWhileStreaming = source.MuteWhileStreaming;
+        StartAtLogin = source.StartAtLogin; CheckUpdatesOnStartup = source.CheckUpdatesOnStartup; MuteWhileStreaming = source.MuteWhileStreaming;
         AutoConnectOnDiscover = source.AutoConnectOnDiscover; ForceReconnect = source.ForceReconnect;
         MaxReconnectAttempts = source.MaxReconnectAttempts; UiLanguage = source.UiLanguage; Theme = source.Theme;
         DiscoveryInterfaceId = source.DiscoveryInterfaceId;

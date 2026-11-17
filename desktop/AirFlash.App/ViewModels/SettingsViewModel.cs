@@ -9,13 +9,12 @@ namespace AirFlash.App.ViewModels;
 
 public sealed class SettingsViewModel : ObservableObject, IDisposable
 {
-    public const int StreamingPage = 1, EqualizerPage = 2, AudioCapturePage = 3, ReceiversPage = 4, MonitorPage = 5, NetworkPage = 6;
+    public const int AudioCapturePage = 1, StreamingPage = 2, EqualizerPage = 3, ReceiversPage = 4, MonitorPage = 5, NetworkPage = 6, SoundGlowPage = 7, AboutPage = 8;
     private readonly Guid _equalizerOwner = Guid.NewGuid();
     public EqualizerEditor Equalizer { get; }
     private string _equalizerError = "";
     public string EqualizerError { get => _equalizerError; private set => Set(ref _equalizerError, value); }
-    private static readonly System.Net.Http.HttpClient UpdateClient = new() { MaxResponseContentBufferSize = 1024 * 1024 };
-    public UpdateCheckState Updates { get; } = new(new UpdateService(UpdateClient), Version.Parse(AppPaths.Version));
+    public UpdateCheckState Updates => App.Updates;
     public AsyncCommand CheckUpdatesCommand { get; }
     public RelayCommand OpenDownloadCommand { get; }
     public AppViewModel App { get; }
@@ -68,9 +67,9 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
             if (value == ReceiversPage) LoadReceiverProfiles();
         }
     }
-    public string[] Pages { get; } = [L.Get("General"), L.Get("AirFlash streaming"), L.Get("Equalizer"), L.Get("Audio capture"), L.Get("Receivers"), L.Get("Monitor"), L.Get("Network"), L.Get("About")];
+    public string[] Pages { get; } = [L.Get("General"), L.Get("Audio capture"), L.Get("AirFlash streaming"), L.Get("Equalizer"), L.Get("Receivers"), L.Get("Monitor"), L.Get("Network"), L.Get("Sound Glow"), L.Get("About")];
     public string PageTitle => Pages[Math.Clamp(SelectedPage, 0, Pages.Length - 1)];
-    public string PageDescription => new[] { L.Get("Customize startup and appearance"), L.Get("Balance responsiveness and connection stability"), L.Get("Shape the sound sent to all receivers"), L.Get("Choose the audio source to send to HomePod"), L.Get("Manage receivers, connections and per-device settings"), L.Get("Live statistics for the current session"), L.Get("Choose where AirPlay receivers are discovered"), L.Get("Windows audio, wirelessly to HomePod") }[Math.Clamp(SelectedPage, 0, Pages.Length - 1)];
+    public string PageDescription => new[] { L.Get("Customize startup and appearance"), L.Get("Choose the audio source to send to HomePod"), L.Get("Balance responsiveness and connection stability"), L.Get("Shape the sound sent to all receivers"), L.Get("Manage receivers, connections and per-device settings"), L.Get("Live statistics for the current session"), L.Get("Choose where AirPlay receivers are discovered"), L.Get("Test HomePod light effects with synthetic covers and metadata."), L.Get("Windows audio, wirelessly to HomePod") }[Math.Clamp(SelectedPage, 0, Pages.Length - 1)];
     public ObservableCollection<AudioEndpoint> Endpoints { get; } = [];
     public ObservableCollection<DiscoveryAdapterOption> DiscoveryAdapters { get; } = [];
     private string _networkStatus = "";
@@ -100,6 +99,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
 
     internal SettingsViewModel(AppViewModel app, Action<string>? diagnosticsWriter)
     {
+        App = app; Draft = app.Settings.Clone(); _baseline = Draft.Clone();
         CheckUpdatesCommand = new(Updates.CheckAsync, _ => { });
         OpenDownloadCommand = new(() =>
         {
@@ -110,7 +110,6 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
             }
             catch (Exception error) { ShowError(error); }
         });
-        App = app; Draft = app.Settings.Clone(); _baseline = Draft.Clone();
         ResetCommand = new(ResetAsync, ShowError, () => CanEdit && !App.IsClosing);
         RefreshReceiverProfilesCommand = new(() => { _profileCache.Clear(); LoadReceiverProfiles(); }, () => CanEdit && App.EngineReady && !App.IsClosing);
         Equalizer = new(Draft.Equalizer, EqualizerSampleRate, EqualizerChanged);
@@ -554,7 +553,7 @@ public sealed class SettingsViewModel : ObservableObject, IDisposable
         if (_disposed) return;
         App.Session.EqualizerFeedback -= EqualizerFeedback; Equalizer.Dispose();
         _ = ClearPreviewAsync();
-        Updates.Dispose(); _disposed = true; App.CatalogChanged -= RefreshCatalog; App.Endpoints.Changed -= UpdateEndpoints;
+        _disposed = true; App.CatalogChanged -= RefreshCatalog; App.Endpoints.Changed -= UpdateEndpoints;
         _profileStop.Cancel();
         _profileStop.Dispose();
         NetworkChange.NetworkAddressChanged -= NetworkChanged; NetworkChange.NetworkAvailabilityChanged -= NetworkAvailabilityChanged;
