@@ -6658,6 +6658,40 @@ mod tests {
     }
 
     #[test]
+    fn capture_metrics_report_matches_the_aggregation_snapshot() {
+        let source = crate::live::tests::source();
+        let mut baseline = None;
+        let mut telemetry = crate::telemetry::SessionTelemetry::new();
+        let initial = sample_capture(&source, &mut baseline, &mut telemetry);
+        assert_eq!(
+            serde_json::to_value(&initial.metrics).unwrap(),
+            serde_json::to_value(baseline.as_ref().unwrap()).unwrap()
+        );
+
+        source.packet(0.0).unwrap();
+        let sampled = sample_capture(&source, &mut baseline, &mut telemetry);
+        assert_eq!(telemetry.underruns_idle, 1);
+        assert_eq!(telemetry.underruns_active, 0);
+        // Capture can change after aggregation, before the report is serialized.
+        source.packet(0.0).unwrap();
+        assert_eq!(
+            serde_json::to_value(&sampled.metrics).unwrap(),
+            serde_json::to_value(baseline.as_ref().unwrap()).unwrap()
+        );
+        let event = json!({"event":"capture_metrics","metrics":sampled});
+        assert_eq!(event["metrics"]["underrun_packets"], 1);
+        assert_eq!(event["metrics"]["fully_padded_packets"], 1);
+        assert_eq!(source.metrics().underrun_packets, 2);
+
+        let final_sample = sample_capture(&source, &mut baseline, &mut telemetry);
+        assert_eq!(telemetry.underruns_idle, 2);
+        assert_eq!(final_sample.metrics.underrun_packets, 2);
+        assert_eq!(
+            serde_json::to_value(final_sample.metrics).unwrap(),
+            serde_json::to_value(baseline.as_ref().unwrap()).unwrap()
+        );
+    }
+    #[test]
     fn session_summary_copies_every_number_from_its_existing_counter() {
         let options = summary_options("abc", "software_stereo", 0);
         let (mut member, _receiver, _server) = local_member();
