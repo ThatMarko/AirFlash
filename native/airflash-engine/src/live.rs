@@ -693,12 +693,8 @@ fn bind_target(target: &Target, stream_rate: u32, stop: &AtomicBool) -> Result<V
                 }
             }
             let candidates = crate::applications::matching(path)?;
-            let plan = crate::applications::bind_plan(
-                path,
-                &candidates,
-                *pinned,
-                MAX_CAPTURE_INSTANCES,
-            );
+            let plan =
+                crate::applications::bind_plan(path, &candidates, *pinned, MAX_CAPTURE_INSTANCES);
             ensure!(!plan.is_empty(), "no running instance of {path}");
             let mut bindings = Vec::with_capacity(plan.len());
             let mut last_error = None;
@@ -709,8 +705,9 @@ fn bind_target(target: &Target, stream_rate: u32, stop: &AtomicBool) -> Result<V
                 }
             }
             if bindings.is_empty() {
-                return Err(last_error
-                    .unwrap_or_else(|| anyhow::anyhow!("no running instance of {path}")));
+                return Err(
+                    last_error.unwrap_or_else(|| anyhow::anyhow!("no running instance of {path}"))
+                );
             }
             Ok(bindings)
         }
@@ -844,7 +841,10 @@ impl SilenceProbe {
         }
         // The first probe uses the one-minute gap; each probe that did not
         // restore sustained audio moves the ladder one step down.
-        let step = self.silent_probes.saturating_sub(1).min(self.intervals.len() - 1);
+        let step = self
+            .silent_probes
+            .saturating_sub(1)
+            .min(self.intervals.len() - 1);
         let interval = self.intervals[step];
         if self
             .last_probe
@@ -1196,9 +1196,8 @@ fn drain_multi(
             *last_packet = Instant::now();
             *packets += 1;
             state.lock().unwrap().metrics.capture_frames += frames as u64;
-            binding_end = Some(
-                timestamp.saturating_add(frames as u64 * 1_000_000_000 / binding.rate as u64),
-            );
+            binding_end =
+                Some(timestamp.saturating_add(frames as u64 * 1_000_000_000 / binding.rate as u64));
         }
         if let Some(end) = binding_end {
             round_end = Some(round_end.map_or(end, |current| current.min(end)));
@@ -1409,12 +1408,9 @@ fn capture(
                     // the log names the storm instead of repeating the same line.
                     let stamp = Instant::now();
                     rebind_times.push_back(stamp);
-                    while rebind_times
-                        .front()
-                        .is_some_and(|oldest| {
-                            stamp.saturating_duration_since(*oldest) > REBIND_STORM_WINDOW
-                        })
-                    {
+                    while rebind_times.front().is_some_and(|oldest| {
+                        stamp.saturating_duration_since(*oldest) > REBIND_STORM_WINDOW
+                    }) {
                         rebind_times.pop_front();
                     }
                     let window = rebind_times.len() as u32;
@@ -1628,10 +1624,7 @@ pub(crate) mod tests {
         // quiet again. That burst used to clear `last_probe` and restart the
         // two-second window, which is exactly the 2.36 s storm cadence.
         assert!(!probe.observe(start + Duration::from_secs(41), ProbeInput::Audible));
-        assert!(!probe.observe(
-            start + Duration::from_millis(41_050),
-            ProbeInput::Muted
-        ));
+        assert!(!probe.observe(start + Duration::from_millis(41_050), ProbeInput::Muted));
         assert!(!probe.observe(start + Duration::from_secs(50), ProbeInput::Muted));
         assert!(!probe.observe(start + Duration::from_secs(99), ProbeInput::Muted));
         assert!(probe.observe(start + Duration::from_secs(100), ProbeInput::Muted));
@@ -1919,8 +1912,14 @@ pub(crate) mod tests {
         // Output is TPDF-dithered, so a single sample may sit one LSB either side.
         let left = i16::from_be_bytes([last[0], last[1]]);
         let right = i16::from_be_bytes([last[2], last[3]]);
-        assert!((i32::from(left) - i32::from(expected)).abs() <= 1, "{left} vs {expected}");
-        assert!((i32::from(right) + i32::from(expected)).abs() <= 1, "{right} vs -{expected}");
+        assert!(
+            (i32::from(left) - i32::from(expected)).abs() <= 1,
+            "{left} vs {expected}"
+        );
+        assert!(
+            (i32::from(right) + i32::from(expected)).abs() <= 1,
+            "{right} vs -{expected}"
+        );
         assert!(marker.is_some());
     }
     #[test]

@@ -210,7 +210,14 @@ impl ProbeOptions {
             ensure!(seen_peers.insert(peer.host), "duplicate peer");
         }
         ensure!(
-            ["", "single", "native_stereo", "software_stereo", "multi_room"].contains(&self.group_mode.as_str()),
+            [
+                "",
+                "single",
+                "native_stereo",
+                "software_stereo",
+                "multi_room"
+            ]
+            .contains(&self.group_mode.as_str()),
             "invalid group mode"
         );
         for peer in &self.peers {
@@ -783,36 +790,40 @@ impl Member {
         if let Some(id) = clock_id {
             // A HomePod mini 2 accepts a bare SETPEERS but never completes the PTP
             // exchange; it needs the SETPEERSX timing-peer form.
-            let (method, peers) = if member.compat.ptp_expected() == Some(true) {
-                let timing_peer = |peer_id: String, clock: Option<u64>, address: String| {
-                    let mut fields = vec![("ID", string(peer_id)), ("DeviceType", number(0))];
-                    if let Some(clock) = clock {
-                        fields.push(("ClockID", number(clock)));
-                    }
-                    fields.push(("SupportsClockPortMatchingOverride", Value::Boolean(false)));
-                    fields.push(("Addresses", Value::Array(vec![string(address)])));
-                    dictionary(fields)
+            let (method, peers) =
+                if member.compat.ptp_expected() == Some(true) {
+                    let timing_peer = |peer_id: String, clock: Option<u64>, address: String| {
+                        let mut fields = vec![("ID", string(peer_id)), ("DeviceType", number(0))];
+                        if let Some(clock) = clock {
+                            fields.push(("ClockID", number(clock)));
+                        }
+                        fields.push(("SupportsClockPortMatchingOverride", Value::Boolean(false)));
+                        fields.push(("Addresses", Value::Array(vec![string(address)])));
+                        dictionary(fields)
+                    };
+                    let mut peers = vec![timing_peer(
+                        timing_peer_id.clone(),
+                        Some(id),
+                        local.to_string(),
+                    )];
+                    peers.extend(options.peers.iter().map(|p| {
+                        timing_peer(Uuid::new_v4().to_string(), None, p.host.to_string())
+                    }));
+                    ("SETPEERSX", peers)
+                } else {
+                    let mut peers: Vec<Value> = options
+                        .peers
+                        .iter()
+                        .map(|p| string(p.host.to_string()))
+                        .collect();
+                    peers.push(string(local.to_string()));
+                    ("SETPEERS", peers)
                 };
-                let mut peers =
-                    vec![timing_peer(timing_peer_id.clone(), Some(id), local.to_string())];
-                peers.extend(options.peers.iter().map(|p| {
-                    timing_peer(Uuid::new_v4().to_string(), None, p.host.to_string())
-                }));
-                ("SETPEERSX", peers)
-            } else {
-                let mut peers: Vec<Value> = options
-                    .peers
-                    .iter()
-                    .map(|p| string(p.host.to_string()))
-                    .collect();
-                peers.push(string(local.to_string()));
-                ("SETPEERS", peers)
-            };
-            member.conn.lock().unwrap().plist_request(
-                method,
-                &member.uri,
-                &Value::Array(peers),
-            )?;
+            member
+                .conn
+                .lock()
+                .unwrap()
+                .plist_request(method, &member.uri, &Value::Array(peers))?;
             ptp.as_ref().unwrap().activate(peer.host, local);
         }
         let requested_latency = peer.profile.latency_ms.unwrap_or(options.latency_ms);
@@ -2295,18 +2306,23 @@ fn send_packets(
         .iter()
         .map(|m| (m.peer.host.to_string(), m.uri.clone(), m.conn.clone()))
         .collect::<Vec<_>>();
-    let volume_workers = if options.group_mode == "software_stereo" || options.group_mode == "multi_room" {
-        members
-            .iter()
-            .zip(volume_peers.iter().cloned())
-            .map(|(member, peer)| {
-                crate::volume::Worker::start_member(peer, volume.clone(), member.peer.volume)
-            })
-            .collect::<Result<Vec<_>>>()?
-    } else {
-        let initial = members.iter().find_map(|member| member.peer.volume);
-        vec![crate::volume::Worker::start(volume_peers.clone(), volume, initial)?]
-    };
+    let volume_workers =
+        if options.group_mode == "software_stereo" || options.group_mode == "multi_room" {
+            members
+                .iter()
+                .zip(volume_peers.iter().cloned())
+                .map(|(member, peer)| {
+                    crate::volume::Worker::start_member(peer, volume.clone(), member.peer.volume)
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            let initial = members.iter().find_map(|member| member.peer.volume);
+            vec![crate::volume::Worker::start(
+                volume_peers.clone(),
+                volume,
+                initial,
+            )?]
+        };
     let metadata_timeline =
         crate::metadata::Timeline::new(members[0].media.packetizer.timestamp, rate);
     let metadata_worker = crate::metadata::Worker::start(
@@ -2375,7 +2391,9 @@ fn send_packets(
             }
             metadata_timeline.set(members[0].media.packetizer.timestamp);
             if let Some(worker) = &glow_worker {
-                for event in worker.events.try_iter() { emit(event); }
+                for event in worker.events.try_iter() {
+                    emit(event);
+                }
             }
             for (member, position) in members.iter().zip(&positions) {
                 position.store(
@@ -4219,13 +4237,7 @@ mod tests {
         // The left control connection died with its feedback probe, so no
         // TEARDOWN can reach it; the right member proves the session is still
         // torn down instead of being leaked.
-        assert!(
-            !left_methods
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|m| m == "TEARDOWN")
-        );
+        assert!(!left_methods.lock().unwrap().iter().any(|m| m == "TEARDOWN"));
         assert_eq!(
             right_methods
                 .lock()
@@ -4251,12 +4263,8 @@ mod tests {
             .preemption_signal(preemption::Signal::ClockLost);
         let now = Instant::now();
         let mut takeovers = preemption::TakeoverCounters::default();
-        let (poll, _) = member.poll_preemption(
-            &Cancellation::default(),
-            &mut takeovers,
-            now,
-            &|_| {},
-        );
+        let (poll, _) =
+            member.poll_preemption(&Cancellation::default(), &mut takeovers, now, &|_| {});
         assert!(matches!(poll, PreemptionPoll::None));
         assert!(!member.ownership_uncertain);
         assert!(!member.health.ownership_uncertain());
