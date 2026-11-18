@@ -2,7 +2,7 @@
 
 ## Current prepared package — 2026-11-18
 
-The prepared umbrella issue and eight-section PR target `codex/pr-ready` at `2812b6f`, six linear commits above upstream v0.7.0 at `60e3390`. The current PR description links the Windows qualification for this commit. The November 17 review covers the earlier candidate and its desktop fixture repairs. [Umbrella issue](reliability-current-issue.md) · [Draft PR](reliability-current-pr.md) · [Earlier integration review](../RELIABILITY-REVIEW-2026-11-05.md#november-17-upstream-v070-sync)
+The prepared umbrella issue and eight-section PR target `codex/pr-ready` at `d47fe72`, seven linear commits above upstream v0.7.0 at `60e3390`. The current PR description links the Windows qualification for this commit. The November 17 review covers the earlier candidate and its desktop fixture repairs. [Umbrella issue](reliability-current-issue.md) · [Draft PR](reliability-current-pr.md) · [Earlier integration review](../RELIABILITY-REVIEW-2026-11-05.md#november-17-upstream-v070-sync)
 
 Upstream has no open PRs at this review. Issues #6, #7, #14 and #24 are closed, and PR #25 is merged. The proposed PR follows up on stored receiver passwords and prompt lifetime. The open iOS 27 audio report (#37), master-volume feature request (#43), and grouping request for an existing HomePod stereo pair (#55) are separate from the acceptance claims. The draft awaits a separately authorized upstream submission.
 
