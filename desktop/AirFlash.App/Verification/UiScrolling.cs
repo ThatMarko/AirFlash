@@ -438,6 +438,12 @@ internal static class UiScrolling
                             && Math.Abs(slider.ActualWidth - row.ColumnDefinitions[1].ActualWidth) <= 1
                             && Bounds(percentage, row).Left >= track.Right - .5,
                             $"{label}: the active volume track fills the column between the status slot and percentage", checks, failures);
+                        var master = UiSmoke.Descendants(panel).OfType<Slider>()
+                            .Single(candidate => candidate.IsVisible && AutomationProperties.GetName(candidate) == L.Get("Master volume"));
+                        var masterBounds = Bounds(master, panel);
+                        var activeBounds = Bounds(slider, panel);
+                        Observe(Math.Abs(masterBounds.Left - activeBounds.Left) <= 1 && Math.Abs(masterBounds.Right - activeBounds.Right) <= 1,
+                            $"{label}: master and receiver volume tracks align during overflow", checks, failures);
                         UiSmoke.Render(panel, Path.Combine(directory, $"receiver-scroll-active-{(dark ? "dark" : "light")}-{dpi}.png"), dpi / 96d);
                         var volume = slider.Value;
                         Wheel(slider, -120); await Pump();

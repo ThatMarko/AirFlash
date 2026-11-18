@@ -313,10 +313,15 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="40"/>
                 <ColumnDefinition Width="Auto" SharedSizeGroup="VolumeMute"/>
+                <ColumnDefinition Width="Auto"/>
               </Grid.ColumnDefinitions>
               <Slider Style="{StaticResource VolumeSlider}" Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding MasterVolume, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" AutomationProperties.Name="{loc:Text 'Master volume'}" PreviewMouseLeftButtonDown="OnSliderPreviewMouseLeftButtonDown"/>
               <TextBlock Grid.Column="2" Text="{Binding MasterVolume, StringFormat={}{0}%}" HorizontalAlignment="Right" VerticalAlignment="Center"/>
               <Button Grid.Column="3" Style="{StaticResource VolumeMuteButton}" Content="{Binding MuteLabel}" Command="{Binding MuteCommand}" AutomationProperties.Name="{Binding MuteLabel}"/>
+              <Border Grid.Column="4" IsHitTestVisible="False"
+                      Width="{Binding ActualWidth, ElementName=DeviceScrollGutter}"
+                      Margin="{Binding Margin, ElementName=DeviceScrollGutter}"
+                      Visibility="{Binding Visibility, ElementName=DeviceScrollGutter}"/>
             </Grid>
           </StackPanel>
         </Border>

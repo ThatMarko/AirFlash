@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
 using AirFlash.App.Services;
@@ -10,6 +11,17 @@ internal static class UiDiscoveryLifecycle
 {
     internal static async Task RunAsync(List<string> checks)
     {
+        foreach (var (native, helpers) in new[] { (1, 0), (0, 1) })
+        {
+            var retained = DiscoveryPerf.CreateReport(true, native, helpers, [], []);
+            var report = JsonSerializer.SerializeToElement(retained.Report);
+            Check(!retained.Ok && report.GetProperty("all_queries_stopped").GetBoolean()
+                && !report.GetProperty("all_queries_released").GetBoolean(),
+                "discovery performance report distinguishes logical stop from retained ownership", checks);
+        }
+        var settled = DiscoveryPerf.CreateReport(true, 0, 0, [], []);
+        Check(settled.Ok && JsonSerializer.SerializeToElement(settled.Report).GetProperty("all_queries_released").GetBoolean(),
+            "discovery performance report preserves the release field when all owners settle", checks);
         var dispatcher = Application.Current.Dispatcher;
         var dispatcherThread = Environment.CurrentManagedThreadId;
         Check(dispatcher.CheckAccess(), "discovery lifecycle runs on the WPF dispatcher", checks);
