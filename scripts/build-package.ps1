@@ -95,6 +95,9 @@ function New-AirFlashPackage {
     $build = [IO.Path]::GetFullPath($BuildDirectory)
     $output = [IO.Path]::GetFullPath($OutputDirectory)
     $compatibility = [IO.Path]::GetFullPath($CompatibilityArtifacts)
+    # An unsafe output directory must leave the previous build available.
+    # Each removal still checks its own tree immediately before cleanup.
+    Assert-AirFlashBuildDirectory -RepoRoot $repoRoot -Path $output -IncludeContents
     Remove-AirFlashBuildDirectory $repoRoot $build
     Remove-AirFlashBuildDirectory $repoRoot $output
     New-Item -ItemType Directory -Path (Join-Path $repoRoot 'artifacts') -Force | Out-Null

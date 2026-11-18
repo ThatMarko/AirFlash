@@ -281,6 +281,12 @@ impl Health {
     pub fn ownership_uncertain(&self) -> bool {
         self.0.lock().unwrap().ownership_uncertain
     }
+    /// Clear the ownership guard after a confirmed probe if no newer signal
+    /// is pending.
+    pub fn clear_ownership_uncertain(&self) {
+        self.clear_ownership_uncertain_if_current();
+    }
+
     /// The ownership probe settled on `ours_active`: the receiver is still
     /// serving this session, so a timing or feedback symptom was not a
     /// takeover. Clear the cleanup guard so an ordinary stop tears the session
@@ -639,17 +645,14 @@ pub(crate) fn observe_queued_ownership_signals(
     health: &Health,
 ) -> Option<Fault> {
     let mut connection = connection.lock().unwrap();
-    for message in connection.take_unsolicited() {
-        if preemption::incoming_teardown(message.method()).is_some() {
-            health.preemption_signal(Signal::UnexpectedTeardown);
-            return Some(Fault::new(
-                host,
-                "feedback",
-                "peer_teardown",
-                true,
-                "Receiver ended the session with an unexpected TEARDOWN",
-            ));
-        }
+    if connection.drain_unsolicited(|| health.preemption_signal(Signal::UnexpectedTeardown)) {
+        return Some(Fault::new(
+            host,
+            "feedback",
+            "peer_teardown",
+            true,
+            "Receiver ended the session with an unexpected TEARDOWN",
+        ));
     }
     if connection.take_close_requested() {
         health.preemption_signal(Signal::ConnectionClose);

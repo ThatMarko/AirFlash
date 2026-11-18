@@ -267,11 +267,38 @@ public partial class App : Application
     private static async Task<int> DiscoveryCheckAsync(string[] args)
     {
         using var discovery = new WindowsDiscovery();
-        IReadOnlyList<Receiver> receivers = []; var errors = new List<string>();
-        discovery.Changed += value => receivers = value;
-        discovery.Failed += error => { lock (errors) errors.Add(error.Message); };
-        discovery.Start(); await Task.Delay(TimeSpan.FromSeconds(8));
-        WriteOutput(args, new { ok = errors.Count == 0, receivers, errors }); return errors.Count == 0 ? 0 : 1;
+        return await RunDiscoveryCheckAsync(discovery, () => Task.Delay(TimeSpan.FromSeconds(8)), report => WriteOutput(args, report));
+    }
+    internal static async Task<int> RunDiscoveryCheckAsync(IDiscoveryService discovery, Func<Task> observe, Action<object> writeReport)
+    {
+        var gate = new object();
+        IReadOnlyList<Receiver> receivers = [];
+        var errors = new List<string>();
+        void Changed(IReadOnlyList<Receiver> value) { lock (gate) receivers = value; }
+        void Failed(string message) { lock (gate) errors.Add(message); }
+        discovery.Changed += Changed;
+        discovery.Failed += Failed;
+        try
+        {
+            discovery.Start();
+            await observe();
+            // DNS callbacks can still arrive while the report is being written.
+            Receiver[] observedReceivers;
+            string[] observedErrors;
+            lock (gate)
+            {
+                observedReceivers = receivers.ToArray();
+                observedErrors = errors.ToArray();
+            }
+            var ok = observedErrors.Length == 0;
+            writeReport(new { ok, receivers = observedReceivers, errors = observedErrors });
+            return ok ? 0 : 1;
+        }
+        finally
+        {
+            discovery.Changed -= Changed;
+            discovery.Failed -= Failed;
+        }
     }
     internal static void WriteOutput(string[] args, object value, JsonSerializerOptions? options = null)
     {

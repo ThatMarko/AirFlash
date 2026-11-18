@@ -426,6 +426,7 @@ struct Member {
     compat: crate::profile::CompatProfile,
     peer: Peer,
     conn: std::sync::Arc<std::sync::Mutex<Connection>>,
+    pending_teardown: std::sync::Arc<std::sync::atomic::AtomicBool>,
     events: Option<EventWorker>,
     feedback: Option<FeedbackWorker>,
     health: Health,
@@ -722,6 +723,7 @@ impl Member {
         let mut member = Self {
             compat,
             peer: peer.clone(),
+            pending_teardown: conn.pending_teardown(),
             conn: std::sync::Arc::new(std::sync::Mutex::new(conn)),
             events: None,
             feedback: None,
@@ -942,7 +944,7 @@ impl Member {
         // failure, never preemption: there is no media or PTP history to pair the
         // request with yet.
         ensure!(
-            member.conn.lock().unwrap().take_unsolicited().is_empty(),
+            !member.conn.lock().unwrap().has_unsolicited(),
             "receiver ended the session during setup"
         );
         Ok(member)
@@ -1347,11 +1349,17 @@ impl Member {
         self.feedback.take();
         // A receiver that took the session over must not receive a TEARDOWN from
         // the session it just displaced; the takeover already ended it.
-        if self.session_started && !self.preempted && !self.health.ownership_uncertain() {
+        if self.session_started && !self.preempted && !self.ownership_loss_pending() {
             let _ = self.conn.lock().unwrap().finish_session(&self.uri);
         }
         self.events.take();
         self.ready = false;
+    }
+
+    fn ownership_loss_pending(&self) -> bool {
+        // Read the pending flag first. The feedback worker latches Health
+        // before clearing the flag while holding the connection lock.
+        self.pending_teardown.load(Ordering::Acquire) || self.health.ownership_uncertain()
     }
 }
 impl Drop for Member {
@@ -1730,7 +1738,7 @@ fn run_live(
                 }
                 if Instant::now() >= next_metrics {
                     emit(
-                        json!({"event":"capture_metrics","metrics":crate::live::Metrics::unavailable_snapshot()}),
+                        json!({"event":"capture_metrics","metrics":crate::live::Metrics::default()}),
                     );
                     next_metrics = Instant::now() + Duration::from_secs(1);
                 }
@@ -1749,7 +1757,9 @@ fn run_live(
             if !standby.should_resume(live.last_audio(), at) {
                 live.discard_stale();
                 if Instant::now() >= next_metrics {
-                    emit(json!({"event":"capture_metrics","metrics":live.metrics()}));
+                    emit(
+                        json!({"event":"capture_metrics","metrics":live.capture_metrics_report()}),
+                    );
                     next_metrics = Instant::now() + Duration::from_secs(1);
                 }
                 thread::sleep(Duration::from_millis(20));
@@ -2175,7 +2185,7 @@ fn group_ownership_uncertain(members: &[Member]) -> bool {
         member.preempted
             || member.ownership_uncertain
             || member.preemption.session_ended()
-            || member.health.ownership_uncertain()
+            || member.ownership_loss_pending()
     })
 }
 
@@ -2551,7 +2561,7 @@ fn send_packets(
             schedule.max_lateness_us = schedule.max_lateness_us.max(late.as_micros());
             telemetry.observe_lateness(late.as_secs_f64() * 1000.0);
             if let Some(source) = &live {
-                if let Some(age) = source.sample_age_ms() {
+                if let Some(age) = source.queued_capture_age_ms() {
                     telemetry.capture_age.observe(age);
                 }
                 // Slow outer loop: sustained lateness trims the capture resampler.
@@ -3335,8 +3345,9 @@ fn sample_capture(
     source: &crate::live::Loopback,
     baseline: &mut Option<crate::live::Metrics>,
     telemetry: &mut crate::telemetry::SessionTelemetry,
-) -> crate::live::Metrics {
-    let metrics = source.metrics();
+) -> crate::live::CaptureMetricsReport {
+    let report = source.capture_metrics_report();
+    let metrics = &report.metrics;
     if let Some(previous) = baseline {
         telemetry.input_drops += metrics
             .dropped_frames
@@ -3370,7 +3381,7 @@ fn sample_capture(
         }
     }
     *baseline = Some(metrics.clone());
-    metrics
+    report
 }
 
 /// Copy per-member counters into the session block before a snapshot. The
@@ -4200,6 +4211,7 @@ mod tests {
                 profile: crate::profile::Profile::default(),
                 volume: None,
             },
+            pending_teardown: conn.pending_teardown(),
             conn: std::sync::Arc::new(std::sync::Mutex::new(conn)),
             events: None,
             feedback: None,
@@ -4647,6 +4659,20 @@ mod tests {
         server.join().unwrap();
     }
     #[test]
+    fn public_ownership_clear_preserves_queued_loss() {
+        let health = Health::default();
+        health.preemption_signal(preemption::Signal::UnexpectedTeardown);
+        health.clear_ownership_uncertain();
+        assert!(health.ownership_uncertain());
+        assert_eq!(
+            health.take_preemption_signals(),
+            vec![preemption::Signal::UnexpectedTeardown]
+        );
+        health.clear_ownership_uncertain();
+        assert!(!health.ownership_uncertain());
+    }
+
+    #[test]
     fn a_finished_ownership_probe_does_not_clear_a_newer_teardown() {
         let (mut member, _, worker) = local_member();
         let now = Instant::now();
@@ -5035,40 +5061,111 @@ mod tests {
 
     #[test]
     fn group_stop_checks_ownership_signals_already_read_by_other_control_workers() {
-        for signal in [
-            None,
-            Some(preemption::Signal::UnexpectedTeardown),
-            Some(preemption::Signal::ConnectionClose),
+        let timeout = Duration::from_secs(5);
+        for (signal, resolved) in [
+            (None, false),
+            (Some(preemption::Signal::UnexpectedTeardown), false),
+            (Some(preemption::Signal::ConnectionClose), false),
+            (Some(preemption::Signal::UnexpectedTeardown), true),
         ] {
-            let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
-            let address = receiver.local_addr().unwrap();
-            let (left, left_server, left_methods) = local_member_with(address, None);
-            let (right, right_server, right_methods) =
-                local_member_with_feedback_drop(address, None, Health::default(), false, signal);
+            let setup = |signal| {
+                let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+                receiver
+                    .set_read_timeout(Some(Duration::from_millis(30)))
+                    .unwrap();
+                let address = receiver.local_addr().unwrap();
+                let (mut member, server, methods) = local_member_with_feedback_drop(
+                    address,
+                    None,
+                    Health::default(),
+                    false,
+                    signal,
+                );
+                member.media.connect_audio(address).unwrap();
+                (member, (receiver, server, methods))
+            };
+            let (left, left_receiver) = setup(None);
+            let (right, right_receiver) = setup(signal);
             let mut members = [left, right];
-            // A control worker reads the signal while awaiting its own response.
-            // Feedback has already exited without processing it.
-            members[1]
-                .conn
-                .lock()
-                .unwrap()
-                .request("SET_PARAMETER", &members[1].uri, &[], b"volume: -15\r\n")
-                .unwrap();
-            assert!(!members[1].health.ownership_uncertain());
+            let connection = members[1].conn.clone();
+            let uri = members[1].uri.clone();
+            let health = members[1].health.clone();
+            let (streaming, start_control) = std::sync::mpsc::channel();
+            let (parsed, wait_parsed) = std::sync::mpsc::channel();
+            let (capture_sampled, release_control) = std::sync::mpsc::channel();
+            let control = thread::spawn(move || {
+                start_control.recv_timeout(timeout).unwrap();
+                let mut connection = connection.lock().unwrap();
+                connection
+                    .request("SET_PARAMETER", &uri, &[], b"volume: -15\r\n")
+                    .unwrap();
+                assert!(!health.ownership_uncertain());
+                if resolved {
+                    // Exercise the handoff and release of the queue marker before
+                    // a simulated successful ownership check clears Health.
+                    assert!(connection.drain_unsolicited(|| {
+                        health.preemption_signal(preemption::Signal::UnexpectedTeardown);
+                    }));
+                    assert!(health.ownership_uncertain());
+                    assert_eq!(
+                        health.take_preemption_signals(),
+                        signal.into_iter().collect::<Vec<_>>()
+                    );
+                    assert!(health.clear_ownership_uncertain_if_current());
+                }
+                parsed.send(()).unwrap();
+                // Hold the control lock through the final media checks. A media
+                // path waiting on this lock cannot reach its capture snapshot.
+                release_control.recv_timeout(timeout).unwrap();
+            });
+            let cancel = Cancellation::default();
+            let source = crate::live::tests::source();
+            let saw_drain = std::sync::atomic::AtomicBool::new(false);
 
-            close_group(&mut members);
+            let ended = send_packets(
+                &summary_options("", "native_stereo", 0),
+                &cancel,
+                &std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0.0f32.to_bits())),
+                crate::volume::Control::default(),
+                Some(&source),
+                &crate::standby::Control::default(),
+                &Clock::new(),
+                None,
+                &mut members,
+                None,
+                &[],
+                None,
+                &|event| match event["event"].as_str() {
+                    Some("streaming") => {
+                        streaming.send(()).unwrap();
+                        wait_parsed.recv_timeout(timeout).unwrap();
+                        cancel.cancel();
+                    }
+                    Some("timeline_drained") => saw_drain.store(true, Ordering::Relaxed),
+                    Some("capture_metrics") => capture_sampled.send(()).unwrap(),
+                    _ => {}
+                },
+            )
+            .unwrap();
 
+            control.join().unwrap();
+            let uncertain = signal == Some(preemption::Signal::UnexpectedTeardown) && !resolved;
+            assert!(matches!(ended, StreamEnd::Finished));
             assert!(members.iter().all(|member| member.closed));
             assert_eq!(
                 members[1].health.take_preemption_signals(),
-                signal.into_iter().collect::<Vec<_>>()
+                signal.filter(|_| !resolved).into_iter().collect::<Vec<_>>()
             );
-            // A close header alone stays advisory under the ownership guard.
-            let uncertain = signal == Some(preemption::Signal::UnexpectedTeardown);
             assert_eq!(members[1].health.ownership_uncertain(), uncertain);
+            assert_eq!(saw_drain.load(Ordering::Relaxed), !uncertain);
             drop(members);
-            for (server, methods) in [(left_server, left_methods), (right_server, right_methods)] {
+            for (receiver, server, methods) in [left_receiver, right_receiver] {
                 server.join().unwrap();
+                assert_eq!(
+                    receiver.recv(&mut [0; 2048]).is_ok(),
+                    !uncertain,
+                    "final RTP for queued signal {signal:?}, resolved {resolved}"
+                );
                 assert_eq!(
                     methods
                         .lock()
@@ -5077,7 +5174,7 @@ mod tests {
                         .filter(|m| *m == "TEARDOWN")
                         .count(),
                     (!uncertain) as usize,
-                    "queued signal: {signal:?}"
+                    "TEARDOWN for queued signal {signal:?}, resolved {resolved}"
                 );
             }
         }

@@ -13,9 +13,9 @@ namespace AirFlash.Core;
 /// </remarks>
 public static class DiagnosticExport
 {
-    /// <summary>Ask a running engine for its redacted session snapshot. Returns null
-    /// when no engine is running; a diagnostics export must never fail because of
-    /// that.</summary>
+    /// <summary>Request a redacted snapshot of the current stream. After playback
+    /// stops, return the last accepted snapshot if available. Returns null when
+    /// the controller has no snapshot for the request.</summary>
     public static Task<JsonElement?> SnapshotAsync(SessionController controller, CancellationToken cancellation = default)
     {
         ArgumentNullException.ThrowIfNull(controller);
@@ -28,6 +28,10 @@ public static class DiagnosticExport
         ArgumentNullException.ThrowIfNull(controller);
         return controller.CaptureDiagnosticsAsync(cancellation);
     }
+
+    /// <summary>Build a bundle from runtime information and a redacted snapshot.</summary>
+    public static string Compose(string appVersion, string engineVersion, JsonElement? snapshot)
+        => Compose(appVersion, engineVersion, snapshot, null, null);
 
     /// <summary>Build a bundle from runtime information, a redacted snapshot, and
     /// optional recent numeric counter changes.</summary>

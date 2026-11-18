@@ -11,6 +11,7 @@ internal static class UiDiscoveryLifecycle
 {
     internal static async Task RunAsync(List<string> checks)
     {
+        await VerifyDiscoveryCheckReportAsync(checks);
         foreach (var (native, helpers) in new[] { (1, 0), (0, 1) })
         {
             var retained = DiscoveryPerf.CreateReport(true, native, helpers, [], []);
@@ -70,6 +71,33 @@ internal static class UiDiscoveryLifecycle
         Check(expired == 0, "discovery barriers complete without watchdog release", checks);
         Check(discovery.Snapshot.NativeOwners == 0 && dns.Operations.All(operation => operation.CancelCalls == 1),
             "shutdown joins exact browse settlement and cancels each request once", checks);
+    }
+
+    private static async Task VerifyDiscoveryCheckReportAsync(List<string> checks)
+    {
+        foreach (var earlyFailure in new[] { false, true })
+        {
+            var receivers = new List<Receiver> { new("observed", "Observed", "192.0.2.1") };
+            using var discovery = new UiSmoke.MockDiscovery { Items = receivers };
+            JsonElement report = default;
+            var exitCode = await App.RunDiscoveryCheckAsync(discovery, () =>
+            {
+                if (earlyFailure) discovery.PublishFailure("during observation");
+                return Task.CompletedTask;
+            }, value =>
+            {
+                // Deliver late callbacks after capture and before serialization.
+                receivers.Clear();
+                discovery.Publish();
+                discovery.PublishFailure("after observation");
+                report = JsonSerializer.SerializeToElement(value);
+            });
+            var errors = report.GetProperty("errors").EnumerateArray().Select(error => error.GetString()).ToArray();
+            Check(report.GetProperty("ok").GetBoolean() == !earlyFailure && exitCode == (earlyFailure ? 1 : 0)
+                && errors.SequenceEqual(earlyFailure ? ["during observation"] : Array.Empty<string>())
+                && report.GetProperty("receivers").EnumerateArray().Single().GetProperty("Id").GetString() == "observed",
+                $"discovery check freezes receivers, failures and exit status before writing (early failure: {earlyFailure})", checks);
+        }
     }
 
     private static void Check(bool condition, string message, List<string> checks)

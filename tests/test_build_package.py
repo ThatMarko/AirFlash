@@ -374,6 +374,18 @@ def test_cleanup_rejects_nested_file_reparse_metadata_without_symlink_privilege(
     assert result["metadata_substitutions"] == 1
 
 
+def test_unsafe_dist_preserves_an_existing_build_before_packaging(tmp_path):
+    fixture = Fixture(tmp_path)
+    previous_build = sentinel(fixture.root / "build")
+    linked_output = sentinel(fixture.root / "dist")
+
+    result = fixture.run(mode="package", reparse_files=[str(linked_output)])
+
+    assert_rejected_before_remove(result)
+    assert result["metadata_substitutions"] == 1
+    assert previous_build.exists()
+
+
 @pytest.mark.parametrize("denial", ["root-item", "target-item", "children"])
 def test_cleanup_propagates_io_failures_instead_of_treating_them_as_absence(tmp_path, denial):
     fixture = Fixture(tmp_path)
