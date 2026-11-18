@@ -427,5 +427,6 @@
   "Start streaming before testing Sound Glow.": "Начните трансляцию перед проверкой Sound Glow.",
   "Sound Glow": "Sound Glow",
   "Test HomePod light effects with synthetic covers and metadata.": "Проверьте световые эффекты с обложками и метаданными.",
-  "Log": "Журнал"
+  "Log": "Журнал",
+  "The receiver selection is ambiguous.": "Не удалось однозначно определить приёмник."
 }
