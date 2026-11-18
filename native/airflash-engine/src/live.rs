@@ -1963,6 +1963,35 @@ pub(crate) mod tests {
         }
     }
     #[test]
+    fn metrics_snapshot_keeps_percentile_and_capture_history_unchanged() {
+        for (ages, expected) in [
+            (Vec::new(), None),
+            (vec![7.5], Some(7.5)),
+            ((0..20).rev().map(f64::from).collect(), Some(19.0)),
+            ((0..100).rev().map(f64::from).collect(), Some(95.0)),
+        ] {
+            let source = source();
+            let stored;
+            {
+                let mut state = source.state.lock().unwrap();
+                state.ages.extend(ages.iter().copied());
+                state.metrics.capture_frames = 23;
+                state.metrics.dropped_frames = 4;
+                state.metrics.capture_to_send_p95_ms = Some(-1.0);
+                stored = serde_json::to_value(&state.metrics).unwrap();
+            }
+
+            let snapshot = source.metrics();
+            assert_eq!(snapshot.capture_to_send_p95_ms, expected);
+            let mut expected_snapshot = stored.clone();
+            expected_snapshot["capture_to_send_p95_ms"] = serde_json::json!(expected);
+            assert_eq!(serde_json::to_value(snapshot).unwrap(), expected_snapshot);
+            let state = source.state.lock().unwrap();
+            assert_eq!(state.ages.iter().copied().collect::<Vec<_>>(), ages);
+            assert_eq!(serde_json::to_value(&state.metrics).unwrap(), stored);
+        }
+    }
+    #[test]
     fn lateness_samples_reach_the_servo_without_touching_the_audio_path() {
         let source = source();
         for step in 0..400 {
