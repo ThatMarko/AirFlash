@@ -870,6 +870,7 @@ internal static class UiSmoke
         public TaskCompletionSource? StopEntered, StopGate;
         public bool FailOpen;
         public bool AutoReady = true;
+        public bool SupportsAdaptiveLead;
         public Action<object>? EmitEvent;
         public ConcurrentQueue<JsonElement> Commands { get; } = new();
         /// <summary>Simulated per-host hardware volume, shared across connections.</summary>
@@ -894,7 +895,7 @@ internal static class UiSmoke
         public Task SendCorrelatedAsync(string requestId, string session, string command, object? parameters, CancellationToken cancellation)
         {
             factory.Commands.Enqueue(JsonSerializer.SerializeToElement(new { id = requestId, command, @params = parameters }));
-            if (command == "hello") Emit(session, new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "multi_room", "continuity", "buffered_audio", "member_volume", "initial_volume", "receiver_password", "standby_release", "receiver_ownership_guard", "application_capture", "forced_latency", "now_playing", "diagnostics" }.Concat(factory.SupportsSoundGlow ? ["sound_glow_test"] : []).ToArray() });
+            if (command == "hello") Emit(session, new { @event = "hello", capabilities = new[] { "receiver_profiles", "software_stereo", "multi_room", "continuity", "buffered_audio", "member_volume", "initial_volume", "receiver_password", "standby_release", "receiver_ownership_guard", "application_capture", "forced_latency", "now_playing", "diagnostics" }.Concat(factory.SupportsSoundGlow ? ["sound_glow_test"] : []).Concat(factory.SupportsAdaptiveLead ? ["adaptive_lead_v2"] : []).ToArray() });
             if (command == "pair") factory.EmitEvent = payload => Emit(session, payload);
             if (command == "start")
             {
@@ -912,7 +913,12 @@ internal static class UiSmoke
                     Emit(session, new { @event = "negotiated", receiver_id = peer.Text("receiver_id"), host, port = peer.Integer("port"), codec = "alac", transport = "realtime", timing = "ptp", clock_role = peer.GetProperty("profile").Boolean("follow_receiver_clock") == true ? "follow" : "sender", sample_rate = data.Integer("sample_rate") });
                 }
                 factory.EmitEvent = payload => Emit(session, payload);
-                if (factory.AutoReady) Emit(session, new { @event = "streaming", session_epoch = 1 });
+                if (factory.AutoReady)
+                {
+                    if (factory.SupportsAdaptiveLead) Emit(session, new { @event = "streaming", session_epoch = 1, lead_sequence = 0,
+                        baseline_ms = data.Integer("latency_ms"), lead_extra_ms = 0, effective_latency_ms = data.Integer("latency_ms"), lead_ceiling_ms = 100, live_lead_supported = true });
+                    else Emit(session, new { @event = "streaming", session_epoch = 1 });
+                }
                 var hosts = data.Text("group_mode") is "software_stereo" or "multi_room" ? data.GetProperty("peers").EnumerateArray().Select(p => p.Text("host")).ToArray() : [_host];
                 foreach (var host in hosts)
                     Emit(session, new { @event = "device_volume", host, volume = _volumes[host], sequence = 0, status = "confirmed", available = true });
