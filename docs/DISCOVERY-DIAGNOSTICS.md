@@ -62,13 +62,15 @@ audio session, reading saved settings or credentials, or registering a tray icon
 
 Allow roughly five to seven minutes. The check samples 150 seconds of active discovery,
 opens and closes 25 additional sessions, then samples 120 seconds with discovery
-suspended. The report contains per-second CPU percentages normalized by logical
-processor count, thread and handle counts, private bytes, receiver counts, and
-logical query counts and retained native ownership. `all_queries_stopped` describes
-logical admission only; it does not claim all native inputs were released.
-Resolve helper ownership is reported separately; `resolve_settlement` identifies
-observed helper exit. Parent CPU/private memory samples exclude helper processes,
-so they do not measure total discovery CPU or memory.
+suspended. The report contains per-second CPU percentages normalized by logical processor
+count, thread and handle counts, private bytes, receiver counts, and separate
+query and ownership counts. The legacy active_queries field includes native
+owners and resolver helpers. During the hidden phase, some owners can remain
+while cancellation settles. The report uses all_queries_stopped for logical
+shutdown and all_queries_released for settlement by the end of observation.
+A passing report requires both and no recorded errors. Resolver ownership settles
+after the exact helper exits. CPU, handles and private bytes describe the
+desktop parent and exclude helper processes.
 Compare stable samples after initial runtime startup;
 OS thread-pool and runtime caches can retain threads and memory after cancellation.
 

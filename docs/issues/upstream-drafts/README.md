@@ -2,7 +2,7 @@
 
 ## Current prepared package — 2026-11-17
 
-The unsent [umbrella issue](reliability-current-issue.md) and [eight-section draft PR](reliability-current-pr.md) target codex/upstream-reliability at 234af35, three linear commits above upstream main at 60e3390 (v0.7.0). The review branch carries the same source tree as the prior 8473d75 integration. The [integration review](../RELIABILITY-REVIEW-2026-11-05.md#november-17-upstream-v070-sync) records exact-source checks and the desktop fixture repairs.
+The unsent [umbrella issue](reliability-current-issue.md) and [eight-section draft PR](reliability-current-pr.md) target codex/upstream-reliability at 8929881, five linear commits above upstream main at 60e3390 (v0.7.0). The branch carries the prior tested integration and two scoped compatibility follow-ups. The [integration review](../RELIABILITY-REVIEW-2026-11-05.md#november-17-upstream-v070-sync) records exact-source checks and the desktop fixture repairs.
 
 Upstream has no open PRs at this review. Issues #6, #7, #14 and #24 are closed, and PR #25 is merged. The proposed PR follows up on stored receiver passwords and prompt lifetime. The open iOS 27 audio report (#37), master-volume feature request (#43), and grouping request for an existing HomePod stereo pair (#55) are separate from the acceptance claims. The draft awaits a separately authorized upstream submission.
 

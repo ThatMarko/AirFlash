@@ -214,6 +214,7 @@ jobs:
             @{ name = 'pairing'; mode = '--ui-pairing-smoke' },
             @{ name = 'password'; mode = '--ui-password-smoke' },
             @{ name = 'session-lifecycle'; mode = '--ui-session-lifecycle-smoke' },
+            @{ name = 'ownership'; mode = '--ui-ownership-smoke' },
             @{ name = 'settings-recovery'; mode = '--ui-settings-recovery-smoke' },
             @{ name = 'mute-recovery'; mode = '--ui-mute-recovery-smoke' },
             @{ name = 'diagnostics'; mode = '--ui-diagnostics-smoke' },
