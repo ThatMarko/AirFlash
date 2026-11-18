@@ -96,7 +96,7 @@ internal static class UiSmoke
         {
             try
             {
-                await UiPairingInputs.RunAsync(checks, args.Contains("--ui-pairing-clipboard"));
+                await UiPairing.RunAsync(checks, directory, args.Contains("--ui-pairing-clipboard"));
                 App.WriteOutput(args, new { ok = true, checks, note = "Synthetic pairing commands and modal PIN input only." });
                 return 0;
             }
@@ -335,7 +335,7 @@ internal static class UiSmoke
             Check(engine.DisposedCount == engine.CreatedCount, "stop releases mock engine", checks);
             await UiRegression.RunAsync(checks, directory);
             await UiSettingsRecovery.RunAsync(checks, directory);
-            await UiPairingInputs.RunAsync(checks);
+            await UiPairing.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyStartupFailureAsync(checks, directory);
             await UiScrolling.RunAsync(checks, directory);
