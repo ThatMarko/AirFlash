@@ -1771,7 +1771,9 @@ fn run_live(
             if !standby.should_resume(live.last_audio(), at) {
                 live.discard_stale();
                 if Instant::now() >= next_metrics {
-                    emit(json!({"event":"capture_metrics","metrics":live.metrics()}));
+                    emit(
+                        json!({"event":"capture_metrics","metrics":live.capture_metrics_report()}),
+                    );
                     next_metrics = Instant::now() + Duration::from_secs(1);
                 }
                 thread::sleep(Duration::from_millis(20));
@@ -2577,7 +2579,9 @@ fn send_packets(
             schedule.max_lateness_us = schedule.max_lateness_us.max(late.as_micros());
             telemetry.observe_lateness(late.as_secs_f64() * 1000.0);
             if let Some(source) = &live {
-                telemetry.capture_age.observe(source.sample_age_ms());
+                if let Some(age) = source.queued_capture_age_ms() {
+                    telemetry.capture_age.observe(age);
+                }
                 // Slow outer loop: sustained lateness trims the capture resampler.
                 source.report_lateness(late.as_secs_f64() * 1000.0);
             }
@@ -3358,8 +3362,9 @@ fn sample_capture(
     source: &crate::live::Loopback,
     baseline: &mut Option<crate::live::Metrics>,
     telemetry: &mut crate::telemetry::SessionTelemetry,
-) -> crate::live::Metrics {
-    let metrics = source.metrics();
+) -> crate::live::CaptureMetricsReport {
+    let report = source.capture_metrics_report();
+    let metrics = &report.metrics;
     if let Some(previous) = baseline {
         telemetry.input_drops += metrics
             .dropped_frames
@@ -3393,7 +3398,7 @@ fn sample_capture(
         }
     }
     *baseline = Some(metrics.clone());
-    metrics
+    report
 }
 
 fn transport_metrics(
@@ -6245,7 +6250,7 @@ mod tests {
         let mut telemetry = crate::telemetry::SessionTelemetry::new();
         let initial = sample_capture(&source, &mut baseline, &mut telemetry);
         assert_eq!(
-            serde_json::to_value(&initial).unwrap(),
+            serde_json::to_value(&initial.metrics).unwrap(),
             serde_json::to_value(baseline.as_ref().unwrap()).unwrap()
         );
 
@@ -6255,19 +6260,20 @@ mod tests {
         assert_eq!(telemetry.underruns_active, 0);
         // Capture can change after aggregation, before the report is serialized.
         source.packet(0.0).unwrap();
-        let event = json!({"event":"capture_metrics","metrics":sampled});
-        assert_eq!(event["metrics"]["underrun_packets"], 1);
-        assert_eq!(source.metrics().underrun_packets, 2);
         assert_eq!(
-            event["metrics"],
+            serde_json::to_value(&sampled.metrics).unwrap(),
             serde_json::to_value(baseline.as_ref().unwrap()).unwrap()
         );
+        let event = json!({"event":"capture_metrics","metrics":sampled});
+        assert_eq!(event["metrics"]["underrun_packets"], 1);
+        assert_eq!(event["metrics"]["fully_padded_packets"], 1);
+        assert_eq!(source.metrics().underrun_packets, 2);
 
         let final_sample = sample_capture(&source, &mut baseline, &mut telemetry);
         assert_eq!(telemetry.underruns_idle, 2);
-        assert_eq!(final_sample.underrun_packets, 2);
+        assert_eq!(final_sample.metrics.underrun_packets, 2);
         assert_eq!(
-            serde_json::to_value(final_sample).unwrap(),
+            serde_json::to_value(final_sample.metrics).unwrap(),
             serde_json::to_value(baseline.as_ref().unwrap()).unwrap()
         );
     }
