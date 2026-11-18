@@ -25,6 +25,17 @@ public sealed class CapturePaddingMetricsTests
         Assert.Null(metrics.FullyPaddedPackets);
     }
 
+    [Fact]
+    public void ExistingEightParameterConstructionAndDeconstructionKeepTheOriginalCounterOrder()
+    {
+        var metrics = new StreamMetrics(2.5, 8.5, 3, 4, 48000, 5, 6, 7);
+        var (p95, queueAge, underruns, dropped, rate, rebinds, probes, storms) = metrics;
+        (double?, double?, long?, long?, int?, long?, long?, long?) expected = (2.5, 8.5, 3, 4, 48000, 5, 6, 7);
+        Assert.Equal(expected, (p95, queueAge, underruns, dropped, rate, rebinds, probes, storms));
+        Assert.Null(metrics.PaddedFrames);
+        Assert.Null(metrics.FullyPaddedPackets);
+    }
+
     [Theory]
     [InlineData(44100)]
     [InlineData(48000)]
@@ -37,7 +48,7 @@ public sealed class CapturePaddingMetricsTests
         await snapshots.NextAsync(snapshot => snapshot.State == PlaybackState.Streaming);
 
         connection.Capture(new { capture_to_send_p95_ms = 2.5, max_queue_age_ms = 8.5,
-            underrun_packets = 7, dropped_frames = 4, input_rate = rate,
+            underrun_packets = 7, dropped_frames = 4, input_rate = rate, rebinds = 2, silent_probes = 3, rebind_storms = 4,
             padded_frames = 353UL, fully_padded_packets = 1UL });
         var snapshot = await snapshots.NextAsync(snapshot => snapshot.Metrics?.Underruns == 7);
         Assert.Equal(PlaybackState.Streaming, snapshot.State);
@@ -46,6 +57,9 @@ public sealed class CapturePaddingMetricsTests
         Assert.Equal(8.5, snapshot.Metrics.MaxQueueAge);
         Assert.Equal(4, snapshot.Metrics.DroppedFrames);
         Assert.Equal(rate, snapshot.Metrics.InputRate);
+        Assert.Equal(2, snapshot.Metrics.Rebinds);
+        Assert.Equal(3, snapshot.Metrics.SilentProbes);
+        Assert.Equal(4, snapshot.Metrics.RebindStorms);
         Assert.Equal(353UL, snapshot.Metrics.PaddedFrames);
         Assert.Equal(1UL, snapshot.Metrics.FullyPaddedPackets);
         Assert.Same(snapshot.Metrics, controller.Snapshot.Metrics);

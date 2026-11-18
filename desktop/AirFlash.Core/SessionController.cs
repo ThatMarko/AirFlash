@@ -6,7 +6,11 @@ namespace AirFlash.Core;
 public enum PlaybackState { Idle, Connecting, Streaming, Standby, Pairing, Error, Preempted }
 public enum SessionStartIntent { Manual, Automatic }
 public sealed record StreamMetrics(double? CaptureToSendP95 = null, double? MaxQueueAge = null, long? Underruns = null, long? DroppedFrames = null, int? InputRate = null,
-    ulong? PaddedFrames = null, ulong? FullyPaddedPackets = null, long? Rebinds = null, long? SilentProbes = null, long? RebindStorms = null);
+    long? Rebinds = null, long? SilentProbes = null, long? RebindStorms = null)
+{
+    public ulong? PaddedFrames { get; init; }
+    public ulong? FullyPaddedPackets { get; init; }
+}
 public sealed record SessionSnapshot(PlaybackState State, Receiver? Receiver = null, string Message = "", StreamMetrics? Metrics = null, int TargetLatency = 0, PlaybackDiagnostics? Diagnostics = null, int StreamRate = 0, DeviceVolumeState? DeviceVolume = null, IReadOnlyDictionary<string, DeviceVolumeState>? MemberVolumes = null)
 {
     public bool IsActive => State is PlaybackState.Connecting or PlaybackState.Streaming or PlaybackState.Standby or PlaybackState.Pairing;
@@ -459,8 +463,12 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         => StartExplicitAsync(receiver, settings, null, expectedIntent);
     public Task<bool> TryPairExplicitAsync(Receiver receiver, AppSettings settings, Func<Receiver, CancellationToken, Task<string?>> requestPin, long expectedIntent)
         => StartExplicitAsync(receiver, settings, requestPin, expectedIntent);
-    private static void ValidateStart(Receiver receiver, AppSettings settings)
+    private static void ValidateStart(Receiver receiver, AppSettings settings, bool pairing = false)
     {
+        if (pairing && !receiver.Complete)
+            throw new InvalidOperationException(L.Get(receiver.IsMultiRoom
+                ? "Wait until all multi-room members are online before pairing."
+                : "Wait until both stereo pair members are online before pairing."));
         if (!receiver.Online) throw new InvalidOperationException(L.Get("The receiver is unavailable."));
         if (!receiver.Complete) throw new InvalidOperationException(L.Get(receiver.IsMultiRoom
             ? "All multi-room members must be online." : "Both stereo pair members must be online."));
@@ -473,7 +481,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     private async Task<bool> StartExplicitAsync(Receiver receiver, AppSettings settings, Func<Receiver, CancellationToken, Task<string?>>? requestPin, long expectedIntent)
     {
         if (!IsIntentCurrent(expectedIntent)) return false;
-        ValidateStart(receiver, settings);
+        ValidateStart(receiver, settings, pairing: requestPin is not null);
         await _serial.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -1488,8 +1496,11 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         {
                             var receivedAt = _clock.GetUtcNow();
                             var parsed = new StreamMetrics(metrics.Number("capture_to_send_p95_ms"), metrics.Number("max_queue_age_ms"), metrics.Integer("underrun_packets"), metrics.Integer("dropped_frames"), metrics.Integer("input_rate") is { } rate ? (int)rate : null,
-                                metrics.Unsigned("padded_frames"), metrics.Unsigned("fully_padded_packets"),
-                                metrics.Integer("rebinds"), metrics.Integer("silent_probes"), metrics.Integer("rebind_storms"));
+                                metrics.Integer("rebinds"), metrics.Integer("silent_probes"), metrics.Integer("rebind_storms"))
+                            {
+                                PaddedFrames = metrics.Unsigned("padded_frames"),
+                                FullyPaddedPackets = metrics.Unsigned("fully_padded_packets")
+                            };
                             lock (_sync)
                             {
                                 if (epoch != _generation) continue;

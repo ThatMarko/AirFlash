@@ -1446,6 +1446,27 @@ public sealed class SessionTests
         var factory = new FakeFactory(); await using var controller = TestSessionController.Create(factory, new FakeAudio());
         await Assert.ThrowsAsync<InvalidOperationException>(() => controller.StartAsync(Pod() with { StereoId = "pair", Members = [Pod()] }, Settings())); Assert.Equal(0, factory.OpenCount);
     }
+    [Theory]
+    [InlineData("software_stereo", true, "Wait until both stereo pair members are online before pairing.")]
+    [InlineData("software_stereo", false, "Wait until both stereo pair members are online before pairing.")]
+    [InlineData("multi_room", true, "Wait until all multi-room members are online before pairing.")]
+    [InlineData("multi_room", false, "Wait until all multi-room members are online before pairing.")]
+    public async Task IncompleteGroupsKeepTheirPairingDiagnosticAndNeverOpenAnEngine(string mode, bool online, string message)
+    {
+        var factory = new FakeFactory();
+        await using var controller = TestSessionController.Create(factory, new FakeAudio());
+        var receiver = new Receiver("software:test", "Group", "")
+        {
+            IsSoftwareGroup = true, GroupMode = mode, Online = online, Members = [Pod()]
+        };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => controller.PairAsync(
+            receiver, Settings(), (_, _) => throw new InvalidOperationException("Pairing opened an unexpected prompt.")));
+
+        Assert.Equal(L.Get(message), error.Message);
+        Assert.Equal(0, factory.OpenCount);
+        Assert.Equal(PlaybackState.Idle, controller.Snapshot.State);
+    }
     [Fact]
     public async Task PairCancellationDoesNotStartPlayback()
     {

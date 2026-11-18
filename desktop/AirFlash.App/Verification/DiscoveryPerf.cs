@@ -20,13 +20,16 @@ internal static class DiscoveryPerf
             {
                 await Task.Delay(1000); process.Refresh();
                 var now = Stopwatch.GetTimestamp(); var cpu = process.TotalProcessorTime.TotalMilliseconds;
+                var nativeOwners = NativeDnsServiceApi.CurrentOwnerCount;
+                var helperOwners = ResolveProcessDnsServiceApi.ProcessOwnerCount;
                 samples.Add(new { phase, second = i + 1,
                     cpu_percent = 100 * (cpu - lastCpu) / (Stopwatch.GetElapsedTime(lastAt, now).TotalMilliseconds * Environment.ProcessorCount),
                     threads = process.Threads.Count, handles = process.HandleCount, private_bytes = process.PrivateMemorySize64,
+                    active_queries = nativeOwners + helperOwners,
                     logical_queries = discovery.Snapshot.ActiveQueries,
-                    retained_native_owners = NativeDnsServiceApi.CurrentOwnerCount,
+                    retained_native_owners = nativeOwners,
                     retained_resolve_owners = NativeDnsServiceApi.RetainedResolveOwnerCount,
-                    resolve_helper_owners = ResolveProcessDnsServiceApi.ProcessOwnerCount,
+                    resolve_helper_owners = helperOwners,
                     receivers = Volatile.Read(ref receiverCount) });
                 lastAt = now; lastCpu = cpu;
             }
@@ -42,12 +45,25 @@ internal static class DiscoveryPerf
             }
             await Sample("hidden", 120);
             string[] errors; lock (failures) errors = failures.ToArray();
-            App.WriteOutput(args, new { ok = stopped && errors.Length == 0, resource_scope = "desktop-parent-only", resolve_helper_resources_included = false, all_queries_stopped = stopped,
-                retained_native_owners = NativeDnsServiceApi.CurrentOwnerCount,
-                resolve_helper_owners = ResolveProcessDnsServiceApi.ProcessOwnerCount,
-                resolve_settlement = "observed-helper-exit", cycles = 25, failures = errors, samples });
-            return stopped && errors.Length == 0 ? 0 : 1;
+            var result = CreateReport(stopped, NativeDnsServiceApi.CurrentOwnerCount, ResolveProcessDnsServiceApi.ProcessOwnerCount, errors, samples);
+            App.WriteOutput(args, result.Report);
+            return result.Ok ? 0 : 1;
         }
         catch (Exception error) { App.WriteOutput(args, new { ok = false, resource_scope = "desktop-parent-only", resolve_helper_resources_included = false, error = error.ToString(), samples }); return 1; }
+    }
+
+    internal static (bool Ok, object Report) CreateReport(bool stopped, int nativeOwners, int helperOwners,
+        IReadOnlyList<string> failures, IReadOnlyList<object> samples)
+    {
+        // Give asynchronous cancellation the hidden observation window to settle.
+        var released = stopped && nativeOwners == 0 && helperOwners == 0;
+        var ok = released && failures.Count == 0;
+        return (ok, new
+        {
+            ok, resource_scope = "desktop-parent-only", resolve_helper_resources_included = false,
+            all_queries_stopped = stopped, all_queries_released = released,
+            retained_native_owners = nativeOwners, resolve_helper_owners = helperOwners,
+            resolve_settlement = "observed-helper-exit", cycles = 25, failures, samples
+        });
     }
 }

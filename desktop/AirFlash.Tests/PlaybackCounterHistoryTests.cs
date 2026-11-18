@@ -13,17 +13,21 @@ public sealed class PlaybackCounterHistoryTests
     {
         var history = new PlaybackCounterHistory();
         history.Begin(1, 7);
-        Assert.Null(history.ObserveCapture(Receipt, new(Underruns: 4, PaddedFrames: null, FullyPaddedPackets: 0, DroppedFrames: 10)));
-        Assert.Null(history.ObserveCapture(Receipt, new(Underruns: null, PaddedFrames: 0, FullyPaddedPackets: 0, DroppedFrames: 9)));
-        var delta = Assert.Single(history.ObserveCapture(Receipt, new(Underruns: 8, PaddedFrames: ulong.MaxValue, FullyPaddedPackets: 1, DroppedFrames: 9))!);
+        Assert.Null(history.ObserveCapture(Receipt, new(Underruns: 4, DroppedFrames: 10) { FullyPaddedPackets = 0 }));
+        Assert.Null(history.ObserveCapture(Receipt, new(DroppedFrames: 9) { PaddedFrames = 0, FullyPaddedPackets = 0 }));
+        var delta = Assert.Single(history.ObserveCapture(Receipt, new(Underruns: 8, DroppedFrames: 9)
+        {
+            PaddedFrames = ulong.MaxValue,
+            FullyPaddedPackets = 1
+        })!);
         Assert.Equal(Receipt, delta.ReceivedAt);
         Assert.Equal(1, delta.Attempt);
         Assert.Equal(7, delta.SessionEpoch);
         Assert.Equal(2, delta.Counters!.Count);
         Assert.Equal(ulong.MaxValue, delta.Counters["padded_frames"]);
         Assert.Equal(1UL, delta.Counters["fully_padded_packets"]);
-        Assert.Null(history.ObserveCapture(Receipt, new(Underruns: -1, PaddedFrames: ulong.MaxValue, FullyPaddedPackets: 1, DroppedFrames: 9)));
-        Assert.Null(history.ObserveCapture(Receipt, new(Underruns: 20, PaddedFrames: ulong.MaxValue, FullyPaddedPackets: 1, DroppedFrames: 9)));
+        Assert.Null(history.ObserveCapture(Receipt, new(Underruns: -1, DroppedFrames: 9) { PaddedFrames = ulong.MaxValue, FullyPaddedPackets = 1 }));
+        Assert.Null(history.ObserveCapture(Receipt, new(Underruns: 20, DroppedFrames: 9) { PaddedFrames = ulong.MaxValue, FullyPaddedPackets = 1 }));
     }
 
     [Fact]

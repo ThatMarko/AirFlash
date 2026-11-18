@@ -158,7 +158,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     public string ErrorDetails => ErrorDetailsText.For(_snapshot, Notice);
     /// <summary>The receiver now belongs to another controller. Reconnecting is a
     /// deliberate user action, never the automatic transport retry.</summary>
-    public bool CanReconnect => !_closing && !IsStopping && !Session.NeedsCleanup && Session.RequiresManualReconnect && _snapshot.Receiver is not null;
+    public bool CanReconnect => FindReconnectReceiver() is not null;
     public string EngineVersion { get; set; } = L.Get("Unknown");
     public bool EngineReady => _engine is null || _engine.State == EngineAvailability.Ready;
     public bool EngineFailed => _engine?.State == EngineAvailability.Failed;
@@ -298,7 +298,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         }, dispatcher);
         _discoverySearchTimer.Stop();
         StopCommand = new(() => StopAsync(), ShowError, () => !IsStopping && (_snapshot.IsActive || Session.NeedsCleanup));
-        ReconnectCommand = new(() => _snapshot.Receiver is { } receiver ? ToggleAsync(receiver) : Task.CompletedTask, ShowError, () => CanReconnect);
+        ReconnectCommand = new(() => FindReconnectReceiver() is { } receiver ? ToggleAsync(receiver) : Task.CompletedTask, ShowError, () => CanReconnect);
         MuteCommand = new(ToggleMuteAsync, ShowError);
         MergeManualReceivers();
         RefreshLatencyChoices();
@@ -415,6 +415,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         if (EngineReady) EngineVersion = _engine!.Version;
         Notify(nameof(EngineReady)); Notify(nameof(EngineFailed)); Notify(nameof(EngineMessage));
         RetryEngineCommand.Refresh();
+        RefreshReconnect();
         foreach (var row in Receivers) row.Refresh();
         CatalogChanged?.Invoke();
         if (EngineReady) ScheduleAutoConnect();
@@ -424,6 +425,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     {
         Notify(nameof(MuteReady)); Notify(nameof(HasMuteRecovery)); Notify(nameof(MuteRecovery)); Notify(nameof(MuteRecoveryMessage));
         ReviewMuteRecoveryCommand.Refresh();
+        RefreshReconnect();
         foreach (var row in Receivers) row.Refresh();
         CatalogChanged?.Invoke();
         if (MuteReady && !_closing) ScheduleAutoConnect();
@@ -637,6 +639,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             row.Refresh();
         }
         Notify(nameof(AllReceivers));
+        RefreshReconnect();
     }
     private void SessionChanged(SessionSnapshot snapshot) => _dispatcher.BeginInvoke(() => ApplySessionSnapshot(snapshot));
     private void ApplySessionSnapshot(SessionSnapshot snapshot)
@@ -661,8 +664,6 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             RefreshDiscoveryNotice();
             RefreshReceivers();
             StopCommand.Refresh();
-            Notify(nameof(CanReconnect));
-            ReconnectCommand.Refresh();
             UpdateDiscoveryDemand();
         }
         foreach (var row in Receivers) row.Refresh();
@@ -703,7 +704,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         var current = Session.Capture().Snapshot;
         if (_closing || IsStopping) return;
         if (current.IsActive && current.Receiver?.Id == receiver.Id) { await StopAsync(); return; }
-        if (_resetting || !EngineReady || !MuteReady || Session.NeedsCleanup) return;
+        if (!CanStartPlayback) return;
         receiver = ResolvePlayback(receiver);
         _autoSuppressed = false;
         await FlushVolumeAsync();
@@ -713,20 +714,8 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             if (!CanStartExplicit(intent)) return;
             if (_settings.CaptureMode == "loopback") _defaultEndpoint = await _audio.GetDefaultEndpointIdAsync();
             if (!CanStartExplicit(intent)) return;
-            if (receiver.IsManual)
-            {
-                // A queued Apply can remove or edit the selected manual endpoint.
-                if (!_known.TryGetValue(receiver.Id, out var manual) || !manual.IsManual
-                    || !StringComparer.OrdinalIgnoreCase.Equals(manual.Address, receiver.Address) || manual.Port != receiver.Port)
-                    throw new InvalidOperationException(L.Get("The receiver is unavailable."));
-                receiver = manual;
-            }
-            else
-            {
-                var id = ReceiverIdentity.Resolve(ReceiverMigrations.GetValueOrDefault(receiver.Id, receiver.Id), _settings.ReceiverAliases);
-                receiver = AllReceivers.FirstOrDefault(item => item.Id == id)
-                    ?? throw new InvalidOperationException(L.Get("The receiver is unavailable."));
-            }
+            receiver = FindCurrentPlaybackReceiver(receiver, AllReceivers)
+                ?? throw new InvalidOperationException(L.Get("The receiver is unavailable."));
             if (_settings.ReadOptions(receiver.Id).Hidden) throw new InvalidOperationException(L.Get("The receiver is unavailable."));
             if (!await Session.TryStartExplicitAsync(receiver, _settings.Clone(), intent)) return;
             RecordAdmittedStart(receiver, intent);
@@ -734,8 +723,36 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         finally { _settingsGate.Release(); }
         await FlushVolumeAsync();
     }
-    private bool CanStartExplicit(long intent) => !_closing && !_resetting && !IsStopping && EngineReady
-        && MuteReady && !Session.NeedsCleanup && Session.IsIntentCurrent(intent);
+    private bool CanStartPlayback => !_closing && !_resetting && !IsStopping && EngineReady && MuteReady && !Session.NeedsCleanup;
+    private bool CanStartExplicit(long intent) => CanStartPlayback && Session.IsIntentCurrent(intent);
+
+    private Receiver? FindCurrentPlaybackReceiver(Receiver selected, IReadOnlyList<Receiver> catalog)
+    {
+        if (selected.IsManual)
+        {
+            // A queued Apply can remove or edit the selected manual endpoint.
+            return _known.TryGetValue(selected.Id, out var manual) && manual.IsManual
+                && StringComparer.OrdinalIgnoreCase.Equals(manual.Address, selected.Address) && manual.Port == selected.Port
+                ? manual : null;
+        }
+        var id = ReceiverIdentity.Resolve(ReceiverMigrations.GetValueOrDefault(selected.Id, selected.Id), _settings.ReceiverAliases);
+        return catalog.FirstOrDefault(item => item.Id == id);
+    }
+
+    private Receiver? FindReconnectReceiver()
+    {
+        if (!CanStartPlayback || _snapshot.IsActive || !Session.RequiresManualReconnect || _snapshot.Receiver is not { } receiver) return null;
+        var catalog = AllReceivers;
+        var selected = ReceiverSelection.ResolvePlayback(receiver, catalog);
+        return selected is not null && FindCurrentPlaybackReceiver(selected, catalog) is { Online: true, Complete: true } current
+            && !_settings.ReadOptions(current.Id).Hidden ? current : null;
+    }
+
+    private void RefreshReconnect()
+    {
+        Notify(nameof(CanReconnect));
+        ReconnectCommand.Refresh();
+    }
 
     private void RecordAdmittedStart(Receiver receiver, long intent)
     {
@@ -770,8 +787,8 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     }
     private void RefreshStopUi()
     {
-        Notify(nameof(IsStopping)); Notify(nameof(StatusTitle)); Notify(nameof(StatusDetail)); Notify(nameof(PanelStatusDetail)); Notify(nameof(CanReconnect));
-        RefreshGlobalLatency(); StopCommand.Refresh(); ReconnectCommand.Refresh();
+        Notify(nameof(IsStopping)); Notify(nameof(StatusTitle)); Notify(nameof(StatusDetail)); Notify(nameof(PanelStatusDetail));
+        RefreshGlobalLatency(); StopCommand.Refresh(); RefreshReconnect();
         foreach (var row in Receivers) row.Refresh();
     }
     public async Task PairAsync(Receiver receiver, Func<Receiver, CancellationToken, Task<string?>> requestPin)
@@ -1003,6 +1020,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         Session.InvalidateAutomaticIntent();
         Interlocked.Increment(ref _automaticEligibilityRevision);
         _resetting = true;
+        RefreshReconnect();
         var acquired = false; var cleared = false; var oldStartup = _settings.StartAtLogin;
         try
         {
@@ -1034,7 +1052,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         }
         finally
         {
-            if (acquired) _settingsGate.Release(); _resetting = false; RefreshGlobalLatency();
+            if (acquired) _settingsGate.Release(); _resetting = false; RefreshGlobalLatency(); RefreshReconnect();
             if (!_closing) UpdateDiscoveryDemand();
         }
         ResetCompleted?.Invoke();
@@ -1060,6 +1078,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         Session.InvalidateAutomaticIntent();
         Interlocked.Increment(ref _automaticEligibilityRevision);
         _volumeTimer.Stop(); _autoTimer.Stop(); _startupDiscoveryTimer.Stop(); _discoverySearchTimer.Stop();
+        RefreshReconnect();
         foreach (var row in Receivers) row.Refresh();
     }
     private async Task DisposeCoreAsync()
