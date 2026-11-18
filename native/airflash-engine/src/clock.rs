@@ -909,12 +909,8 @@ fn receive_grants(s: &mut PeerState, data: &[u8], own_id: u64, now: Instant) {
         };
         let interval = body[1] as i8;
         let seconds = u32::from_be_bytes(body[2..6].try_into().unwrap());
-        if body[0] & 15 != 0
-            || body[6] != 0
-            || body[7] & !1 != 0
-            || interval > 4
-            || !(1..=30).contains(&seconds)
-        {
+        // Ignore the reserved octet and the reserved bits around the advisory renewal flag.
+        if body[0] & 15 != 0 || interval > 4 || !(1..=30).contains(&seconds) {
             s.reject("grant_fields");
             continue;
         }

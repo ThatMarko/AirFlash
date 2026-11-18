@@ -2179,6 +2179,26 @@ fn group_ownership_uncertain(members: &[Member]) -> bool {
     })
 }
 
+fn close_group(members: &mut [Member]) {
+    // Feedback may exit before it processes ownership evidence already read
+    // by another control worker. Join all feedback workers, then collect it.
+    for member in members.iter_mut() {
+        member.feedback.take();
+    }
+    for member in members.iter() {
+        let _ = crate::transport::observe_queued_ownership_signals(
+            &member.conn,
+            &member.peer.host.to_string(),
+            &member.health,
+        );
+    }
+    let uncertain = group_ownership_uncertain(members);
+    for member in members.iter_mut() {
+        member.preempted |= uncertain;
+        member.close();
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn send_packets(
     options: &ProbeOptions,
@@ -2961,16 +2981,7 @@ fn send_packets(
     drop(glow_worker);
     drop(volume_workers);
     drop(metadata_worker);
-    // Feedback workers can latch an ownership signal as they stop. Join them
-    // all before deciding whether any member may send TEARDOWN.
-    for member in members.iter_mut() {
-        member.feedback.take();
-    }
-    let uncertain = group_ownership_uncertain(members);
-    for member in members.iter_mut() {
-        member.preempted |= uncertain;
-        member.close();
-    }
+    close_group(members);
     drained?;
     outcome
 }
@@ -4082,13 +4093,14 @@ mod tests {
         JoinHandle<()>,
         std::sync::Arc<std::sync::Mutex<Vec<String>>>,
     ) {
-        local_member_with_feedback_drop(receiver_addr, teardown, health, false)
+        local_member_with_feedback_drop(receiver_addr, teardown, health, false, None)
     }
     fn local_member_with_feedback_drop(
         receiver_addr: SocketAddr,
         teardown: Option<std::sync::Arc<std::sync::Mutex<Option<UdpSocket>>>>,
         health: Health,
         drop_feedback: bool,
+        queued_signal: Option<preemption::Signal>,
     ) -> (
         Member,
         JoinHandle<()>,
@@ -4126,8 +4138,22 @@ mod tests {
                 } else {
                     Vec::new()
                 };
+                let mut close_header = "";
+                if request.method() == Some("SET_PARAMETER") {
+                    match queued_signal {
+                        Some(preemption::Signal::UnexpectedTeardown) => {
+                            connection
+                                .write(b"TEARDOWN rtsp://127.0.0.1/test RTSP/1.0\r\nCSeq: 4242\r\nContent-Length: 0\r\n\r\n")
+                                .unwrap();
+                        }
+                        Some(preemption::Signal::ConnectionClose) => {
+                            close_header = "Connection: close\r\n";
+                        }
+                        _ => {}
+                    }
+                }
                 let response = format!(
-                    "RTSP/1.0 200 OK\r\nCSeq: {}\r\nContent-Length: {}\r\n\r\n",
+                    "RTSP/1.0 200 OK\r\nCSeq: {}\r\n{close_header}Content-Length: {}\r\n\r\n",
                     request.headers["cseq"],
                     body.len()
                 );
@@ -4207,6 +4233,7 @@ mod tests {
             None,
             Health::default(),
             true,
+            None,
         );
         let (mut right, right_worker, right_methods) =
             local_member_with(receiver.local_addr().unwrap(), None);
@@ -5004,6 +5031,56 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn group_stop_checks_ownership_signals_already_read_by_other_control_workers() {
+        for signal in [
+            None,
+            Some(preemption::Signal::UnexpectedTeardown),
+            Some(preemption::Signal::ConnectionClose),
+        ] {
+            let receiver = UdpSocket::bind("127.0.0.1:0").unwrap();
+            let address = receiver.local_addr().unwrap();
+            let (left, left_server, left_methods) = local_member_with(address, None);
+            let (right, right_server, right_methods) =
+                local_member_with_feedback_drop(address, None, Health::default(), false, signal);
+            let mut members = [left, right];
+            // A control worker reads the signal while awaiting its own response.
+            // Feedback has already exited without processing it.
+            members[1]
+                .conn
+                .lock()
+                .unwrap()
+                .request("SET_PARAMETER", &members[1].uri, &[], b"volume: -15\r\n")
+                .unwrap();
+            assert!(!members[1].health.ownership_uncertain());
+
+            close_group(&mut members);
+
+            assert!(members.iter().all(|member| member.closed));
+            assert_eq!(
+                members[1].health.take_preemption_signals(),
+                signal.into_iter().collect::<Vec<_>>()
+            );
+            // A close header alone stays advisory under the ownership guard.
+            let uncertain = signal == Some(preemption::Signal::UnexpectedTeardown);
+            assert_eq!(members[1].health.ownership_uncertain(), uncertain);
+            drop(members);
+            for (server, methods) in [(left_server, left_methods), (right_server, right_methods)] {
+                server.join().unwrap();
+                assert_eq!(
+                    methods
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .filter(|m| *m == "TEARDOWN")
+                        .count(),
+                    (!uncertain) as usize,
+                    "queued signal: {signal:?}"
+                );
+            }
+        }
     }
     #[test]
     fn a_stalled_status_probe_keeps_sending_audio_and_is_cancelled_on_close() {

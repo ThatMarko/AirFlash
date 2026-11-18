@@ -337,15 +337,17 @@ fn append_tlv(packet: &mut Vec<u8>, tlv: &[u8]) {
 }
 
 #[test]
-fn follower_accepts_literal_grants_with_either_renewal_flag() {
-    for flags in [0, 1] {
+fn follower_accepts_literal_grants_and_ignores_reserved_flag_octets() {
+    for (reserved, flags) in [(0, 0), (0, 1), (1, 0), (0, 0xfe), (0xff, 0xff)] {
         let now = Instant::now();
         let mut state = follower(now);
         // Request went out with this sender's own sequence.
         let request = state.signaling_subscription(7, Some((8, 0x8005)), 0);
         assert_eq!(packet_sequence(&request), 0);
         pend(&mut state, 0, -3, now);
-        followed_packet(&mut state, &literal_grant(0x4321, 0, flags), 0, now, 7);
+        let mut grant = literal_grant(0x4321, 0, flags);
+        grant[54] = reserved;
+        followed_packet(&mut state, &grant, 0, now, 7);
         assert_eq!(state.received_grants, 1);
         assert_eq!(state.granted_until[0], Some(now + Duration::from_secs(30)));
         assert!(state.subscriptions[0].is_empty());
@@ -372,8 +374,6 @@ fn follower_grants_require_valid_fields_source_target_and_live_pending_request()
         (49, 5, "grant_fields"),
         (53, 0, "grant_fields"),
         (53, 31, "grant_fields"),
-        (54, 1, "grant_fields"),
-        (55, 2, "grant_fields"),
     ] {
         let mut bad = grant.clone();
         bad[index] = value;
@@ -388,9 +388,9 @@ fn follower_grants_require_valid_fields_source_target_and_live_pending_request()
     followed_packet(&mut state, &grant, 0, now + Duration::from_millis(1999), 7);
     assert_eq!(state.received_grants, 1);
     let counters = serde_json::to_value(&state.packets).unwrap();
-    assert_eq!(counters["grant_tlv_checked"], 11);
+    assert_eq!(counters["grant_tlv_checked"], 9);
     assert_eq!(counters["grant_accepted"], 1);
-    assert_eq!(counters["grant_rejected_fields"], 11);
+    assert_eq!(counters["grant_rejected_fields"], 9);
     assert_eq!(counters["grant_rejected_no_pending_or_stale"], 2);
     assert_eq!(counters["grant_rejected_replay"], 0);
 }
