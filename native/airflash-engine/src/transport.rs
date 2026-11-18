@@ -495,7 +495,7 @@ fn feedback_loop(
     let mut failures = 0;
     let mut next = Instant::now() + timing.interval;
     while !stop.is_cancelled() {
-        if let Some(fault) = drain_incoming(connection, host, health) {
+        if let Some(fault) = observe_queued_ownership_signals(connection, host, health) {
             return Err(fault.into());
         }
         if Instant::now() < next {
@@ -631,10 +631,13 @@ fn feedback_loop(
     Ok(())
 }
 
-/// Receiver-initiated traffic can land on the shared control connection while a
-/// volume or metadata worker owns it. The request is stashed by `Connection`; it
-/// is inspected here rather than inside every request path.
-fn drain_incoming(connection: &Mutex<Connection>, host: &str, health: &Health) -> Option<Fault> {
+/// Inspect ownership signals already read by workers sharing this connection.
+/// This drains only parsed messages and headers, without reading the socket.
+pub(crate) fn observe_queued_ownership_signals(
+    connection: &Mutex<Connection>,
+    host: &str,
+    health: &Health,
+) -> Option<Fault> {
     let mut connection = connection.lock().unwrap();
     for message in connection.take_unsolicited() {
         if preemption::incoming_teardown(message.method()).is_some() {
