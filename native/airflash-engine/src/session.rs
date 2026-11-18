@@ -210,7 +210,14 @@ impl ProbeOptions {
             ensure!(seen_peers.insert(peer.host), "duplicate peer");
         }
         ensure!(
-            ["", "single", "native_stereo", "software_stereo", "multi_room"].contains(&self.group_mode.as_str()),
+            [
+                "",
+                "single",
+                "native_stereo",
+                "software_stereo",
+                "multi_room"
+            ]
+            .contains(&self.group_mode.as_str()),
             "invalid group mode"
         );
         for peer in &self.peers {
@@ -390,16 +397,21 @@ impl Drop for NtpServer {
 fn authenticate_with<C, T>(
     host: IpAddr,
     connection: &mut C,
-    saved: Result<Option<auth::Credentials>>,
+    device_id: &str,
+    load_saved: impl FnOnce(&str) -> Result<Option<auth::Credentials>>,
+    load_password: impl FnOnce(&str) -> Result<Option<zeroize::Zeroizing<String>>>,
     verify: impl FnOnce(&mut C, &auth::Credentials) -> Result<T>,
-    transient: impl FnOnce(&mut C) -> Result<T>,
+    transient: impl FnOnce(&mut C, Option<&str>) -> Result<T>,
 ) -> Result<T> {
-    // Storage errors precede the authentication wrapper and retain setup classification.
-    let saved = saved?;
-    (if let Some(credentials) = saved {
+    // Without an accessory identity there is no storage key. Lookup errors
+    // precede the exchange wrapper and retain their setup classification.
+    (if device_id.is_empty() {
+        transient(connection, None)
+    } else if let Some(credentials) = load_saved(device_id)? {
         verify(connection, &credentials)
     } else {
-        transient(connection)
+        let password = load_password(device_id)?;
+        transient(connection, password.as_ref().map(|value| value.as_str()))
     })
     .map_err(|error| {
         let mut fault = Fault::from_error(host, "authentication", &error);
@@ -672,24 +684,18 @@ impl Member {
             .get("deviceID")
             .and_then(Value::as_string)
             .unwrap_or("");
-        let saved = if device_id.is_empty() {
-            Ok(None)
-        } else {
-            crate::credentials::load(&crate::credentials::directory(), device_id)
-        };
-        // Credential lookup errors must be returned before selecting any authentication method.
-        let password = if !device_id.is_empty() && matches!(&saved, Ok(None)) {
-            crate::credentials::load_password(&crate::credentials::directory(), device_id)?
-        } else {
-            None
-        };
-        let secret = authenticate_with(peer.host, &mut conn, saved, auth::verify, |connection| {
-            if let Some(password) = password {
-                auth::transient_password(connection, &password)
-            } else {
-                auth::transient(connection)
-            }
-        })?;
+        let secret = authenticate_with(
+            peer.host,
+            &mut conn,
+            device_id,
+            |id| crate::credentials::load(&crate::credentials::directory(), id),
+            |id| crate::credentials::load_password(&crate::credentials::directory(), id),
+            auth::verify,
+            |connection, password| match password {
+                Some(password) => auth::transient_password(connection, password),
+                None => auth::transient(connection),
+            },
+        )?;
         emit(json!({"event":"phase","host":peer.host,"phase":"authenticated"}));
         let control = UdpSocket::bind(SocketAddr::new(local, 0))?;
         control.set_nonblocking(true)?;
@@ -783,36 +789,40 @@ impl Member {
         if let Some(id) = clock_id {
             // A HomePod mini 2 accepts a bare SETPEERS but never completes the PTP
             // exchange; it needs the SETPEERSX timing-peer form.
-            let (method, peers) = if member.compat.ptp_expected() == Some(true) {
-                let timing_peer = |peer_id: String, clock: Option<u64>, address: String| {
-                    let mut fields = vec![("ID", string(peer_id)), ("DeviceType", number(0))];
-                    if let Some(clock) = clock {
-                        fields.push(("ClockID", number(clock)));
-                    }
-                    fields.push(("SupportsClockPortMatchingOverride", Value::Boolean(false)));
-                    fields.push(("Addresses", Value::Array(vec![string(address)])));
-                    dictionary(fields)
+            let (method, peers) =
+                if member.compat.ptp_expected() == Some(true) {
+                    let timing_peer = |peer_id: String, clock: Option<u64>, address: String| {
+                        let mut fields = vec![("ID", string(peer_id)), ("DeviceType", number(0))];
+                        if let Some(clock) = clock {
+                            fields.push(("ClockID", number(clock)));
+                        }
+                        fields.push(("SupportsClockPortMatchingOverride", Value::Boolean(false)));
+                        fields.push(("Addresses", Value::Array(vec![string(address)])));
+                        dictionary(fields)
+                    };
+                    let mut peers = vec![timing_peer(
+                        timing_peer_id.clone(),
+                        Some(id),
+                        local.to_string(),
+                    )];
+                    peers.extend(options.peers.iter().map(|p| {
+                        timing_peer(Uuid::new_v4().to_string(), None, p.host.to_string())
+                    }));
+                    ("SETPEERSX", peers)
+                } else {
+                    let mut peers: Vec<Value> = options
+                        .peers
+                        .iter()
+                        .map(|p| string(p.host.to_string()))
+                        .collect();
+                    peers.push(string(local.to_string()));
+                    ("SETPEERS", peers)
                 };
-                let mut peers =
-                    vec![timing_peer(timing_peer_id.clone(), Some(id), local.to_string())];
-                peers.extend(options.peers.iter().map(|p| {
-                    timing_peer(Uuid::new_v4().to_string(), None, p.host.to_string())
-                }));
-                ("SETPEERSX", peers)
-            } else {
-                let mut peers: Vec<Value> = options
-                    .peers
-                    .iter()
-                    .map(|p| string(p.host.to_string()))
-                    .collect();
-                peers.push(string(local.to_string()));
-                ("SETPEERS", peers)
-            };
-            member.conn.lock().unwrap().plist_request(
-                method,
-                &member.uri,
-                &Value::Array(peers),
-            )?;
+            member
+                .conn
+                .lock()
+                .unwrap()
+                .plist_request(method, &member.uri, &Value::Array(peers))?;
             ptp.as_ref().unwrap().activate(peer.host, local);
         }
         let requested_latency = peer.profile.latency_ms.unwrap_or(options.latency_ms);
@@ -2295,18 +2305,23 @@ fn send_packets(
         .iter()
         .map(|m| (m.peer.host.to_string(), m.uri.clone(), m.conn.clone()))
         .collect::<Vec<_>>();
-    let volume_workers = if options.group_mode == "software_stereo" || options.group_mode == "multi_room" {
-        members
-            .iter()
-            .zip(volume_peers.iter().cloned())
-            .map(|(member, peer)| {
-                crate::volume::Worker::start_member(peer, volume.clone(), member.peer.volume)
-            })
-            .collect::<Result<Vec<_>>>()?
-    } else {
-        let initial = members.iter().find_map(|member| member.peer.volume);
-        vec![crate::volume::Worker::start(volume_peers.clone(), volume, initial)?]
-    };
+    let volume_workers =
+        if options.group_mode == "software_stereo" || options.group_mode == "multi_room" {
+            members
+                .iter()
+                .zip(volume_peers.iter().cloned())
+                .map(|(member, peer)| {
+                    crate::volume::Worker::start_member(peer, volume.clone(), member.peer.volume)
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            let initial = members.iter().find_map(|member| member.peer.volume);
+            vec![crate::volume::Worker::start(
+                volume_peers.clone(),
+                volume,
+                initial,
+            )?]
+        };
     let metadata_timeline =
         crate::metadata::Timeline::new(members[0].media.packetizer.timestamp, rate);
     let metadata_worker = crate::metadata::Worker::start(
@@ -2375,7 +2390,9 @@ fn send_packets(
             }
             metadata_timeline.set(members[0].media.packetizer.timestamp);
             if let Some(worker) = &glow_worker {
-                for event in worker.events.try_iter() { emit(event); }
+                for event in worker.events.try_iter() {
+                    emit(event);
+                }
             }
             for (member, position) in members.iter().zip(&positions) {
                 position.store(
@@ -4218,13 +4235,7 @@ mod tests {
         // The left control connection died with its feedback probe, so no
         // TEARDOWN can reach it; the right member proves the session is still
         // torn down instead of being leaked.
-        assert!(
-            !left_methods
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|m| m == "TEARDOWN")
-        );
+        assert!(!left_methods.lock().unwrap().iter().any(|m| m == "TEARDOWN"));
         assert_eq!(
             right_methods
                 .lock()
@@ -4250,12 +4261,8 @@ mod tests {
             .preemption_signal(preemption::Signal::ClockLost);
         let now = Instant::now();
         let mut takeovers = preemption::TakeoverCounters::default();
-        let (poll, _) = member.poll_preemption(
-            &Cancellation::default(),
-            &mut takeovers,
-            now,
-            &|_| {},
-        );
+        let (poll, _) =
+            member.poll_preemption(&Cancellation::default(), &mut takeovers, now, &|_| {});
         assert!(matches!(poll, PreemptionPoll::None));
         assert!(!member.ownership_uncertain);
         assert!(!member.health.ownership_uncertain());
@@ -6508,7 +6515,9 @@ mod tests {
         authenticate_with(
             "127.0.0.1".parse().unwrap(),
             calls,
-            saved,
+            "synthetic-accessory",
+            |_| saved,
+            |_| Ok(None),
             |calls, credentials| {
                 calls.verify += 1;
                 assert_eq!(credentials.accessory_id, b"synthetic-accessory");
@@ -6517,7 +6526,8 @@ mod tests {
                 }
                 Ok(())
             },
-            |calls| {
+            |calls, password| {
+                assert!(password.is_none());
                 calls.transient += 1;
                 Ok(())
             },
@@ -6614,6 +6624,181 @@ mod tests {
         assert_eq!(fault.message, "synthetic verification failure");
         assert!(!fault.retryable);
     }
+    const SYNTHETIC_PASSWORD: &str = " exact-pässword-12-34 \t";
+
+    fn trace_authentication(
+        id: &str,
+        saved: Result<Option<auth::Credentials>>,
+        password: Result<Option<zeroize::Zeroizing<String>>>,
+        exchange: impl Fn() -> Result<()>,
+    ) -> (Result<()>, Vec<&'static str>) {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let result = authenticate_with(
+            "127.0.0.1".parse().unwrap(),
+            &mut (),
+            id,
+            |lookup_id| {
+                assert_eq!(lookup_id, id);
+                calls.borrow_mut().push("load HAP");
+                saved
+            },
+            |lookup_id| {
+                assert_eq!(lookup_id, id);
+                calls.borrow_mut().push("load password");
+                password
+            },
+            |_, credentials| {
+                assert_eq!(credentials.accessory_id, b"synthetic-accessory");
+                calls.borrow_mut().push("verify");
+                exchange()
+            },
+            |_, password| {
+                if let Some(password) = password {
+                    assert_eq!(password, SYNTHETIC_PASSWORD);
+                    calls.borrow_mut().push("password");
+                } else {
+                    calls.borrow_mut().push("transient");
+                }
+                exchange()
+            },
+        );
+        (result, calls.into_inner())
+    }
+
+    #[test]
+    fn accessory_storage_is_lazy_and_selects_one_authentication_exchange() {
+        for (id, hap, password, expected) in [
+            ("", true, true, &["transient"][..]),
+            (
+                "synthetic-accessory",
+                true,
+                true,
+                &["load HAP", "verify"][..],
+            ),
+            (
+                "synthetic-accessory",
+                true,
+                false,
+                &["load HAP", "verify"][..],
+            ),
+            (
+                "synthetic-accessory",
+                false,
+                true,
+                &["load HAP", "load password", "password"][..],
+            ),
+            (
+                "synthetic-accessory",
+                false,
+                false,
+                &["load HAP", "load password", "transient"][..],
+            ),
+        ] {
+            let (result, calls) = trace_authentication(
+                id,
+                Ok(hap.then(synthetic_credentials)),
+                Ok(password.then(|| zeroize::Zeroizing::new(SYNTHETIC_PASSWORD.to_owned()))),
+                || Ok(()),
+            );
+            result.unwrap();
+            assert_eq!(calls, expected);
+        }
+    }
+
+    #[test]
+    fn storage_failure_stops_selection_before_an_exchange_or_alternate_lookup() {
+        use std::io::{Error, ErrorKind};
+        for fails_hap in [false, true] {
+            for kind in [
+                None,
+                Some(ErrorKind::NotFound),
+                Some(ErrorKind::PermissionDenied),
+                Some(ErrorKind::Other),
+            ] {
+                let error = || -> anyhow::Error {
+                    match kind {
+                        Some(kind) => Error::new(kind, "synthetic storage failure").into(),
+                        None => anyhow::anyhow!("synthetic storage failure"),
+                    }
+                };
+                let (result, calls) = trace_authentication(
+                    "synthetic-accessory",
+                    if fails_hap { Err(error()) } else { Ok(None) },
+                    Err(error()),
+                    || panic!("storage failure must prevent every exchange"),
+                );
+                let expected = if fails_hap {
+                    &["load HAP"][..]
+                } else {
+                    &["load HAP", "load password"][..]
+                };
+                assert_eq!(calls, expected);
+                let error = result.unwrap_err();
+                assert!(error.downcast_ref::<Fault>().is_none());
+                assert_eq!(error.downcast_ref::<Error>().map(Error::kind), kind);
+                let fault = Fault::from_setup_error("127.0.0.1", &error);
+                let reply = fault.event();
+                assert_eq!(reply["channel"], "setup");
+                assert_eq!(
+                    reply["code"],
+                    if kind.is_some() {
+                        "socket_error"
+                    } else {
+                        "protocol_error"
+                    }
+                );
+                assert_eq!(reply["retryable"], kind.is_some());
+                assert_eq!(reply["message"], "synthetic storage failure");
+            }
+        }
+    }
+
+    #[test]
+    fn exchange_failure_keeps_its_classification_and_never_selects_another_method() {
+        for (hap, password, expected) in [
+            (true, true, &["load HAP", "verify"][..]),
+            (false, true, &["load HAP", "load password", "password"][..]),
+            (
+                false,
+                false,
+                &["load HAP", "load password", "transient"][..],
+            ),
+        ] {
+            for timed_out in [false, true] {
+                let (result, calls) = trace_authentication(
+                    "synthetic-accessory",
+                    Ok(hap.then(synthetic_credentials)),
+                    Ok(password.then(|| zeroize::Zeroizing::new(SYNTHETIC_PASSWORD.to_owned()))),
+                    || {
+                        if timed_out {
+                            return Err(std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                "synthetic exchange failure",
+                            )
+                            .into());
+                        }
+                        anyhow::bail!("synthetic exchange failure")
+                    },
+                );
+                assert_eq!(calls, expected);
+                let error = result.unwrap_err();
+                let fault = error.downcast_ref::<Fault>().unwrap();
+                let reply = fault.event();
+                assert_eq!(reply["channel"], "authentication");
+                assert_eq!(
+                    reply["code"],
+                    if timed_out {
+                        "socket_error"
+                    } else {
+                        "authentication_failed"
+                    }
+                );
+                assert_eq!(reply["retryable"], timed_out);
+                assert_eq!(reply["message"], "synthetic exchange failure");
+            }
+        }
+    }
+
     #[test]
     fn unsafe_probe_rejected() {
         let mut parameters =
