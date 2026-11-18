@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -395,3 +396,83 @@ def test_cleanup_propagates_io_failures_instead_of_treating_them_as_absence(tmp_
     result = fixture.run(**{key: str(denied)})
     assert_rejected_before_remove(result)
     assert "Synthetic" in result["error"]
+
+
+@pytest.mark.parametrize(
+    "channel,informational,development",
+    [
+        ("stable", "0.4.0", False),
+        ("preview", "0.4.0-rc.1", False),
+        ("stable", "0.4.0-dev.synthetic.dirty", True),
+    ],
+)
+def test_package_producer_and_actual_release_lookup_agree(
+    tmp_path, channel, informational, development
+):
+    fixture = Fixture(tmp_path)
+    result = fixture.run(
+        mode="package", channel=channel, informational=informational, development=development
+    )
+    assert result["setup_error"] is None and result["error"] is None, result
+    assert result["files"] == [f"AirFlash-{informational}.msi", "AirFlash.exe"]
+    assert [event["operation"] for event in result["events"]] == [
+        "native", "publish", "installer"
+    ]
+    installer = result["events"][-1]
+    assert installer["product_version"] == "0.4.0"
+    assert installer["artifact_version"] == informational
+    arguments = result["events"][1]["arguments"]
+    assert "-p:Version=0.4.0" in arguments
+    assert f"-p:InformationalVersion={informational}" in arguments
+    if not development:
+        assert result["consumer"]["exists"], result
+        assert Path(result["consumer"]["path"]).name == f"AirFlash-{informational}.msi"
+
+
+@pytest.mark.parametrize(
+    "version",
+    [
+        "0.4.0-rc.1", "0.4.0\n", "0.4.0\r\n", "０.４.０", "0.04.0",
+        "0.4.65535", "255.255.65535",
+    ],
+)
+def test_invalid_numeric_version_fails_before_fake_build_or_cleanup(tmp_path, version):
+    fixture = Fixture(tmp_path)
+    result = fixture.run(mode="package", version=version, informational=version)
+    assert_rejected_before_remove(result)
+
+
+@pytest.mark.parametrize("version", ["6.0.0", "255.255.65534"])
+def test_application_version_reaches_publish_and_matching_installer(tmp_path, version):
+    result = Fixture(tmp_path).run(mode="package", version=version, informational=version)
+    assert result["setup_error"] is None and result["error"] is None, result
+    assert result["files"] == [f"AirFlash-{version}.msi", "AirFlash.exe"]
+    assert [event["operation"] for event in result["events"]] == [
+        "native", "publish", "installer"
+    ]
+    publish = result["events"][1]["arguments"]
+    for argument in (
+        f"-p:Version={version}", f"-p:FileVersion={version}.0", f"-p:AssemblyVersion={version}.0"
+    ):
+        assert argument in publish
+    assert result["events"][-1]["product_version"] == version
+    assert result["events"][-1]["artifact_version"] == version
+    assert result["consumer"]["exists"] is True
+    assert Path(result["consumer"]["path"]).name == f"AirFlash-{version}.msi"
+
+
+def test_release_workflow_passes_channel_to_the_actual_release_verifier():
+    workflow = (SOURCE / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    invocation = next(
+        line for line in workflow.splitlines() if "./scripts/verify-release.ps1" in line
+    )
+    assert "-ReleaseChannel $env:RELEASE_CHANNEL" in invocation
+
+
+def test_preview_workflow_upload_uses_the_shared_artifact_version():
+    workflow = (SOURCE / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    preview = workflow.split("- name: Preserve verified preview assets", 1)[1]
+    pattern = r"dist/AirFlash-\$\{\{\s*steps\.version\.outputs\.artifact_version\s*}}\.msi"
+    assert re.search(pattern, preview)
+    assert "Get-AirFlashReleaseArtifactVersion" in workflow
+    assert "artifact_version=" in workflow
