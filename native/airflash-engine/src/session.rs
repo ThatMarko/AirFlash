@@ -2760,8 +2760,8 @@ fn send_packets(
                     emit(clock_status(timer, &hosts, "streaming"));
                 }
                 if let Some(source) = &live {
-                    sample_capture(source, &mut capture_baseline, &mut telemetry);
-                    emit(json!({"event":"capture_metrics","metrics":source.metrics()}));
+                    let metrics = sample_capture(source, &mut capture_baseline, &mut telemetry);
+                    emit(json!({"event":"capture_metrics","metrics":metrics}));
                 }
                 let snapshot = transport_metrics(
                     members,
@@ -2907,8 +2907,8 @@ fn send_packets(
         Ok(())
     };
     if let Some(source) = &live {
-        sample_capture(source, &mut capture_baseline, &mut telemetry);
-        emit(json!({"event":"capture_metrics","metrics":source.metrics()}));
+        let metrics = sample_capture(source, &mut capture_baseline, &mut telemetry);
+        emit(json!({"event":"capture_metrics","metrics":metrics}));
     }
     for member in members.iter() {
         for notice in member.health.notices() {
@@ -3340,7 +3340,7 @@ fn sample_capture(
     source: &crate::live::Loopback,
     baseline: &mut Option<crate::live::Metrics>,
     telemetry: &mut crate::telemetry::SessionTelemetry,
-) {
+) -> crate::live::Metrics {
     let metrics = source.metrics();
     if let Some(previous) = baseline {
         telemetry.input_drops += metrics
@@ -3374,7 +3374,8 @@ fn sample_capture(
             }
         }
     }
-    *baseline = Some(metrics);
+    *baseline = Some(metrics.clone());
+    metrics
 }
 
 fn transport_metrics(
@@ -6229,6 +6230,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn capture_metrics_report_matches_the_aggregation_snapshot() {
+        let source = crate::live::tests::source();
+        let mut baseline = None;
+        let mut telemetry = crate::telemetry::SessionTelemetry::new();
+        let initial = sample_capture(&source, &mut baseline, &mut telemetry);
+        assert_eq!(
+            serde_json::to_value(&initial).unwrap(),
+            serde_json::to_value(baseline.as_ref().unwrap()).unwrap()
+        );
+
+        source.packet(0.0).unwrap();
+        let sampled = sample_capture(&source, &mut baseline, &mut telemetry);
+        assert_eq!(telemetry.underruns_idle, 1);
+        assert_eq!(telemetry.underruns_active, 0);
+        // Capture can change after aggregation, before the report is serialized.
+        source.packet(0.0).unwrap();
+        let event = json!({"event":"capture_metrics","metrics":sampled});
+        assert_eq!(event["metrics"]["underrun_packets"], 1);
+        assert_eq!(source.metrics().underrun_packets, 2);
+        assert_eq!(
+            event["metrics"],
+            serde_json::to_value(baseline.as_ref().unwrap()).unwrap()
+        );
+
+        let final_sample = sample_capture(&source, &mut baseline, &mut telemetry);
+        assert_eq!(telemetry.underruns_idle, 2);
+        assert_eq!(final_sample.underrun_packets, 2);
+        assert_eq!(
+            serde_json::to_value(final_sample).unwrap(),
+            serde_json::to_value(baseline.as_ref().unwrap()).unwrap()
+        );
+    }
     #[test]
     fn session_summary_copies_every_number_from_its_existing_counter() {
         let options = summary_options("abc", "software_stereo", 0);

@@ -396,9 +396,13 @@ impl Loopback {
         (s.frames.len(), s.capacity)
     }
     pub fn metrics(&self) -> Metrics {
-        let s = self.state.lock().unwrap();
-        let mut metrics = s.metrics.clone();
-        let mut ages: Vec<_> = s.ages.iter().copied().collect();
+        let (mut metrics, mut ages) = {
+            let s = self.state.lock().unwrap();
+            (
+                s.metrics.clone(),
+                s.ages.iter().copied().collect::<Vec<_>>(),
+            )
+        };
         ages.sort_by(f64::total_cmp);
         metrics.capture_to_send_p95_ms = ages.get(ages.len() * 95 / 100).copied();
         metrics
@@ -1808,6 +1812,35 @@ pub(crate) mod tests {
             ))),
             worker: None,
             equalizer_control,
+        }
+    }
+    #[test]
+    fn metrics_snapshot_keeps_percentile_and_capture_history_unchanged() {
+        for (ages, expected) in [
+            (Vec::new(), None),
+            (vec![7.5], Some(7.5)),
+            ((0..20).rev().map(f64::from).collect(), Some(19.0)),
+            ((0..100).rev().map(f64::from).collect(), Some(95.0)),
+        ] {
+            let source = source();
+            let stored;
+            {
+                let mut state = source.state.lock().unwrap();
+                state.ages.extend(ages.iter().copied());
+                state.metrics.capture_frames = 23;
+                state.metrics.dropped_frames = 4;
+                state.metrics.capture_to_send_p95_ms = Some(-1.0);
+                stored = serde_json::to_value(&state.metrics).unwrap();
+            }
+
+            let snapshot = source.metrics();
+            assert_eq!(snapshot.capture_to_send_p95_ms, expected);
+            let mut expected_snapshot = stored.clone();
+            expected_snapshot["capture_to_send_p95_ms"] = serde_json::json!(expected);
+            assert_eq!(serde_json::to_value(snapshot).unwrap(), expected_snapshot);
+            let state = source.state.lock().unwrap();
+            assert_eq!(state.ages.iter().copied().collect::<Vec<_>>(), ages);
+            assert_eq!(serde_json::to_value(&state.metrics).unwrap(), stored);
         }
     }
     #[test]
