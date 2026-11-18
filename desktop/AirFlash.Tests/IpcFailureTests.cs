@@ -22,18 +22,30 @@ public sealed class IpcFailureTests
     public async Task ExactProcessRejectionKeepsItsFaultAndTerminatesTheOwnedAttempt(string phase, bool originalMute)
     {
         var connection = new Connection(); var factory = new Factory(connection); var audio = new Audio(originalMute);
-        await using var controller = TestSessionController.Create(factory, audio, timing: Timing);
-        var fault = Signal(); var streaming = Signal();
-        controller.Changed += snapshot => { if (snapshot.State == PlaybackState.Error) fault.TrySetResult(); if (snapshot.State == PlaybackState.Streaming) streaming.TrySetResult(); };
+        // Only the injected rejection should end this attempt. The separate quiet-playback
+        // fixture advances virtual time to exercise the protocol read watchdog.
+        var observationLimit = TimeSpan.FromSeconds(30);
+        await using var controller = TestSessionController.Create(factory, audio, timing: Timing, clock: new ManualDeadlineClock());
+        var fault = new TaskCompletionSource<SessionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var streaming = Signal();
+        controller.Changed += snapshot =>
+        {
+            if (snapshot.State == PlaybackState.Error) fault.TrySetResult(snapshot);
+            if (snapshot.State == PlaybackState.Streaming) streaming.TrySetResult();
+        };
         if (phase == "pairing") await controller.PairAsync(Receiver(), Settings(), (_, _) => throw new InvalidOperationException("No PIN request is scripted"));
         else await controller.StartAsync(Receiver(), Settings());
-        await connection.Started.Task.WaitAsync(Limit);
-        await connection.Starting.Task.WaitAsync(Limit);
-        if (phase == "streaming") { connection.Current("streaming"); await streaming.Task.WaitAsync(Limit); Assert.True(audio.Muted); }
+        await AwaitPhaseAsync(connection.Starting.Task, fault.Task, phase == "pairing" ? "the Pair command" : "the Start command", observationLimit);
+        Assert.True(connection.Started.Task.IsCompletedSuccessfully);
+        if (phase == "streaming")
+        {
+            connection.Current("streaming");
+            await AwaitPhaseAsync(streaming.Task, fault.Task, "Streaming", observationLimit);
+            Assert.True(audio.Muted);
+        }
         var restores = audio.Restores;
         connection.Raw(Rejection);
-        await fault.Task.WaitAsync(Limit);
-        var failed = controller.Snapshot;
+        var failed = await fault.Task.WaitAsync(observationLimit);
         Assert.NotNull(failed.Diagnostics?.LastFault);
         var notice = failed.Diagnostics!.LastFault!;
         Assert.Equal("command_error", notice.Code); Assert.Equal("ipc", notice.Channel);
@@ -41,7 +53,7 @@ public sealed class IpcFailureTests
         Assert.Equal("synthetic command rejection", notice.Message);
         Assert.Equal(notice.Detail, failed.Message);
         // Playback restores in its catch and outer finally; pairing has only the outer finally.
-        await audio.WhenRestoredAtLeastAsync(restores + (phase == "pairing" ? 1 : 2)).WaitAsync(Limit);
+        await audio.WhenRestoredAtLeastAsync(restores + (phase == "pairing" ? 1 : 2)).WaitAsync(observationLimit);
         Assert.True(connection.Disposed); Assert.Contains("stop", connection.Commands);
         Assert.Equal(originalMute, audio.Muted); Assert.Equal(1, factory.OpenCount);
         Assert.Equal(0, failed.Diagnostics.ReconnectCount);
@@ -160,9 +172,9 @@ public sealed class IpcFailureTests
         Assert.Equal(PlaybackState.Idle, controller.Snapshot.State);
     }
 
-    private static async Task AwaitPhaseAsync(Task phase, Task<SessionSnapshot> fault, string expected)
+    private static async Task AwaitPhaseAsync(Task phase, Task<SessionSnapshot> fault, string expected, TimeSpan? observationLimit = null)
     {
-        if (await Task.WhenAny(phase, fault).WaitAsync(Limit) == fault)
+        if (await Task.WhenAny(phase, fault).WaitAsync(observationLimit ?? Limit) == fault)
         {
             var failed = await fault;
             Assert.Fail($"Expected {expected}; observed {failed.State}: {failed.Diagnostics?.LastFault?.Detail ?? failed.Message}");
