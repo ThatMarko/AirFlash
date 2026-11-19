@@ -250,6 +250,7 @@ public sealed class ReceiverIdentityTests
         if (right is not null)
             Assert.Contains(pair.Members, member => member.Id == "synthetic-right" && member.Address == right.Address && member.Port == right.Port);
         Assert.Equal(complete, pair.Complete);
+        Assert.Equal(complete, ReceiverSelection.IsAutoConnectEligible(pair, settings, new HashSet<string>()));
         Assert.EndsWith($"{usable}/2", pair.Detail, StringComparison.Ordinal);
     }
 
@@ -266,6 +267,7 @@ public sealed class ReceiverIdentityTests
         Assert.Equal(3, pair.Members.Length);
         Assert.Equal(2, pair.Members.Select(member => member.Address).Distinct(StringComparer.Ordinal).Count());
         Assert.False(pair.Complete);
+        Assert.False(ReceiverSelection.IsAutoConnectEligible(pair, settings, new HashSet<string>()));
         Assert.EndsWith("3/2", pair.Detail, StringComparison.Ordinal);
     }
 

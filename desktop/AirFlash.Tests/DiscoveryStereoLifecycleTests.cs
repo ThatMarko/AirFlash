@@ -368,6 +368,7 @@ public sealed class DiscoveryStereoLifecycleTests
         Assert.True(group.IsGroup);
         Assert.False(group.Complete);
         Assert.Same(group, ReceiverSelection.ResolvePlayback(Assert.Single(group.Members), catalog));
+        Assert.False(ReceiverSelection.IsAutoConnectEligible(group, new() { AutoConnectOnDiscover = true }, new HashSet<string>()));
     }
 
     private static ServiceRecord[] Records() =>

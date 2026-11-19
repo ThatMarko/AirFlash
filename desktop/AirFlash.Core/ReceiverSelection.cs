@@ -21,4 +21,17 @@ public static class ReceiverSelection
         var groups = owners.Where(owner => owner.Root.IsGroup).Select(owner => owner.Root).DistinctBy(group => group.Id, StringComparer.Ordinal).Take(2).ToArray();
         return groups.Length switch { 0 => selected, 1 => groups[0], _ => null };
     }
+
+    public static bool IsAutoConnectEligible(Receiver receiver, AppSettings settings, IReadOnlySet<string> attempted)
+    {
+        var options = settings.ReadOptions(receiver.Id);
+        return receiver.Online && receiver.Complete && !options.Hidden && !attempted.Contains(receiver.Id)
+            && (options.AutoConnect ?? settings.AutoConnectOnDiscover);
+    }
+
+    public static Receiver? SelectAutoConnect(IEnumerable<Receiver> catalog, AppSettings settings, IReadOnlySet<string> attempted)
+        => catalog.Where(receiver => IsAutoConnectEligible(receiver, settings, attempted))
+            .OrderByDescending(receiver => receiver.Id == settings.LastReceiverId)
+            .ThenBy(receiver => receiver.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(receiver => receiver.Id, StringComparer.Ordinal).FirstOrDefault();
 }

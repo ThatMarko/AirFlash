@@ -175,14 +175,16 @@ public partial class App : Application
         if (_quitting) return; _quitting = true;
         try
         {
-            if (_settings is { } applying) await applying.ViewModel.ApplicationCompleted;
-            _muteRecovery?.Close();
-            _settings?.Close();
-            if (_engine is not null) await _engine.DisposeAsync();
-            if (_viewModel is not null) await _viewModel.DisposeAsync();
-            _tray?.Dispose(); _panel?.ShutdownPanel();
-            if (_instance is not null) await _instance.DisposeAsync();
-            _theme?.Dispose();
+            await ShellShutdown.RunAsync(() => _viewModel?.BeginShutdown(),
+                () => _settings?.ViewModel.ApplicationCompleted ?? Task.CompletedTask,
+                ShellShutdown.Sync(() => _settings?.Close()),
+                ShellShutdown.Sync(() => _muteRecovery?.Close()),
+                () => _engine?.DisposeAsync() ?? ValueTask.CompletedTask,
+                () => _viewModel?.DisposeAsync() ?? ValueTask.CompletedTask,
+                ShellShutdown.Sync(() => _tray?.Dispose()),
+                ShellShutdown.Sync(() => _panel?.ShutdownPanel()),
+                () => _instance?.DisposeAsync() ?? ValueTask.CompletedTask,
+                ShellShutdown.Sync(() => _theme?.Dispose()));
         }
         catch (Exception error) { AppPaths.Log(error.ToString()); }
         finally { Shutdown(); }

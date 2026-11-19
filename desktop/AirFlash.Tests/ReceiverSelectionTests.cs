@@ -9,6 +9,7 @@ public sealed class ReceiverSelectionTests
         => new(id, id, address, port);
     private static Receiver Group(string id, params Receiver[] members)
         => new("stereo:" + id, id, members.FirstOrDefault()?.Address ?? "") { Members = members };
+    private static HashSet<string> Attempted(params string[] ids) => new(ids, StringComparer.Ordinal);
 
     [Theory]
     [InlineData(7000, true)]
@@ -178,5 +179,93 @@ public sealed class ReceiverSelectionTests
         var group = Group("pair", selected);
         Assert.False(group.Complete);
         Assert.Same(group, ReceiverSelection.ResolvePlayback(selected, [group]));
+    }
+
+    [Fact]
+    public void AttemptedPreferredReceiverDoesNotBlockAnotherCandidate()
+    {
+        var preferred = Member("preferred") with { Name = "Alpha" };
+        var next = Member("next", "192.0.2.11") with { Name = "Beta" };
+        var settings = new AppSettings { AutoConnectOnDiscover = true, LastReceiverId = preferred.Id };
+        Assert.Same(next, ReceiverSelection.SelectAutoConnect([preferred, next], settings, Attempted(preferred.Id)));
+        Assert.Null(ReceiverSelection.SelectAutoConnect([preferred, next], settings, Attempted(preferred.Id, next.Id)));
+    }
+
+    [Fact]
+    public void LastUsedPreferenceAndNameRankingApplyAmongUnattemptedCandidates()
+    {
+        var alpha = Member("alpha") with { Name = "Alpha" };
+        var beta = Member("beta", "192.0.2.11") with { Name = "Beta" };
+        var settings = new AppSettings { AutoConnectOnDiscover = true, LastReceiverId = beta.Id };
+        Assert.Same(beta, ReceiverSelection.SelectAutoConnect([alpha, beta], settings, Attempted()));
+        settings.LastReceiverId = "unavailable";
+        Assert.Same(alpha, ReceiverSelection.SelectAutoConnect([beta, alpha], settings, Attempted()));
+        Assert.Same(beta, ReceiverSelection.SelectAutoConnect([beta, alpha], settings, Attempted(alpha.Id)));
+    }
+
+    [Fact]
+    public void EqualNameCandidatesUseAStableOrdinalIdentityTieBreak()
+    {
+        var first = Member("a") with { Name = "Same name" };
+        var second = Member("b", "192.0.2.11") with { Name = "Same name" };
+        var settings = new AppSettings { AutoConnectOnDiscover = true };
+        Assert.Same(first, ReceiverSelection.SelectAutoConnect([second, first], settings, Attempted()));
+    }
+
+    [Fact]
+    public void AutoConnectRejectsHiddenOfflineIncompleteAndExplicitlyDisabledCandidates()
+    {
+        var hidden = Member("hidden");
+        var offline = Member("offline") with { Online = false };
+        var incomplete = Group("incomplete", Member());
+        var disabled = Member("disabled");
+        var valid = Member("valid");
+        var settings = new AppSettings { AutoConnectOnDiscover = true, LastReceiverId = hidden.Id };
+        settings.Options(hidden.Id).Hidden = true;
+        settings.Options(disabled.Id).AutoConnect = false;
+        foreach (var candidate in new[] { hidden, offline, incomplete, disabled })
+            Assert.False(ReceiverSelection.IsAutoConnectEligible(candidate, settings, Attempted()));
+        Assert.True(ReceiverSelection.IsAutoConnectEligible(valid, settings, Attempted()));
+        Assert.Same(valid, ReceiverSelection.SelectAutoConnect([hidden, offline, incomplete, disabled, valid], settings, Attempted()));
+    }
+
+    [Fact]
+    public void HiddenCompleteGroupAndGroupWithAnOfflineMemberCannotWinAutomaticSelection()
+    {
+        var hidden = Group("hidden", Member(), Member("member-b", "192.0.2.11"));
+        var incomplete = Group("incomplete", Member(), Member("member-b", "192.0.2.11") with { Online = false });
+        var fallback = Member("fallback", "192.0.2.12");
+        var settings = new AppSettings { AutoConnectOnDiscover = true, LastReceiverId = hidden.Id };
+        settings.Options(hidden.Id).Hidden = true;
+        settings.Options(hidden.Id).AutoConnect = true;
+        Assert.True(hidden.Complete);
+        Assert.False(incomplete.Complete);
+        Assert.Same(fallback, ReceiverSelection.SelectAutoConnect([hidden, incomplete, fallback], settings, Attempted()));
+    }
+
+    [Theory]
+    [InlineData(false, null, false)]
+    [InlineData(true, null, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, false)]
+    public void ReceiverOverrideTakesPrecedenceOverGlobalAutoConnect(bool global, bool? receiverOverride, bool expected)
+    {
+        var receiver = Member();
+        var settings = new AppSettings { AutoConnectOnDiscover = global };
+        settings.Options(receiver.Id).AutoConnect = receiverOverride;
+        Assert.Equal(expected, ReceiverSelection.IsAutoConnectEligible(receiver, settings, Attempted()));
+        Assert.Equal(expected, ReceiverSelection.SelectAutoConnect([receiver], settings, Attempted()) is not null);
+    }
+
+    [Fact]
+    public void SelectionDoesNotMutateSettingsOrAttemptedIds()
+    {
+        var receiver = Member();
+        var settings = new AppSettings { AutoConnectOnDiscover = true };
+        var attempted = Attempted("previous");
+        Assert.Same(receiver, ReceiverSelection.SelectAutoConnect([receiver], settings, attempted));
+        Assert.Empty(settings.Receivers);
+        Assert.Equal("previous", Assert.Single(attempted));
+        Assert.Null(settings.LastReceiverId);
     }
 }
