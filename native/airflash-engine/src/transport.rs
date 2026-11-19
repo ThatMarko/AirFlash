@@ -275,12 +275,25 @@ impl Health {
     pub fn ownership_uncertain(&self) -> bool {
         self.0.lock().unwrap().ownership_uncertain
     }
+    /// Clear the ownership guard after a confirmed probe if no newer signal
+    /// is pending.
+    pub fn clear_ownership_uncertain(&self) {
+        self.clear_ownership_uncertain_if_current();
+    }
+
     /// The ownership probe settled on `ours_active`: the receiver is still
     /// serving this session, so a timing or feedback symptom was not a
     /// takeover. Clear the cleanup guard so an ordinary stop tears the session
     /// down instead of leaking it.
-    pub fn clear_ownership_uncertain(&self) {
-        self.0.lock().unwrap().ownership_uncertain = false;
+    pub(crate) fn clear_ownership_uncertain_if_current(&self) -> bool {
+        let mut state = self.0.lock().unwrap();
+        if state.preemption_signals.iter().any(|signal| {
+            signal.ends_session() || matches!(signal, Signal::FeedbackLost | Signal::ClockLost)
+        }) {
+            return false;
+        }
+        state.ownership_uncertain = false;
+        true
     }
     /// Take the symptoms collected since the previous poll.
     pub fn take_preemption_signals(&self) -> Vec<Signal> {
@@ -482,7 +495,7 @@ fn feedback_loop(
     let mut failures = 0;
     let mut next = Instant::now() + timing.interval;
     while !stop.is_cancelled() {
-        if let Some(fault) = drain_incoming(connection, host, health) {
+        if let Some(fault) = observe_queued_ownership_signals(connection, host, health) {
             return Err(fault.into());
         }
         if Instant::now() < next {
@@ -618,22 +631,22 @@ fn feedback_loop(
     Ok(())
 }
 
-/// Receiver-initiated traffic can land on the shared control connection while a
-/// volume or metadata worker owns it. The request is stashed by `Connection`; it
-/// is inspected here rather than inside every request path.
-fn drain_incoming(connection: &Mutex<Connection>, host: &str, health: &Health) -> Option<Fault> {
+/// Inspect ownership signals already read by workers sharing this connection.
+/// This drains only parsed messages and headers, without reading the socket.
+pub(crate) fn observe_queued_ownership_signals(
+    connection: &Mutex<Connection>,
+    host: &str,
+    health: &Health,
+) -> Option<Fault> {
     let mut connection = connection.lock().unwrap();
-    for message in connection.take_unsolicited() {
-        if preemption::incoming_teardown(message.method()).is_some() {
-            health.preemption_signal(Signal::UnexpectedTeardown);
-            return Some(Fault::new(
-                host,
-                "feedback",
-                "peer_teardown",
-                true,
-                "Receiver ended the session with an unexpected TEARDOWN",
-            ));
-        }
+    if connection.drain_unsolicited(|| health.preemption_signal(Signal::UnexpectedTeardown)) {
+        return Some(Fault::new(
+            host,
+            "feedback",
+            "peer_teardown",
+            true,
+            "Receiver ended the session with an unexpected TEARDOWN",
+        ));
     }
     if connection.take_close_requested() {
         health.preemption_signal(Signal::ConnectionClose);
