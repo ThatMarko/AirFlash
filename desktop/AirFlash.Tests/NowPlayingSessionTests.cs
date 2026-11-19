@@ -135,7 +135,7 @@ public sealed class NowPlayingSessionTests
     }
 
     [Fact]
-    public async Task An_engine_without_the_media_capability_gets_no_media_command()
+    public async Task An_engine_without_the_capabilities_gets_neither_command()
     {
         var connection = new SessionTestEngine.Connection { Capabilities = ["receiver_profiles", "software_stereo", "continuity", "buffered_audio", "standby_release", "receiver_ownership_guard"] };
         await using var controller = TestSessionController.Create(new SessionTestEngine.Factory(connection), new SessionTestEngine.Audio(), timing: Timing);
@@ -143,7 +143,9 @@ public sealed class NowPlayingSessionTests
         await SessionTestEngine.StreamAsync(controller, connection);
         await controller.PublishNowPlayingAsync(Track("During"));
         await controller.ClearNowPlayingAsync();
+        Assert.Null(await controller.DiagnosticSnapshotAsync().WaitAsync(Limit));
         Assert.Equal(0, connection.Count("set_now_playing"));
+        Assert.Equal(0, connection.Count("diag_summary"));
     }
 
     [Fact]

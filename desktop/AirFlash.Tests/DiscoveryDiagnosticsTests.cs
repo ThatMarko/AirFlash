@@ -74,4 +74,56 @@ public sealed class DiscoveryDiagnosticsTests
         Assert.Equal(entries[0].StereoToken, entries[1].StereoToken);
         Assert.False(entries[2].StereoMetadataPresent); Assert.Null(entries[2].StereoToken);
     }
+
+    [Fact]
+    public void Separate_discovery_instances_have_unlinkable_tokens_and_no_raw_fields_are_exported()
+    {
+        var first = new DiscoveryHistory(); var second = new DiscoveryHistory(); Add(first); Add(second);
+        Assert.NotEqual(first.Snapshot()[0].ServiceToken, second.Snapshot()[0].ServiceToken);
+        var text = DiagnosticExport.Compose("test", "test", null, discovery: Snapshot(first));
+        foreach (var secret in new[] { "PrivateFixture", "192.0.2.123", "AA:BB:CC:DD:EE:01", "aabbccddee01", "NeverExportCredential" })
+            Assert.DoesNotContain(secret, text, StringComparison.Ordinal);
+        using var bundle = JsonDocument.Parse(text);
+        Assert.False(bundle.RootElement.TryGetProperty("session", out _));
+        var discovery = bundle.RootElement.GetProperty("discovery");
+        Assert.Equal(1, discovery.Integer("recorded_events"));
+        var entry = Assert.Single(discovery.GetProperty("history").EnumerateArray());
+        Assert.Equal("ResolveSucceeded", entry.Text("event"));
+        Assert.Equal(64, entry.Text("service_token").Length);
+        Assert.True(entry.GetProperty("stereo_metadata_present").GetBoolean());
+    }
+
+    [Fact]
+    public void Export_rejects_malformed_provider_tokens_unknown_events_and_unknown_demand_bits()
+    {
+        var history = new DiscoveryHistory(); Add(history);
+        var privateText = new string('z', 64);
+        var entry = history.Snapshot()[0] with
+        {
+            ServiceToken = privateText, DeviceToken = "192.0.2.123", StereoToken = "PrivateStereo", EndpointToken = "C:/Private",
+            Demand = (DiscoveryDemand)127
+        };
+        var snapshot = Snapshot(history) with { Demand = (DiscoveryDemand)127,
+            History = [entry, entry with { Event = (DiscoveryTraceEvent)999 }] };
+        var text = DiagnosticExport.Compose("test", "test", null, discovery: snapshot);
+        using var bundle = JsonDocument.Parse(text);
+        var discovery = bundle.RootElement.GetProperty("discovery");
+        Assert.Equal("Panel, Receivers, Startup, SoftwareStereo", discovery.Text("demand"));
+        var saved = Assert.Single(discovery.GetProperty("history").EnumerateArray());
+        Assert.Equal("Panel, Receivers, Startup, SoftwareStereo", saved.Text("demand"));
+        foreach (var property in new[] { "service_token", "device_token", "stereo_token", "endpoint_token" })
+            Assert.Equal(JsonValueKind.Null, saved.GetProperty(property).ValueKind);
+        foreach (var secret in new[] { privateText, "192.0.2.123", "PrivateStereo", "C:/Private" }) Assert.DoesNotContain(secret, text);
+    }
+
+    [Fact]
+    public void Export_bounds_even_an_oversized_optional_provider_snapshot()
+    {
+        var history = new DiscoveryHistory(); Add(history);
+        var entry = history.Snapshot()[0];
+        var snapshot = Snapshot(history) with { History = Enumerable.Range(1, 200).Select(index => entry with { Sequence = index }).ToArray() };
+        using var bundle = JsonDocument.Parse(DiagnosticExport.Compose("test", "test", null, discovery: snapshot));
+        var saved = bundle.RootElement.GetProperty("discovery").GetProperty("history");
+        Assert.Equal(128, saved.GetArrayLength()); Assert.Equal(73, saved[0].Integer("sequence"));
+    }
 }

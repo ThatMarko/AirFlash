@@ -126,6 +126,10 @@ public sealed class WindowsDiscoveryTests
         discovery.Stop();
         Assert.Null(Availability());
         Assert.Null(initialAvailability);
+        using var bundle = System.Text.Json.JsonDocument.Parse(DiagnosticExport.Compose("test", "test", null,
+            discovery: discovery.SnapshotDiagnostics()));
+        Assert.Equal(System.Text.Json.JsonValueKind.Null,
+            bundle.RootElement.GetProperty("discovery").GetProperty("interface_available").ValueKind);
         discovery.SetInterface("missing");
         Assert.Null(Availability());
         Assert.Equal(2, lookupSnapshots.Count);

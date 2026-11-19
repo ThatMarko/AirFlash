@@ -1041,7 +1041,7 @@ public sealed class SessionTests
             {
                 underrun_packets = 1, rebinds = 2, silent_probes = 1, padded_frames = 5, fully_padded_packets = 0
             });
-            await SnapshotAsync(controller, snapshot => snapshot.Metrics?.Rebinds == 2);
+            await SnapshotAsync(controller, snapshot => snapshot.Metrics?.PaddedFrames == 5);
             process.EmitData(new { @event = "transport_metrics", session_uptime_ms = 300000, lateness_interval = new { p99_ms = 4.0 } });
             var health = await entered.Task.WaitAsync(limit);
             Assert.Contains("capture_rebinds=2; silent_probes=1", health);
@@ -2051,7 +2051,7 @@ public sealed class SessionTests
     }
     private sealed record EngineCommand(string Session, string CommandName, JsonElement Parameters)
     { public string Command => CommandName; public string? RequestId { get; init; } }
-    private sealed class FakeConnection(bool autoReady = true) : IEngineConnection
+    private sealed class FakeConnection(bool autoReady = true) : ICorrelatedEngineConnection
     {
         private readonly Channel<JsonElement> _events = Channel.CreateUnbounded<JsonElement>();
         public ConcurrentQueue<EngineCommand> Commands { get; } = new();

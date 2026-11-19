@@ -37,7 +37,7 @@ internal static class SessionTestEngine
         private readonly ConcurrentQueue<Connection> _connections = new(connections);
         public IEngineConnection Open() => _connections.TryDequeue(out var connection) ? connection : throw new IOException("unexpected retry");
     }
-    internal sealed class Connection : IEngineConnection
+    internal sealed class Connection : ICorrelatedEngineConnection
     {
         private readonly Channel<string> _events = Channel.CreateUnbounded<string>();
         private readonly ConcurrentQueue<(string Command, JsonElement Parameters)> _commands = new();
