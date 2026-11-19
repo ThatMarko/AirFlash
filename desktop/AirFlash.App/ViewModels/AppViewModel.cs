@@ -35,7 +35,6 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private SessionSnapshot _snapshot = new(PlaybackState.Idle);
     private string _notice = "";
     private bool _noticeDismissed;
-
     private bool _volumeDirty, _volumeApplyPending, _autoSuppressed, _closing;
     private string? _defaultEndpoint;
     private long _editRevision;
@@ -125,6 +124,8 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     public string MonitorQueue => _snapshot.Metrics?.MaxQueueAge is { } ms ? $"{ms:F1} ms" : "—";
     public string MonitorUnderruns => _snapshot.Metrics?.Underruns?.ToString() ?? "—";
     public string MonitorDrops => _snapshot.Metrics?.DroppedFrames?.ToString() ?? "—";
+    public string MonitorPaddedFrames => _snapshot.Metrics?.PaddedFrames?.ToString() ?? "—";
+    public string MonitorFullyPaddedPackets => _snapshot.Metrics?.FullyPaddedPackets?.ToString() ?? "—";
     public string MonitorRate => _snapshot.Metrics is { InputRate: > 0 } m ? $"{m.InputRate:N0} Hz" : "—";
     public string MonitorStreamRate => _snapshot.StreamRate is { } rate and > 0 ? $"{rate:N0} Hz · 16-bit" : "—";
     public string MonitorRecoveries => _snapshot.Diagnostics?.Transport?.SenderLateRecoveries?.ToString() ?? "—";
@@ -143,7 +144,8 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             if (_snapshot.Diagnostics is not { LastFault: not null } diagnostics) return "—";
             var capture = diagnostics.CaptureBeforeFault;
             var summary = L.Format("Local underruns: {0}; local drops: {1}; local p95: {2}", capture?.Underruns?.ToString() ?? "—", capture?.DroppedFrames?.ToString() ?? "—", capture?.CaptureToSendP95 is { } ms ? $"{ms:F1} ms" : "—");
-
+            summary += "\n" + L.Format("Local padded output frames: {0}; wholly padded capture pulls: {1}",
+                capture?.PaddedFrames?.ToString() ?? "—", capture?.FullyPaddedPackets?.ToString() ?? "—");
             if (diagnostics.TransportBeforeFault is { } transport)
             {
                 summary += "\n" + L.Format("Sender recoveries: {0}; skipped packets: {1}", transport.SenderLateRecoveries?.ToString() ?? "—", transport.SkippedPackets?.ToString() ?? "—");
@@ -195,7 +197,6 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
 
     public AppViewModel(ISettingsStore store, IDiscoveryService discovery, IAutostart autostart, IAudioService audio, IEngineFactory factory, Dispatcher dispatcher, EngineInitialization? engine = null, IApplicationCatalog? applications = null, IReceiverCapabilityCatalog? receiverCapabilities = null, IRestartService? restart = null, bool isolatedVerification = false, UpdateCheckState? updates = null)
     {
-
         DismissNoticeCommand = new(DismissNotice, () => HasNotice);
         _engine = engine;
         _restart = restart ?? new RestartService();
@@ -683,6 +684,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         {
             [nameof(MonitorLatency)] = MonitorLatency, [nameof(MonitorQueue)] = MonitorQueue,
             [nameof(MonitorUnderruns)] = MonitorUnderruns, [nameof(MonitorDrops)] = MonitorDrops,
+            [nameof(MonitorPaddedFrames)] = MonitorPaddedFrames, [nameof(MonitorFullyPaddedPackets)] = MonitorFullyPaddedPackets,
             [nameof(MonitorRate)] = MonitorRate, [nameof(MonitorStreamRate)] = MonitorStreamRate,
             [nameof(MonitorRecoveries)] = MonitorRecoveries,
             [nameof(MonitorSkipped)] = MonitorSkipped, [nameof(MonitorReconnects)] = MonitorReconnects,
@@ -1059,12 +1061,15 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         }
         ResetCompleted?.Invoke();
     }
-    public string Diagnostics() => $"AirFlash {AppPaths.DisplayVersion} / WPF\n" + L.Format("Engine: {0}\nStatus: {1}\n{2}\nLocal p95: {3}\nQueue age: {4}\nUnderruns: {5}; drops: {6}\nEnd-to-end latency: not measured", EngineVersion, StatusTitle, StatusDetail, MonitorLatency, MonitorQueue, MonitorUnderruns, MonitorDrops) + (ActionHint.Length > 0 ? "\n" + ActionHint : "") + "\n" + System.Text.Json.JsonSerializer.Serialize(_snapshot.Diagnostics, AppSettings.JsonOptions);
+    public string Diagnostics() => $"AirFlash {AppPaths.DisplayVersion} / WPF\n" + L.Format("Engine: {0}\nStatus: {1}\n{2}\nLocal p95: {3}\nQueue age: {4}\nUnderruns: {5}; drops: {6}\nEnd-to-end latency: not measured", EngineVersion, StatusTitle, StatusDetail, MonitorLatency, MonitorQueue, MonitorUnderruns, MonitorDrops)
+        + "\n" + L.Format("Local padded output frames: {0}; wholly padded capture pulls: {1}", MonitorPaddedFrames, MonitorFullyPaddedPackets)
+        + (ActionHint.Length > 0 ? "\n" + ActionHint : "") + "\n" + System.Text.Json.JsonSerializer.Serialize(_snapshot.Diagnostics, AppSettings.JsonOptions);
     /// <summary>Write the current engine's redacted diagnostic bundle into the log folder.</summary>
     public async Task<string> ExportDiagnosticsAsync()
     {
-        var snapshot = await DiagnosticExport.SnapshotAsync(Session).ConfigureAwait(false);
-        var bundle = DiagnosticExport.Compose(AppPaths.DisplayVersion, EngineVersion, snapshot);
+        var capture = await DiagnosticExport.CaptureAsync(Session).ConfigureAwait(false);
+        var discovery = (_discovery as IDiscoveryDiagnostics)?.SnapshotDiagnostics();
+        var bundle = DiagnosticExport.Compose(AppPaths.DisplayVersion, EngineVersion, capture.Summary, capture.CounterHistory, discovery);
         var path = DiagnosticExport.Write(AppPaths.LogDirectory, bundle);
         AppPaths.Log($"Diagnostics exported to {path}");
         return path;

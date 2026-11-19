@@ -455,5 +455,9 @@
   "Receiver resolution failed: {0}. Discovery will retry with backoff.": "Risoluzione del ricevitore non riuscita: {0}. Il rilevamento riproverà dopo un intervallo.",
   "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "Tempo scaduto per la risoluzione del ricevitore: {0}. Il rilevamento riproverà dopo un intervallo.",
   "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "Alcune richieste di rilevamento sono in pausa perché le risorse DNS native non possono essere rilasciate in sicurezza. Il rilevamento riprenderà quando le risorse saranno rilasciate. Come ultima soluzione, riavvia AirFlash.",
-  "The receiver is unavailable.": "Il ricevitore non è disponibile."
+  "The receiver is unavailable.": "Il ricevitore non è disponibile.",
+  "Local padded output frames": "Frame di uscita riempiti localmente",
+  "Local padded output frames: {0}; wholly padded capture pulls: {1}": "Frame di uscita riempiti localmente: {0} · Blocchi di acquisizione riempiti per intero: {1}",
+  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "Il riempimento conta i frame mancanti alla frequenza di uscita prima dell’equalizzazione. Un blocco interamente riempito sostituisce tutti i 352 frame. Il silenzio acquisito e il silenzio programmato per dissolvenze o ripristini non sono dati mancanti. Questi conteggi riguardano l’acquisizione locale. — indica un dato non disponibile.",
+  "Wholly padded capture pulls": "Blocchi di acquisizione riempiti per intero"
 }

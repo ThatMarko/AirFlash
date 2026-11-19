@@ -455,5 +455,9 @@
   "Receiver resolution failed: {0}. Discovery will retry with backoff.": "No se pudo resolver el receptor: {0}. La detección volverá a intentarlo tras una espera.",
   "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "Se agotó el tiempo para resolver el receptor: {0}. La detección volverá a intentarlo tras una espera.",
   "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "Algunas solicitudes de detección están en pausa porque no se pueden liberar de forma segura los recursos nativos de DNS. La detección se reanudará si se liberan los recursos. Si no se reanuda, reinicia la aplicación.",
-  "The receiver is unavailable.": "El receptor no está disponible."
+  "The receiver is unavailable.": "El receptor no está disponible.",
+  "Local padded output frames": "Tramas de salida rellenadas localmente",
+  "Local padded output frames: {0}; wholly padded capture pulls: {1}": "Tramas de salida rellenadas localmente: {0}. Bloques de captura rellenados por completo: {1}",
+  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "El relleno cuenta las tramas que faltan a la frecuencia de salida antes de la ecualización. Un bloque rellenado por completo sustituye las 352 tramas. El silencio capturado y el silencio programado para el fundido o la recuperación no cuentan como captura faltante. Estos contadores son de la captura local. Los valores no disponibles se muestran como —.",
+  "Wholly padded capture pulls": "Bloques de captura rellenados por completo"
 }

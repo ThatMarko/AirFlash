@@ -455,5 +455,9 @@
   "Receiver resolution failed: {0}. Discovery will retry with backoff.": "レシーバーの名前解決に失敗しました: {0}。しばらく待ってから検出を再試行します。",
   "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "レシーバーの名前解決がタイムアウトしました: {0}。しばらく待ってから検出を再試行します。",
   "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "ネイティブ DNS リソースを安全に解放できないため、一部の検出要求を一時停止しています。リソースが解放されると検出を再開します。再開しない場合は AirFlash を再起動してください。",
-  "The receiver is unavailable.": "レシーバーを使用できません。"
+  "The receiver is unavailable.": "レシーバーを使用できません。",
+  "Local padded output frames": "ローカルで補完した出力フレーム",
+  "Local padded output frames: {0}; wholly padded capture pulls: {1}": "ローカルで補完した出力フレーム: {0} · 全フレームを補完したキャプチャブロック: {1}",
+  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "補完数は、イコライザー適用前に出力レートで不足したフレームの数です。完全に補完されたブロックでは全 352 フレームを置き換えます。キャプチャした無音やフェード・復元用の無音は含みません。ここではローカルキャプチャを集計します。取得できない値は — と表示します。",
+  "Wholly padded capture pulls": "全フレームを補完したキャプチャブロック"
 }

@@ -455,5 +455,9 @@
   "Receiver resolution failed: {0}. Discovery will retry with backoff.": "Falha ao resolver o receptor: {0}. A descoberta tentará novamente após um intervalo.",
   "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "Tempo limite atingido ao resolver o receptor: {0}. A descoberta tentará novamente após um intervalo.",
   "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "Algumas solicitações de descoberta estão pausadas porque os recursos nativos de DNS não podem ser liberados com segurança. A descoberta será retomada quando os recursos forem liberados. Em último caso, reinicie o AirFlash.",
-  "The receiver is unavailable.": "O receptor está indisponível."
+  "The receiver is unavailable.": "O receptor está indisponível.",
+  "Local padded output frames": "Quadros de saída preenchidos localmente",
+  "Local padded output frames: {0}; wholly padded capture pulls: {1}": "Quadros de saída preenchidos localmente: {0} · Blocos de captura totalmente preenchidos: {1}",
+  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "O preenchimento conta os quadros ausentes na taxa de saída antes da equalização. Um bloco totalmente preenchido substitui os 352 quadros. O silêncio capturado e o silêncio programado para transições ou recuperação não contam como captura ausente. Os contadores são da captura local. — indica dados indisponíveis.",
+  "Wholly padded capture pulls": "Blocos de captura totalmente preenchidos"
 }

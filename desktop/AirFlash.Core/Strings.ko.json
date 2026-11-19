@@ -455,5 +455,9 @@
   "Receiver resolution failed: {0}. Discovery will retry with backoff.": "수신기 주소를 확인하지 못했습니다: {0}. 잠시 후 검색을 다시 시도합니다.",
   "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "수신기 주소 확인 시간이 초과되었습니다: {0}. 잠시 후 검색을 다시 시도합니다.",
   "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "네이티브 DNS 리소스를 안전하게 해제할 수 없어 일부 검색 요청이 일시 중지되었습니다. 리소스가 해제되면 검색이 다시 시작됩니다. 검색이 재개되지 않으면 AirFlash를 다시 시작하세요.",
-  "The receiver is unavailable.": "수신기를 사용할 수 없습니다."
+  "The receiver is unavailable.": "수신기를 사용할 수 없습니다.",
+  "Local padded output frames": "로컬에서 채운 출력 프레임",
+  "Local padded output frames: {0}; wholly padded capture pulls: {1}": "로컬에서 채운 출력 프레임: {0} · 전체가 채워진 캡처 블록: {1}",
+  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "채움은 이퀄라이저 적용 전에 출력 샘플링 속도 기준으로 누락된 프레임을 셉니다. 전체가 채워진 블록은 352개 프레임을 모두 대체합니다. 캡처된 무음과 페이드 또는 복구에 사용하는 예정된 무음은 누락으로 세지 않습니다. 이 값은 로컬 캡처 집계이며, 사용할 수 없는 값은 —로 표시됩니다.",
+  "Wholly padded capture pulls": "전체가 채워진 캡처 블록"
 }

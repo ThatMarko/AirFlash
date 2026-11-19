@@ -455,5 +455,9 @@
   "Receiver resolution failed: {0}. Discovery will retry with backoff.": "Empfängerauflösung fehlgeschlagen: {0}. Die Suche versucht es nach einer Wartezeit erneut.",
   "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "Zeitüberschreitung bei der Empfängerauflösung: {0}. Die Suche versucht es nach einer Wartezeit erneut.",
   "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "Einige Suchanfragen sind pausiert, weil native DNS-Ressourcen nicht sicher freigegeben werden können. Die Suche wird nach deren Freigabe fortgesetzt; andernfalls muss die App neu gestartet werden.",
-  "The receiver is unavailable.": "Empfänger ist nicht verfügbar."
+  "The receiver is unavailable.": "Empfänger ist nicht verfügbar.",
+  "Local padded output frames": "Lokal aufgefüllte Ausgabeframes",
+  "Local padded output frames: {0}; wholly padded capture pulls: {1}": "Lokal aufgefüllte Ausgabeframes: {0}; vollständig aufgefüllte Erfassungsblöcke: {1}",
+  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "Gezählt werden fehlende Frames mit der Ausgaberate vor dem Equalizer. Ein vollständig aufgefüllter Block ersetzt alle 352 Frames. Erfasste Stille und geplante Stille beim Ausblenden oder Wiederanlauf sind keine fehlenden Erfassungsdaten. Dies sind lokale Erfassungszähler; nicht verfügbare Zähler zeigen —.",
+  "Wholly padded capture pulls": "Vollständig aufgefüllte Erfassungsblöcke"
 }

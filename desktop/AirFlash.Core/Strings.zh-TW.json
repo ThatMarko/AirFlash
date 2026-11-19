@@ -455,5 +455,9 @@
   "Receiver resolution failed: {0}. Discovery will retry with backoff.": "接收器解析失敗：{0}。探索將延遲重試。",
   "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "接收器解析逾時：{0}。探索將延遲重試。",
   "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "無法安全釋放原生 DNS 資源，部分探索請求已暫停。資源安全釋放後將恢復探索；最終恢復方式是重新啟動應用程式。",
-  "The receiver is unavailable.": "接收裝置目前無法使用。"
+  "The receiver is unavailable.": "接收裝置目前無法使用。",
+  "Local padded output frames": "本機補零輸出影格數",
+  "Local padded output frames: {0}; wholly padded capture pulls: {1}": "本機補零輸出影格數：{0}；整批補零擷取次數：{1}",
+  "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "補零計數記錄等化處理前缺少的輸出取樣率影格。整批補零表示一次擷取中的 352 個影格皆缺少。實際擷取的靜音以及排程的淡出或恢復靜音不屬於擷取缺失。這些是本機擷取計數；無法取得的計數顯示為 —。",
+  "Wholly padded capture pulls": "整批補零擷取次數"
 }
