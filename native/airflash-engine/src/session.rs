@@ -2781,6 +2781,7 @@ fn send_packets(
                     sample_capture(source, &mut capture_baseline, &mut telemetry);
                     emit(json!({"event":"capture_metrics","metrics":source.metrics()}));
                 }
+                record_member_counters(&mut telemetry, members);
                 let snapshot = transport_metrics(
                     members,
                     &schedule,
@@ -2932,6 +2933,7 @@ fn send_packets(
             emit(notice);
         }
     }
+    record_member_counters(&mut telemetry, members);
     let snapshot = transport_metrics(
         members,
         &schedule,
@@ -3375,6 +3377,17 @@ fn sample_capture(
         }
     }
     *baseline = Some(metrics);
+}
+
+/// Copy per-member counters into the session block before a snapshot. The
+/// member values are cumulative, so they are assigned rather than added.
+fn record_member_counters(telemetry: &mut crate::telemetry::SessionTelemetry, members: &[Member]) {
+    telemetry.events_dropped = members.iter().map(|m| m.health.commands_dropped()).sum();
+    let mut rtx_gap = crate::telemetry::Histogram::default();
+    for member in members {
+        rtx_gap.merge(&member.media.rtx_gap);
+    }
+    telemetry.rtx_gap = rtx_gap;
 }
 
 fn transport_metrics(
@@ -3837,6 +3850,51 @@ mod tests {
         reset_adaptive_target(&mut options);
         assert_eq!(options.latency_ms, 120);
         assert_eq!(options.peers[0].profile.latency_ms, Some(120));
+    }
+    #[test]
+    fn member_counters_reach_transport_metrics() {
+        let (mut left, _left_receiver, left_server) = local_member();
+        let (mut right, _right_receiver, right_server) = local_member();
+        left.media.rtx_gap.observe(8.0);
+        right.media.rtx_gap.observe(24.0);
+        let command = || crate::events::ParsedEvent {
+            commands: vec![crate::events::RemoteCommand::Pause],
+            volume: None,
+            source: None,
+        };
+        // The inbox keeps the newest 32 commands; the rest are evicted.
+        for _ in 0..35 {
+            left.health.push_command_for_test(command());
+        }
+        for _ in 0..33 {
+            right.health.push_command_for_test(command());
+        }
+        let members = vec![left, right];
+        let mut telemetry = crate::telemetry::SessionTelemetry::new();
+        assert_eq!(telemetry.snapshot()["events_dropped"], 0);
+        record_member_counters(&mut telemetry, &members);
+        let snapshot = transport_metrics(
+            &members,
+            &MediaSchedule::new(Instant::now(), 44_100),
+            &telemetry,
+            Duration::from_millis(200),
+            None,
+            None,
+            &LiveLead::default(),
+        );
+        assert_eq!(snapshot["event"], "transport_metrics");
+        assert_eq!(snapshot["events_dropped"], 4);
+        assert_eq!(snapshot["retransmit_gap"]["count"], 2);
+        assert_eq!(snapshot["retransmit_gap"]["max_ms"], 24.0);
+        // Draining the inbox does not undo the count, and re-recording does
+        // not double either counter.
+        let _ = members[0].health.commands();
+        record_member_counters(&mut telemetry, &members);
+        assert_eq!(telemetry.snapshot()["events_dropped"], 4);
+        assert_eq!(telemetry.snapshot()["retransmit_gap"]["count"], 2);
+        drop(members);
+        left_server.join().unwrap();
+        right_server.join().unwrap();
     }
     #[test]
     fn alignment_guard_is_not_mistaken_for_an_adaptive_ladder_step() {
