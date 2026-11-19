@@ -170,10 +170,10 @@ public sealed class ProcessEngineConnection : IEngineConnection
         }
     }
 }
-internal sealed class EngineShutdownException(ProcessEngineConnection connection, Exception error)
+internal sealed class EngineShutdownException(IEngineConnection connection, Exception error)
     : IOException(L.Get("The audio engine could not stop. Try disconnecting again."), error)
 {
-    internal ProcessEngineConnection Connection { get; } = connection;
+    internal IEngineConnection Connection { get; } = connection;
 }
 public static class EngineJson
 {

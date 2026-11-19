@@ -66,4 +66,26 @@ public sealed class ReceiverClockRoleTests
         Assert.Equal(AccessoryModel, peer.Model);
         Assert.False(peer.FollowReceiverClock);
     }
+
+    [Theory]
+    [InlineData("auto", true)]
+    [InlineData("ptp", false)]
+    [InlineData("follow", true)]
+    public async Task SessionStartUsesTheResolvedModelAndHonorsExplicitTiming(string timing, bool followsClock)
+    {
+        var receiver = Assert.Single(ReceiverAggregator.Build([Airplay(), Raop()]));
+        var connection = new SessionTestEngine.Connection();
+        await using var controller = TestSessionController.Create(new SessionTestEngine.Factory(connection),
+            new SessionTestEngine.Audio(), timing: SessionTestEngine.Timing);
+        var settings = SessionTestEngine.Settings();
+        settings.MuteWhileStreaming = false;
+        settings.Options(receiver.Id).Timing = timing;
+
+        await controller.StartAsync(receiver, settings);
+        await connection.Starting.Task.WaitAsync(SessionTestEngine.Limit);
+        var peer = Assert.Single(connection.Last("start").GetProperty("peers").EnumerateArray());
+        var profile = peer.GetProperty("profile");
+        Assert.Equal(followsClock, profile.GetProperty("follow_receiver_clock").GetBoolean());
+        Assert.Equal(timing == "follow" ? "ptp" : timing, profile.Text("timing"));
+    }
 }
