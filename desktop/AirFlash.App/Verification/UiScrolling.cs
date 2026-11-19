@@ -25,7 +25,12 @@ internal static class UiScrolling
         {
             Items = Enumerable.Range(1, 6).Select(i => new Receiver($"scroll-{i}", $"Scroll receiver {i}", $"127.0.0.{i}") { Model = "HomePod mini" }).ToArray()
         };
-        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), new UiSmoke.MockAudio(), engine, Application.Current.Dispatcher);
+        var audio = new ScrollAudio
+        {
+            Endpoints = Enumerable.Range(1, 24).Select(i => new AudioEndpoint($"endpoint-{i}", $"Synthetic audio endpoint {i}")).ToArray()
+        };
+        await using var app = new AppViewModel(store, discovery, new UiSmoke.MockAutostart(), audio, engine,
+            Application.Current.Dispatcher, applications: new ScrollApplications());
         // Finish receiver initialization before measuring scrolling-only settings changes.
         app.SetPanelVisible(true);
         app.Start(); await app.Startup; await Pump();
@@ -48,6 +53,10 @@ internal static class UiScrolling
                 foreach (var (width, height, size) in new[] { (880d, 640d, "default"), (640d, 440d, "minimum") })
                 {
                     window.Width = width; window.Height = height; await Pump();
+                    var listLabel = $"settings lists {(dark ? "dark" : "light")} {size}";
+                    await VerifyNavigationAsync(window, size == "minimum", listLabel, checks, failures);
+                    if (size == "minimum")
+                        await VerifyCaptureListsAsync(window, listLabel, checks, failures);
                     for (var pageIndex = 0; pageIndex < window.ViewModel.Pages.Length; pageIndex++)
                     {
                         window.ViewModel.SelectedPage = pageIndex;
@@ -175,6 +184,114 @@ internal static class UiScrolling
             if (failures.Count > 0) throw new InvalidOperationException($"Settings scrolling regression: {failures.Count} failed checks; first: {failures[0]}. See ui-scrolling-report.json.");
         }
         finally { window.Close(); }
+    }
+
+    private static async Task VerifyNavigationAsync(SettingsWindow window, bool requireOverflow, string label,
+        List<string> checks, List<string> failures)
+    {
+        var navigation = (ListBox)window.FindName("Navigation");
+        var scroll = UiSmoke.Descendants(navigation).OfType<ScrollViewer>().Single();
+        var bar = ScrollBarFor(scroll);
+        var viewport = ViewportFor(scroll);
+        scroll.ScrollToTop(); await Pump();
+        // At least one case must exercise overflow even when font metrics fit at minimum size.
+        var constrain = requireOverflow && scroll.ScrollableHeight == 0;
+        if (constrain) { navigation.MaxHeight = 160; await Pump(); }
+        try
+        {
+            if (requireOverflow)
+                Observe(scroll.ScrollableHeight > 0, $"{label}: short navigation has a scrollable extent", checks, failures);
+            if (scroll.ScrollableHeight > 0)
+            {
+                var first = (ListBoxItem)navigation.ItemContainerGenerator.ContainerFromIndex(0);
+                Observe(bar.IsVisible && Bounds(bar, scroll).Left - Bounds(first, scroll).Right >= 7.5,
+                    $"{label}: navigation entries clear the visible scrollbar", checks, failures);
+                Wheel(first, -120); await Pump();
+                Observe(scroll.VerticalOffset > 0, $"{label}: the wheel scrolls navigation", checks, failures);
+            }
+            else
+                Observe(!bar.IsVisible && Math.Abs(viewport.ActualWidth - scroll.ActualWidth) <= 1,
+                    $"{label}: a fitting navigation list uses its entire width", checks, failures);
+
+            navigation.ScrollIntoView(navigation.Items[^1]); await Pump();
+            var last = (ListBoxItem)navigation.ItemContainerGenerator.ContainerFromIndex(navigation.Items.Count - 1);
+            var bounds = Bounds(last, viewport);
+            Observe(bounds.Top >= -.5 && bounds.Bottom <= viewport.ActualHeight + .5,
+                $"{label}: the last navigation entry is fully accessible", checks, failures);
+        }
+        finally
+        {
+            if (constrain) navigation.ClearValue(FrameworkElement.MaxHeightProperty);
+            scroll.ScrollToTop(); await Pump();
+        }
+    }
+
+    private static async Task VerifyCaptureListsAsync(SettingsWindow window, string label, List<string> checks, List<string> failures)
+    {
+        var viewModel = window.ViewModel;
+        var originalMode = viewModel.Draft.CaptureMode;
+        viewModel.SelectedPage = SettingsViewModel.AudioCapturePage;
+        try
+        {
+            foreach (var (mode, name) in new[] { ("application", "ApplicationCombo"), ("endpoint", "EndpointCombo") })
+            {
+                viewModel.Draft.CaptureMode = mode;
+                if (mode == "application") await viewModel.LoadApplicationsAsync();
+                else await viewModel.LoadEndpointsAsync(true);
+                await Pump();
+                var combo = UiSmoke.Descendants(window).OfType<ComboBox>().Single(item => item.Name == name);
+                combo.BringIntoView(); await Pump();
+                var selected = combo.SelectedItem;
+                combo.IsDropDownOpen = true;
+                try
+                {
+                    await Pump();
+                    var popup = (Popup)combo.Template.FindName("PART_Popup", combo);
+                    var scroll = UiSmoke.Descendants(popup.Child).OfType<ScrollViewer>().Single();
+                    var bar = ScrollBarFor(scroll);
+                    var viewport = ViewportFor(scroll);
+                    var first = (ComboBoxItem)combo.ItemContainerGenerator.ContainerFromIndex(0);
+                    Observe(combo.Items.Count >= 24 && scroll.ScrollableHeight > 0 && bar.IsVisible
+                        && Bounds(bar, scroll).Left - Bounds(first, scroll).Right >= 7.5,
+                        $"{label}: {mode} rows clear the popup scrollbar", checks, failures);
+                    scroll.ScrollToTop(); await Pump();
+                    Wheel(first, -120); await Pump();
+                    Observe(scroll.VerticalOffset > 0, $"{label}: the wheel scrolls the {mode} dropdown", checks, failures);
+                    scroll.ScrollToBottom(); await Pump();
+                    var last = (ComboBoxItem)combo.ItemContainerGenerator.ContainerFromIndex(combo.Items.Count - 1);
+                    var bounds = Bounds(last, viewport);
+                    Observe(bounds.Top >= -.5 && bounds.Bottom <= viewport.ActualHeight + .5
+                        && Equals(combo.SelectedItem, selected),
+                        $"{label}: the last {mode} choice is reachable without changing selection", checks, failures);
+                }
+                finally { combo.IsDropDownOpen = false; await Pump(); }
+            }
+        }
+        finally { viewModel.Draft.CaptureMode = originalMode; }
+    }
+
+    private static ScrollBar ScrollBarFor(ScrollViewer scroll)
+        => (ScrollBar)scroll.Template.FindName("PART_VerticalScrollBar", scroll);
+
+    private static ScrollContentPresenter ViewportFor(ScrollViewer scroll)
+        => (ScrollContentPresenter)scroll.Template.FindName("PART_ScrollContentPresenter", scroll);
+
+    private sealed class ScrollApplications : IApplicationCatalog
+    {
+        public bool Supported => true;
+        public Task<IReadOnlyList<CaptureApplication>> RefreshAsync(CancellationToken cancellation = default)
+            => Task.FromResult<IReadOnlyList<CaptureApplication>>(Enumerable.Range(1, 24)
+                .Select(i => new CaptureApplication($"synthetic-{i}.exe", $"Synthetic capture application {i}", (uint)i, 1)).ToArray());
+    }
+
+    private sealed class ScrollAudio : IAudioService
+    {
+        public event Action? EndpointsChanged { add { } remove { } }
+        public IReadOnlyList<AudioEndpoint> Endpoints { get; init; } = [new("panel-endpoint", "Panel endpoint")];
+        public Task<IReadOnlyList<AudioEndpoint>> GetEndpointsAsync() => Task.FromResult(Endpoints);
+        public Task<string?> GetDefaultEndpointIdAsync() => Task.FromResult<string?>("panel-endpoint");
+        public Task MuteAsync(string? endpointId) => Task.CompletedTask;
+        public Task RestoreAsync() => Task.CompletedTask;
     }
 
     private static Rect Bounds(FrameworkElement element, Visual ancestor)
