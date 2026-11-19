@@ -335,6 +335,7 @@ internal static class UiSmoke
             Check(engine.DisposedCount == engine.CreatedCount, "stop releases mock engine", checks);
             await UiRegression.RunAsync(checks, directory);
             await UiSettingsRecovery.RunAsync(checks, directory);
+            await UiMuteRecovery.RunAsync(checks, directory);
             await UiPairingInputs.RunAsync(checks);
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyStartupFailureAsync(checks, directory);

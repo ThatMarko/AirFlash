@@ -10,6 +10,8 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private readonly IDiscoveryService _discovery;
     private readonly IAutostart _autostart;
     private readonly IAudioService _audio;
+    private readonly IMuteRecoveryService? _recovery;
+    private string? _recoveryError;
     private readonly Dispatcher _dispatcher;
     private readonly EngineInitialization? _engine;
     private readonly IRestartService _restart;
@@ -123,10 +125,23 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         : Notice;
     /// <summary>The receiver now belongs to another controller. Reconnecting is a
     /// deliberate user action, never the automatic transport retry.</summary>
-    public bool CanReconnect => !_closing && !IsStopping && !Session.NeedsCleanup && Session.RequiresManualReconnect && _snapshot.Receiver is not null;
+    public bool CanReconnect => !_closing && !IsStopping && !Session.NeedsCleanup && MuteReady && Session.RequiresManualReconnect && _snapshot.Receiver is not null;
     public string EngineVersion { get; set; } = L.Get("Unknown");
     public bool EngineReady => _engine is null || _engine.State == EngineAvailability.Ready;
     public bool EngineFailed => _engine?.State == EngineAvailability.Failed;
+    public bool MuteReady => !_settings.ShouldMuteEndpoint || _recovery is null || _recovery.Recovery.CanMute;
+    public bool HasMuteRecovery => _recovery is not null && !_recovery.Recovery.CanMute;
+    public MuteRecoverySnapshot MuteRecovery => _recovery?.Recovery ?? new(0, MuteRecoveryStatus.Ready, []);
+    public string MuteRecoveryMessage => !HasMuteRecovery ? "" : _recoveryError ?? (_recovery!.Recovery.Status switch
+    {
+        MuteRecoveryStatus.NotInitialized => L.Get("Checking local audio recovery…"),
+        MuteRecoveryStatus.Busy => L.Get("Another AirFlash instance owns local audio recovery. Muting playback is paused."),
+        MuteRecoveryStatus.Unreadable => L.Get("Local audio recovery could not be read. Muting playback is paused."),
+        MuteRecoveryStatus.Unrecognized => L.Get("The saved local audio recovery record is not supported. Review it before muting playback."),
+        _ => L.Get("Review the previous local audio mute state before starting playback that mutes this PC.")
+    });
+    public AsyncCommand ReviewMuteRecoveryCommand { get; }
+    public event Action? MuteRecoveryRequested;
     public string EngineMessage => EngineReady ? "" : EngineFailed
         ? L.Format("The audio engine could not start: {0}", _engine!.Error)
         : L.Get("Initializing audio engine…");
@@ -152,6 +167,13 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         if (_engine is not null) _engine.Changed += EngineChanged;
         _store = store; _discovery = discovery; _autostart = autostart; _audio = audio; _dispatcher = dispatcher;
         Applications = applications ?? new ApplicationCatalog(factory);
+        _recovery = audio as IMuteRecoveryService;
+        if (_recovery is not null) _recovery.RecoveryChanged += RecoveryChanged;
+        ReviewMuteRecoveryCommand = new(async () =>
+        {
+            await RefreshMuteRecoveryAsync();
+            if (!_closing && HasMuteRecovery) MuteRecoveryRequested?.Invoke();
+        }, RecoveryFailed, () => !_closing && HasMuteRecovery);
         Endpoints = new(audio, dispatcher);
         Endpoints.DevicesChanged += OnEndpointsChangedAsync;
         Endpoints.Failed += ShowError;
@@ -217,6 +239,14 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     }
     private async Task StartAsync()
     {
+        // Recovery does not display UI and runs before settings/lifecycle locks.
+        if (_recovery is not null)
+        {
+            try { await _recovery.InitializeRecoveryAsync(); }
+            catch (Exception error) { RecoveryFailed(error); }
+            RefreshRecoveryDisplay();
+        }
+        if (_closing) return;
         await _settingsGate.WaitAsync();
         try
         {
@@ -262,6 +292,36 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         CatalogChanged?.Invoke();
         if (EngineReady) ScheduleAutoConnect();
     });
+    private void RecoveryChanged() => _dispatcher.BeginInvoke(() => { if (!_closing) RefreshRecoveryDisplay(); });
+    private void RefreshRecoveryDisplay()
+    {
+        Notify(nameof(MuteReady)); Notify(nameof(HasMuteRecovery)); Notify(nameof(MuteRecovery)); Notify(nameof(MuteRecoveryMessage));
+        ReviewMuteRecoveryCommand.Refresh();
+        Notify(nameof(CanReconnect)); ReconnectCommand.Refresh();
+        foreach (var row in Receivers) row.Refresh();
+        CatalogChanged?.Invoke();
+        if (MuteReady && !_closing) ScheduleAutoConnect();
+    }
+    private void RecoveryFailed(Exception error)
+    {
+        AppPaths.Log(error.ToString()); _recoveryError = error.Message; RefreshRecoveryDisplay();
+    }
+    public async Task RefreshMuteRecoveryAsync()
+    {
+        if (_closing || _recovery is null) return;
+        await _recovery.RefreshRecoveryAsync(); _recoveryError = null; RefreshRecoveryDisplay();
+    }
+    public async Task ResolveMuteRecoveryAsync(long revision, MuteRecoveryEntry entry, MuteRecoveryChoice choice)
+    {
+        if (_closing || _recovery is null) return;
+        await _recovery.ResolveRecoveryAsync(revision, entry.Owner, entry.Generation, entry.EndpointId, choice);
+        _recoveryError = null; RefreshRecoveryDisplay();
+    }
+    public async Task ArchiveMuteRecoveryAsync(long revision)
+    {
+        if (_closing || _recovery is null) return;
+        await _recovery.ArchiveUnrecognizedRecoveryAsync(revision); _recoveryError = null; RefreshRecoveryDisplay();
+    }
     private async Task MigrateEndpointNameAsync()
     {
         if (_settings.CaptureMode != "endpoint" || string.IsNullOrWhiteSpace(_settings.CaptureEndpoint)) return;
@@ -293,6 +353,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         }
         catch (Exception error) { ShowError(error); }
         finally { _settingsGate.Release(); }
+        try { await RefreshMuteRecoveryAsync(); } catch (Exception error) { RecoveryFailed(error); }
     }
     private async void OnDiscovered(IReadOnlyList<Receiver> list)
     {
@@ -485,7 +546,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     {
         if (_closing || IsStopping) return;
         if (_snapshot.IsActive && _snapshot.Receiver?.Id == receiver.Id) { await StopAsync(); return; }
-        if (_closing || _resetting || !EngineReady || Session.NeedsCleanup) return;
+        if (_closing || _resetting || !EngineReady || !MuteReady || Session.NeedsCleanup) return;
         var group = AllReceivers.FirstOrDefault(r => r.IsGroup && !r.IsSoftwareGroup && r.Members.Any(m => m.Address == receiver.Address));
         if (group is not null) receiver = group;
         var intent = ++_playIntent;
@@ -493,7 +554,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         await _settingsGate.WaitAsync();
         try
         {
-            if (_closing || _resetting || IsStopping || intent != _playIntent || !EngineReady || Session.NeedsCleanup) return;
+            if (_closing || _resetting || IsStopping || intent != _playIntent || !EngineReady || !MuteReady || Session.NeedsCleanup) return;
             if (_settings.CaptureMode == "loopback") _defaultEndpoint = await _audio.GetDefaultEndpointIdAsync();
             if (_closing || _resetting || IsStopping || intent != _playIntent) return;
             if (startIntent == SessionStartIntent.Manual) _autoSuppressed = false;
@@ -753,6 +814,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private async Task DisposeCoreAsync()
     {
         _closing = true; Updates.Dispose(); _volumeTimer.Stop(); _autoTimer.Stop(); _startupDiscoveryTimer.Stop(); _discoverySearchTimer.Stop(); _discovery.Dispose();
+        if (_recovery is not null) _recovery.RecoveryChanged -= RecoveryChanged;
         _nowPlayingStop.Cancel();
         await _nowPlayingWork;
         _nowPlayingStop.Dispose();
@@ -810,7 +872,7 @@ public sealed class ReceiverViewModel : ObservableObject
     public bool IsStopping => _app.IsStopping && _app.Snapshot.Receiver?.Id == Receiver.Id;
     public bool NeedsDisconnect => Active || _app.Session.NeedsCleanup && _app.Snapshot.Receiver?.Id == Receiver.Id;
     public System.Windows.Input.ICommand PlaybackCommand => NeedsDisconnect ? _app.StopCommand : ToggleCommand;
-    public bool CanPlay => !_app.IsStopping && !_app.Session.NeedsCleanup && (Active || _app.EngineReady && Receiver.Online && Receiver.Complete);
+    public bool CanPlay => !_app.IsStopping && !_app.Session.NeedsCleanup && (Active || _app.EngineReady && _app.MuteReady && Receiver.Online && Receiver.Complete);
     public string PlayHint => IsStopping ? L.Get("Disconnecting…") : NeedsDisconnect ? L.Get("Stop playback / disconnect") : L.Get("Play on this device");
     public string StateText => (NeedsDisconnect ? _app.StatusTitle : !Receiver.Online ? L.Get("Offline") : !Receiver.Complete ? (Receiver.GroupMode == "multi_room" ? L.Get("Waiting for other members") : L.Get("Waiting for the other member")) : L.Get("Disconnected")) + (Receiver.IsGroup ? $" · {Receiver.Members.Length}/{(Receiver.IsSoftwareGroup && Receiver.GroupMode == "multi_room" ? Receiver.Members.Length : 2)}" : "");
     public AsyncCommand ToggleCommand { get; }
