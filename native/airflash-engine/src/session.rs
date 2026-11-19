@@ -666,7 +666,7 @@ impl Member {
             plan,
             &peer.profile,
             options.sample_rate,
-            options.timing == "ptp",
+            peer.profile.inherits_ptp(&options.timing),
         )?;
         if compat.uses_ptp() && ptp.is_none() {
             let peers = options.peers.iter().map(|p| p.host).collect();
