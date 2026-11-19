@@ -92,6 +92,16 @@ internal static class UiSmoke
             }
             catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
         }
+        if (args.Contains("--ui-mute-recovery-smoke"))
+        {
+            try
+            {
+                await UiMuteRecovery.RunAsync(checks, directory);
+                App.WriteOutput(args, new { ok = true, checks, note = "Synthetic endpoint and mute journal recovery only." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
         if (args.Contains("--ui-session-lifecycle-smoke"))
         {
             try
@@ -346,7 +356,9 @@ internal static class UiSmoke
             await UiRegression.RunAsync(checks, directory);
             await UiSettingsRecovery.RunAsync(checks, directory);
             await UiSessionLifecycle.RunAsync(checks, directory);
+            await UiMuteRecovery.RunAsync(checks, directory);
             await UiSessionLifecycle.RunAsync(checks, directory);
+            await UiMuteRecovery.RunAsync(checks, directory);
             await UiPairing.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyStartupFailureAsync(checks, directory);
