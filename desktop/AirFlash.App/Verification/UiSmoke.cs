@@ -102,6 +102,16 @@ internal static class UiSmoke
             }
             catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
         }
+        if (args.Contains("--ui-discovery-smoke"))
+        {
+            try
+            {
+                await UiDiscoveryLifecycle.RunAsync(checks);
+                App.WriteOutput(args, new { ok = true, checks, note = "Synthetic discovery lifecycle and stable diagnostic report only." });
+                return 0;
+            }
+            catch (Exception error) { App.WriteOutput(args, new { ok = false, checks, error = error.ToString() }); return 1; }
+        }
         if (args.Contains("--ui-session-lifecycle-smoke"))
         {
             try
@@ -362,6 +372,7 @@ internal static class UiSmoke
             await UiPairing.RunAsync(checks, directory);
             await UiEqualizer.RunAsync(checks, directory);
             await VerifyStartupFailureAsync(checks, directory);
+            await UiDiscoveryLifecycle.RunAsync(checks);
             await UiScrolling.RunAsync(checks, directory);
             await VerifyTrayLifecycleAsync(tray, app, trayGuid, () => menuOpened, () => quitRequestedFromTray, checks);
             App.WriteOutput(args, new { ok = true, checks, icon_environment = iconEnvironment, note = "All engine/audio/discovery/autostart services are simulated. DPI renders do not replace physical multimonitor QA." });
@@ -619,14 +630,46 @@ internal static class UiSmoke
         public Task MuteAsync(string? endpointId) => FailMute ? Task.FromException(new IOException("mock mute failed")) : Task.CompletedTask;
         public Task RestoreAsync() { Restores++; return Task.CompletedTask; }
     }
-    internal sealed class MockDiscovery : IDiscoveryService
+    internal sealed class MockDiscovery : IDiscoveryService, IDiscoveryNotifications, IDiscoveryDiagnostics
     {
+        private readonly object _diagnosticLock = new();
+        private readonly DiscoveryHistory _history = new();
+        private DiscoveryDemand _demand;
+        public void RecordDemand(DiscoveryDemand demand)
+        {
+            lock (_diagnosticLock)
+            {
+                if (_demand == demand) return;
+                _demand = demand;
+                _history.Record(DateTimeOffset.UtcNow, TimeSpan.Zero, Starts + Stops, DiscoveryTraceEvent.DemandChanged,
+                    DiscoveryTraceReason.None, demand, Items.Count);
+            }
+        }
+        public void RecordResolutionForDiagnostics(ServiceRecord record)
+        {
+            lock (_diagnosticLock) _history.Record(DateTimeOffset.UtcNow, TimeSpan.Zero, Starts + Stops,
+                DiscoveryTraceEvent.ResolveSucceeded, DiscoveryTraceReason.None, _demand, Items.Count, record: record);
+        }
+        public DiscoveryDiagnosticsSnapshot SnapshotDiagnostics()
+        {
+            lock (_diagnosticLock) return new(Starts + Stops, _demand, Running, Running, true, Items.Count, Items.Count,
+                0, 0, _history.Recorded, _history.Overwritten, _history.Snapshot());
+        }
         public event Action<bool>? RunningChanged;
         public bool Running { get; private set; }
         public int Starts { get; private set; }
         public int Stops { get; private set; }
         public event Action<IReadOnlyList<Receiver>>? Changed;
-        public event Action<string>? Failed { add { } remove { } }
+        public event Action<string>? Failed;
+        public event Action<DiscoveryFailure>? FailureReported;
+        public event Action<DiscoveryResolveAttempt>? ResolveSucceeded;
+        public void PublishFailure(string message) => PublishFailure(new DiscoveryFailure(message));
+        public void PublishFailure(DiscoveryFailure failure)
+        {
+            Failed?.Invoke(failure.Message);
+            FailureReported?.Invoke(failure);
+        }
+        public void PublishResolution(DiscoveryResolveAttempt resolution) => ResolveSucceeded?.Invoke(resolution);
         public void Start() { if (Running) return; Running = true; Starts++; RunningChanged?.Invoke(true); Publish(); }
         public void Stop() { if (!Running) return; Running = false; Stops++; RunningChanged?.Invoke(false); }
         public string SelectedInterface { get; private set; } = "";

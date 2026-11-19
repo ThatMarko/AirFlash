@@ -447,5 +447,13 @@
   "Saved mute: {0}; current mute: {1}": "Сохранённое состояние: {0} · Текущее состояние: {1}",
   "The saved local audio recovery record is not supported. Review it before muting playback.": "Сохранённая запись восстановления локального звука не поддерживается. Проверьте её прежде, чем отключать локальный звук.",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "Сохранённое состояние звука восстановлено. Запись восстановления ещё нужно сохранить.",
-  "Unmuted": "Звук включён"
+  "Unmuted": "Звук включён",
+  "Dismiss notification": "Закрыть уведомление",
+  "DNS cancellation failed: {0}. Native resources remain safely owned; restarting the app is the final recovery if completion cannot be established.": "Не удалось отменить запрос DNS: {0}. Ресурсы надёжно удерживаются. Если не удаётся подтвердить завершение запроса, перезапустите AirFlash.",
+  "DNS request did not remain pending: {0}. Discovery will retry with backoff.": "Запрос DNS перестал ожидать ответа: {0}. Поиск повторится после задержки.",
+  "Receiver discovery is waiting for earlier DNS queries to finish. It will retry automatically; restart AirFlash if it remains paused.": "Поиск приёмников ждёт завершения предыдущих запросов DNS. Повторная попытка произойдёт автоматически. Если поиск остаётся на паузе, перезапустите AirFlash.",
+  "Receiver resolution failed: {0}. Discovery will retry with backoff.": "Не удалось определить адрес приёмника: {0}. Поиск повторится после задержки.",
+  "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "Истекло время определения адреса приёмника: {0}. Поиск повторится после задержки.",
+  "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "Некоторые запросы поиска приостановлены, потому что ресурсы DNS нельзя безопасно освободить. Поиск возобновится после освобождения ресурсов. Если поиск не возобновится, перезапустите AirFlash.",
+  "The receiver is unavailable.": "Приёмник недоступен."
 }

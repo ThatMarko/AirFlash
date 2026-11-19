@@ -447,5 +447,13 @@
   "Saved mute: {0}; current mute: {1}": "État enregistré : {0} · État actuel : {1}",
   "The saved local audio recovery record is not supported. Review it before muting playback.": "Le registre de récupération de l’audio local n’est pas pris en charge. Vérifiez-le avant de couper le son local.",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "L’état de coupure du son enregistré a été restauré. Il reste à enregistrer le registre de récupération.",
-  "Unmuted": "Son activé"
+  "Unmuted": "Son activé",
+  "Dismiss notification": "Fermer la notification",
+  "DNS cancellation failed: {0}. Native resources remain safely owned; restarting the app is the final recovery if completion cannot be established.": "Échec de l’annulation DNS : {0}. Les ressources natives restent réservées en toute sécurité. Si la fin de la requête ne peut pas être confirmée, redémarrez AirFlash.",
+  "DNS request did not remain pending: {0}. Discovery will retry with backoff.": "La requête DNS a cessé d’être en attente : {0}. La détection réessaiera après un délai.",
+  "Receiver discovery is waiting for earlier DNS queries to finish. It will retry automatically; restart AirFlash if it remains paused.": "La détection des récepteurs attend la fin des requêtes DNS précédentes. Elle réessaiera automatiquement. Si elle reste en pause, redémarrez AirFlash.",
+  "Receiver resolution failed: {0}. Discovery will retry with backoff.": "Échec de la résolution du récepteur : {0}. La détection réessaiera après un délai.",
+  "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "Délai de résolution du récepteur dépassé : {0}. La détection réessaiera après un délai.",
+  "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "Certaines requêtes de détection sont en pause, car les ressources DNS natives ne peuvent pas être libérées en toute sécurité. La détection reprendra une fois ces ressources libérées. En dernier recours, redémarrez AirFlash.",
+  "The receiver is unavailable.": "Le récepteur est indisponible."
 }

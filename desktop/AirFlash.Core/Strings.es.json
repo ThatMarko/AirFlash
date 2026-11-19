@@ -447,5 +447,13 @@
   "Saved mute: {0}; current mute: {1}": "Silencio guardado: {0}. Silencio actual: {1}",
   "The saved local audio recovery record is not supported. Review it before muting playback.": "El registro guardado de recuperación del audio local no es compatible. Revísalo antes de iniciar la reproducción con este equipo silenciado.",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "Se restauró el estado de silencio guardado. Aún falta guardar el registro de recuperación.",
-  "Unmuted": "Sin silenciar"
+  "Unmuted": "Sin silenciar",
+  "Dismiss notification": "Cerrar notificación",
+  "DNS cancellation failed: {0}. Native resources remain safely owned; restarting the app is the final recovery if completion cannot be established.": "No se pudo cancelar la consulta DNS: {0}. Los recursos nativos se conservan de forma segura. Si no se puede confirmar el fin de la consulta, reinicia la aplicación.",
+  "DNS request did not remain pending: {0}. Discovery will retry with backoff.": "La solicitud DNS dejó de estar pendiente: {0}. La detección volverá a intentarlo tras una espera.",
+  "Receiver discovery is waiting for earlier DNS queries to finish. It will retry automatically; restart AirFlash if it remains paused.": "La detección de receptores espera a que terminen consultas DNS anteriores. Volverá a intentarlo automáticamente. Si sigue en pausa, reinicia AirFlash.",
+  "Receiver resolution failed: {0}. Discovery will retry with backoff.": "No se pudo resolver el receptor: {0}. La detección volverá a intentarlo tras una espera.",
+  "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "Se agotó el tiempo para resolver el receptor: {0}. La detección volverá a intentarlo tras una espera.",
+  "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "Algunas solicitudes de detección están en pausa porque no se pueden liberar de forma segura los recursos nativos de DNS. La detección se reanudará si se liberan los recursos. Si no se reanuda, reinicia la aplicación.",
+  "The receiver is unavailable.": "El receptor no está disponible."
 }

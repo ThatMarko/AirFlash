@@ -447,5 +447,13 @@
   "Saved mute: {0}; current mute: {1}": "保存された状態: {0} · 現在の状態: {1}",
   "The saved local audio recovery record is not supported. Review it before muting playback.": "保存済みのローカルオーディオ復元記録はサポートされていません。ローカル音声をミュートする前に確認してください。",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "保存されたミュート設定を復元しました。復元記録の保存が必要です。",
-  "Unmuted": "ミュート解除済み"
+  "Unmuted": "ミュート解除済み",
+  "Dismiss notification": "通知を閉じる",
+  "DNS cancellation failed: {0}. Native resources remain safely owned; restarting the app is the final recovery if completion cannot be established.": "DNS クエリを取り消せませんでした: {0}。ネイティブリソースは安全に確保されています。完了を確認できない場合は AirFlash を再起動してください。",
+  "DNS request did not remain pending: {0}. Discovery will retry with backoff.": "DNS 要求が保留状態から外れました: {0}。しばらく待ってから検出を再試行します。",
+  "Receiver discovery is waiting for earlier DNS queries to finish. It will retry automatically; restart AirFlash if it remains paused.": "レシーバーの検出は、先行する DNS クエリの完了を待機しています。自動的に再試行します。一時停止が続く場合は AirFlash を再起動してください。",
+  "Receiver resolution failed: {0}. Discovery will retry with backoff.": "レシーバーの名前解決に失敗しました: {0}。しばらく待ってから検出を再試行します。",
+  "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "レシーバーの名前解決がタイムアウトしました: {0}。しばらく待ってから検出を再試行します。",
+  "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "ネイティブ DNS リソースを安全に解放できないため、一部の検出要求を一時停止しています。リソースが解放されると検出を再開します。再開しない場合は AirFlash を再起動してください。",
+  "The receiver is unavailable.": "レシーバーを使用できません。"
 }

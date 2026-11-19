@@ -34,6 +34,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private AppSettings _settings;
     private SessionSnapshot _snapshot = new(PlaybackState.Idle);
     private string _notice = "";
+    private bool _noticeDismissed;
 
     private bool _volumeDirty, _volumeApplyPending, _autoSuppressed, _closing;
     private string? _defaultEndpoint;
@@ -59,7 +60,35 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     private int _pendingEligibilityChanges;
     private bool _controlledScheduling;
     public bool IsStopping { get; private set; }
-    public string Notice { get => _notice; private set { Set(ref _notice, value); Notify(nameof(ErrorDetails)); } }
+    private DiscoveryFailure? _discoveryNotice;
+    public string Notice
+    {
+        get => _notice;
+        private set => SetNotice(value);
+    }
+    private void SetNotice(string value, DiscoveryFailure? discoveryFailure = null)
+    {
+        _discoveryNotice = discoveryFailure;
+        if (_notice == value) return;
+        _notice = value;
+        _noticeDismissed = false;
+        Notify(nameof(Notice));
+        RefreshNoticeBanner();
+        Notify(nameof(ErrorDetails));
+    }
+    public bool HasNotice => !_noticeDismissed && !string.IsNullOrWhiteSpace(Notice);
+    public RelayCommand DismissNoticeCommand { get; }
+    private void DismissNotice()
+    {
+        if (!HasNotice) return;
+        _noticeDismissed = true;
+        RefreshNoticeBanner();
+    }
+    private void RefreshNoticeBanner()
+    {
+        Notify(nameof(HasNotice));
+        DismissNoticeCommand.Refresh();
+    }
     public int MasterVolume { get => _settings.MasterVolume; set { if (_closing || _resetting) return; value = Math.Clamp(value, 0, 100); if (value == _settings.MasterVolume) return; _settings.MasterVolume = value; VolumeChanged(); Notify(); } }
     public bool Muted => Session.Muted;
     public string MuteLabel => Muted ? L.Get("Unmute") : L.Get("Mute");
@@ -167,6 +196,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     public AppViewModel(ISettingsStore store, IDiscoveryService discovery, IAutostart autostart, IAudioService audio, IEngineFactory factory, Dispatcher dispatcher, EngineInitialization? engine = null, IApplicationCatalog? applications = null, IReceiverCapabilityCatalog? receiverCapabilities = null, IRestartService? restart = null, bool isolatedVerification = false, UpdateCheckState? updates = null)
     {
 
+        DismissNoticeCommand = new(DismissNotice, () => HasNotice);
         _engine = engine;
         _restart = restart ?? new RestartService();
         Updates = updates ?? new UpdateCheckState(new UpdateService(UpdateClient), Version.TryParse(AppPaths.Version, out var version) ? version : new Version(0, 0, 0));
@@ -239,7 +269,18 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
                 finally { EndEligibilityChange(); }
             });
         };
-        _discovery.Failed += message => _dispatcher.BeginInvoke(() => ShowError(new IOException(message)));
+        // WindowsDiscovery logs failures before publishing them. Present the
+        // notice without repeating the synchronous file append on the dispatcher.
+        if (_discovery is IDiscoveryNotifications notifications)
+        {
+            notifications.FailureReported += DiscoveryFailed;
+            notifications.ResolveSucceeded += resolution => _dispatcher.BeginInvoke(() =>
+            {
+                if (!_closing && _discoveryNotice is { Attempt: { } failure } && failure.Epoch <= resolution.Epoch
+                    && failure.Sequence < resolution.Sequence && failure.SameService(resolution)) Notice = "";
+            });
+        }
+        else _discovery.Failed += message => DiscoveryFailed(new DiscoveryFailure(message));
         _discovery.RunningChanged += running => _dispatcher.BeginInvoke(() =>
         {
             if (_closing) return;
@@ -336,6 +377,23 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
     }
     public void SetPanelVisible(bool visible) { _panelVisible = visible; UpdateDiscoveryDemand(); }
     public void SetReceiversPageVisible(bool visible) { _receiversPageVisible = visible; UpdateDiscoveryDemand(); }
+    private void DiscoveryFailed(DiscoveryFailure failure)
+    {
+        var context = failure.Reason is DiscoveryFailureReason.ResolveTimeout or DiscoveryFailureReason.ResolveFailed ? failure.Resolve : null;
+        var attempt = context is not null ? Session.CaptureStreamingAttempt()?.Attempt : null;
+        _dispatcher.BeginInvoke(() =>
+        {
+            if (_closing) return;
+            if (context is not null && attempt is { } original && Session.CaptureStreamingAttempt() is { } current
+                && current.Attempt == original && DiscoveryFailureAttribution.IsOtherReceiver(context, current.Receiver, _known.Values, _settings.ReceiverAliases)) return;
+            SetNotice(failure.Message, failure.Reason is DiscoveryFailureReason.ResolveTimeout or DiscoveryFailureReason.ResolveFailed ? failure : null);
+        });
+    }
+    private void RefreshDiscoveryNotice()
+    {
+        if (_discoveryNotice?.Resolve is { } context && Session.CaptureStreamingAttempt() is { } current
+            && DiscoveryFailureAttribution.IsOtherReceiver(context, current.Receiver, _known.Values, _settings.ReceiverAliases)) Notice = "";
+    }
     private void UpdateDiscoveryDemand()
     {
         if (!_started || _closing || _resetting) return;
@@ -606,7 +664,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         if (hint != ActionHint) Notify(nameof(ActionHint));
         if (previous.State != snapshot.State || previous.Receiver?.Id != snapshot.Receiver?.Id || needsCleanup)
         {
-
+            RefreshDiscoveryNotice();
             RefreshReceivers();
             StopCommand.Refresh();
             UpdateDiscoveryDemand();

@@ -447,5 +447,13 @@
   "Saved mute: {0}; current mute: {1}": "原静音状态：{0}；当前静音状态：{1}",
   "The saved local audio recovery record is not supported. Review it before muting playback.": "不支持已保存的本地音频恢复记录。请在需要静音的播放前检查。",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "原静音设置已恢复。恢复记录仍需保存。",
-  "Unmuted": "未静音"
+  "Unmuted": "未静音",
+  "Dismiss notification": "关闭通知",
+  "DNS cancellation failed: {0}. Native resources remain safely owned; restarting the app is the final recovery if completion cannot be established.": "DNS 取消失败：{0}。原生资源将安全保留；若无法确认操作结束，最终恢复方式是重启应用。",
+  "DNS request did not remain pending: {0}. Discovery will retry with backoff.": "DNS 请求未保持待处理状态：{0}。发现将延迟重试。",
+  "Receiver discovery is waiting for earlier DNS queries to finish. It will retry automatically; restart AirFlash if it remains paused.": "接收器发现正在等待先前的 DNS 查询完成。系统会自动重试；如果仍处于暂停状态，请重启 AirFlash。",
+  "Receiver resolution failed: {0}. Discovery will retry with backoff.": "接收器解析失败：{0}。发现将延迟重试。",
+  "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "接收器解析超时：{0}。发现将延迟重试。",
+  "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "无法安全释放原生 DNS 资源，部分发现请求已暂停。资源安全释放后将恢复发现；最终恢复方式是重启应用。",
+  "The receiver is unavailable.": "接收设备当前不可用。"
 }

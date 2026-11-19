@@ -447,5 +447,13 @@
   "Saved mute: {0}; current mute: {1}": "Estado salvo: {0} · Estado atual: {1}",
   "The saved local audio recovery record is not supported. Review it before muting playback.": "O registro de recuperação do áudio local não é compatível. Revise-o antes de silenciar o áudio local.",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "O estado de silêncio salvo foi restaurado. Ainda é preciso salvar o registro de recuperação.",
-  "Unmuted": "Som ativado"
+  "Unmuted": "Som ativado",
+  "Dismiss notification": "Dispensar notificação",
+  "DNS cancellation failed: {0}. Native resources remain safely owned; restarting the app is the final recovery if completion cannot be established.": "Falha ao cancelar a consulta de DNS: {0}. Os recursos nativos permanecem reservados com segurança. Se não for possível confirmar a conclusão, reinicie o AirFlash.",
+  "DNS request did not remain pending: {0}. Discovery will retry with backoff.": "A solicitação de DNS deixou de estar pendente: {0}. A descoberta tentará novamente após um intervalo.",
+  "Receiver discovery is waiting for earlier DNS queries to finish. It will retry automatically; restart AirFlash if it remains paused.": "A descoberta de receptores aguarda a conclusão das consultas de DNS anteriores. Ela tentará novamente de forma automática. Se continuar pausada, reinicie o AirFlash.",
+  "Receiver resolution failed: {0}. Discovery will retry with backoff.": "Falha ao resolver o receptor: {0}. A descoberta tentará novamente após um intervalo.",
+  "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "Tempo limite atingido ao resolver o receptor: {0}. A descoberta tentará novamente após um intervalo.",
+  "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "Algumas solicitações de descoberta estão pausadas porque os recursos nativos de DNS não podem ser liberados com segurança. A descoberta será retomada quando os recursos forem liberados. Em último caso, reinicie o AirFlash.",
+  "The receiver is unavailable.": "O receptor está indisponível."
 }
