@@ -427,5 +427,6 @@
   "Start streaming before testing Sound Glow.": "請先開始播放，再測試 Sound Glow。",
   "Sound Glow": "Sound Glow",
   "Test HomePod light effects with synthetic covers and metadata.": "使用虛構封面和歌曲資訊測試 HomePod 燈效。",
-  "Log": "日誌"
+  "Log": "日誌",
+  "The receiver selection is ambiguous.": "無法確定所選接收裝置的唯一歸屬。"
 }
