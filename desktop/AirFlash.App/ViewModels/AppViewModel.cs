@@ -486,8 +486,8 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         if (_closing || IsStopping) return;
         if (_snapshot.IsActive && _snapshot.Receiver?.Id == receiver.Id) { await StopAsync(); return; }
         if (_closing || _resetting || !EngineReady || Session.NeedsCleanup) return;
-        var group = AllReceivers.FirstOrDefault(r => r.IsGroup && !r.IsSoftwareGroup && r.Members.Any(m => m.Address == receiver.Address));
-        if (group is not null) receiver = group;
+        receiver = ReceiverSelection.ResolvePlayback(receiver, AllReceivers)
+            ?? throw new InvalidOperationException(L.Get("The receiver selection is ambiguous."));
         var intent = ++_playIntent;
         await FlushVolumeAsync();
         await _settingsGate.WaitAsync();

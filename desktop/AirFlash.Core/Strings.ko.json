@@ -427,5 +427,6 @@
   "Start streaming before testing Sound Glow.": "Sound Glow를 테스트하기 전에 스트리밍을 시작하세요.",
   "Sound Glow": "Sound Glow",
   "Test HomePod light effects with synthetic covers and metadata.": "합성 표지와 메타데이터로 HomePod 조명 효과를 테스트합니다.",
-  "Log": "로그"
+  "Log": "로그",
+  "The receiver selection is ambiguous.": "수신기를 하나로 특정할 수 없습니다."
 }

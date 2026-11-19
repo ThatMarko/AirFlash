@@ -427,5 +427,6 @@
   "Start streaming before testing Sound Glow.": "Démarrez la diffusion avant de tester Sound Glow.",
   "Sound Glow": "Sound Glow",
   "Test HomePod light effects with synthetic covers and metadata.": "Testez les effets lumineux avec pochettes et métadonnées.",
-  "Log": "Journal"
+  "Log": "Journal",
+  "The receiver selection is ambiguous.": "La sélection du récepteur est ambiguë."
 }
