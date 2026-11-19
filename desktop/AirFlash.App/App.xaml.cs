@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Windows;
 using AirFlash.App.Services;
@@ -9,6 +10,7 @@ namespace AirFlash.App;
 
 public partial class App : Application
 {
+    private readonly Exception? _verificationCultureError;
     public App()
     {
         DispatcherUnhandledException += (_, eventArgs) =>
@@ -29,6 +31,20 @@ public partial class App : Application
                 Shutdown(1);
             }
         };
+        var args = Environment.GetCommandLineArgs()[1..];
+        if (!Program.StartupOptions(args).Any(a => a is "--ui-smoke" or "--tray-smoke" or "--ui-perf")) return;
+        try
+        {
+            if (Program.StartupValue(args, "--ui-culture") is not { } cultureName) return;
+            var culture = CultureInfo.GetCultureInfo(cultureName);
+            // Capture the requested verification culture before async startup.
+            // This process-local selection never changes Windows regional settings.
+            CultureInfo.CurrentCulture = culture;
+            CultureInfo.CurrentUICulture = culture;
+            CultureInfo.DefaultThreadCurrentCulture = culture;
+            CultureInfo.DefaultThreadCurrentUICulture = culture;
+        }
+        catch (Exception error) { _verificationCultureError = error; }
     }
     private SingleInstance? _instance;
     private ThemeService? _theme;
@@ -44,36 +60,40 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs args)
     {
         // Initialize before any windows, view models or static choice labels are created.
-        var languageIndex = Array.IndexOf(args.Args, "--ui-language");
-        var smokeLanguage = (args.Args.Contains("--ui-smoke") || args.Args.Contains("--tray-smoke") || args.Args.Contains("--ui-perf")) && languageIndex >= 0 && languageIndex + 1 < args.Args.Length
-            ? new[] { args.Args[languageIndex + 1] } : null;
+        var options = Program.StartupOptions(args.Args).ToHashSet(StringComparer.Ordinal);
+        var smokeLanguage = options.Any(option => option is "--ui-smoke" or "--tray-smoke" or "--ui-perf")
+            && Program.StartupValue(args.Args, "--ui-language") is { } language ? new[] { language } : null;
         try
         {
+            if (_verificationCultureError is { } cultureError)
+            {
+                WriteOutput(args.Args, new { ok = false, error = cultureError.ToString() });
+                Shutdown(1); return;
+            }
             L.Initialize(smokeLanguage);
             base.OnStartup(args);
             Resources["LatencyChoices"] = Choices.Latencies;
-            if (args.Args.Contains("--discovery-perf"))
+            if (options.Contains("--discovery-perf"))
             {
-                var outputIndex = Array.IndexOf(args.Args, "--output");
-                if (outputIndex < 0 || outputIndex + 1 >= args.Args.Length) throw new ArgumentException("--discovery-perf requires --output.");
-                AppPaths.DataDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(args.Args[outputIndex + 1]))!, "isolated-data");
+                var output = Program.StartupValue(args.Args, "--output") ?? throw new ArgumentException("--discovery-perf requires --output.");
+                AppPaths.DataDirectory = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(output))!, "isolated-data");
                 Shutdown(await DiscoveryPerf.RunAsync(args.Args)); return;
             }
-            if (args.Args.Contains("--update-check"))
+            if (options.Contains("--update-check"))
             {
                 using var client = new System.Net.Http.HttpClient { MaxResponseContentBufferSize = 1024 * 1024 };
                 var release = await new UpdateService(client).CheckAsync();
                 WriteOutput(args.Args, new { ok = true, version = AppPaths.Version, display_version = AppPaths.DisplayVersion, latest = release?.Version.ToString(3), download = release?.DownloadPage.AbsoluteUri });
                 Shutdown(0); return;
             }
-            if (args.Args.Contains("--self-check")) { Shutdown(await SelfCheckAsync(args.Args)); return; }
-            if (args.Args.Contains("--stability-check")) { Shutdown(await StabilityCheck.RunAsync(args.Args)); return; }
-            if (args.Args.Contains("--compat-check")) { Shutdown(await CompatibilityCheckAsync(args.Args)); return; }
-            if (args.Args.Contains("--discovery-check")) { Shutdown(await DiscoveryCheckAsync(args.Args)); return; }
-            if (args.Args.Contains("--audio-check")) { Shutdown(await AudioCheckAsync(args.Args)); return; }
-            if (args.Args.Contains("--ui-smoke")) { Shutdown(await UiSmoke.RunAsync(args.Args)); return; }
-            if (args.Args.Contains("--tray-smoke")) { Shutdown(await UiSmoke.RunAsync(args.Args)); return; }
-            if (args.Args.Contains("--ui-perf")) { Shutdown(await UiPerf.RunAsync(args.Args)); return; }
+            if (options.Contains("--self-check")) { Shutdown(await SelfCheckAsync(args.Args)); return; }
+            if (options.Contains("--stability-check")) { Shutdown(await StabilityCheck.RunAsync(args.Args)); return; }
+            if (options.Contains("--compat-check")) { Shutdown(await CompatibilityCheckAsync(args.Args)); return; }
+            if (options.Contains("--discovery-check")) { Shutdown(await DiscoveryCheckAsync(args.Args)); return; }
+            if (options.Contains("--audio-check")) { Shutdown(await AudioCheckAsync(args.Args)); return; }
+            if (options.Contains("--ui-smoke")) { Shutdown(await UiSmoke.RunAsync(args.Args)); return; }
+            if (options.Contains("--tray-smoke")) { Shutdown(await UiSmoke.RunAsync(args.Args)); return; }
+            if (options.Contains("--ui-perf")) { Shutdown(await UiPerf.RunAsync(args.Args)); return; }
             _instance = new();
             if (!_instance.IsOwner) { await _instance.NotifyExistingAsync(); await _instance.DisposeAsync(); _instance = null; Shutdown(); return; }
             _theme = new();
@@ -92,11 +112,16 @@ public partial class App : Application
             _panel = new(_viewModel); MainWindow = _panel;
             AttachPanel(_panel);
             _tray = new(_panel, _viewModel, ShowSettings, Quit); _panel.Tray = _tray;
-            _instance.Listen(() => Dispatcher.BeginInvoke(() => { if (_settings is not null) _settings.Activate(); else _panel.ShowPanel(); }));
+            _instance.Listen(() => Dispatcher.BeginInvoke(() =>
+            {
+                if (_quitting) return;
+                if (_settings is not null) _settings.Activate();
+                else _panel.ShowPanel();
+            }));
             _viewModel.SettingsChanged += OnSettingsChanged;
             _viewModel.MuteRecoveryRequested += ShowMuteRecovery;
             _viewModel.Start();
-            if (!args.Args.Contains("--startup")) _panel.ShowPanel();
+            if (!options.Contains("--startup")) _panel.ShowPanel();
             _ = _viewModel.CheckUpdatesAtStartupAsync();
             AppPaths.Log("WPF host started, JSONL v1. Startup stage=shell ready");
             await _engine.InitializeAsync();
@@ -149,7 +174,7 @@ public partial class App : Application
     private void ShowSettingsPage(int page) => ShowSettings(page);
     private void ShowSettings(int? page)
     {
-        if (_viewModel is null) return;
+        if (_quitting || _viewModel is null) return;
         _panel?.Hide();
         if (_settings is not null)
         {
@@ -277,10 +302,9 @@ public partial class App : Application
     }
     internal static void WriteOutput(string[] args, object value, JsonSerializerOptions? options = null)
     {
-        var index = Array.FindIndex(args, a => a is "--self-check-output" or "--output");
-        if (index >= 0 && index + 1 < args.Length)
+        if (Program.StartupValue(args, "--output", "--self-check-output") is { } path)
         {
-            var output = Path.GetFullPath(args[index + 1]);
+            var output = Path.GetFullPath(path);
             Directory.CreateDirectory(Path.GetDirectoryName(output)!);
             File.WriteAllText(output, JsonSerializer.Serialize(value, options ?? new JsonSerializerOptions { WriteIndented = true }));
         }
