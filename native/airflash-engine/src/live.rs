@@ -2304,8 +2304,7 @@ pub(crate) mod tests {
             .map(|channel| {
                 (0..frames)
                     .map(|i| {
-                        let code =
-                            ((i as i32 * 7919 + channel * 104_729) % 60_000 - 30_000) as i16;
+                        let code = ((i as i32 * 7919 + channel * 104_729) % 60_000 - 30_000) as i16;
                         f32::from(code) / 32768.0
                     })
                     .collect()
