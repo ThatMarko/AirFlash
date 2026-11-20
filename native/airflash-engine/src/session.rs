@@ -48,6 +48,10 @@ fn default_port() -> u16 {
 fn default_sample_rate() -> u32 {
     44100
 }
+/// Bit-exact passthrough is the default: a 1:1 capture must not be filtered.
+fn default_bit_exact() -> bool {
+    true
+}
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProbeOptions {
@@ -81,6 +85,10 @@ pub struct ProbeOptions {
     pub gain: f32,
     #[serde(default)]
     pub equalizer: crate::equalizer::Settings,
+    /// Copy the capture through untouched when its rate already matches the
+    /// stream rate. Defaults to on: there is no reason to filter a 1:1 stream.
+    #[serde(default = "default_bit_exact")]
+    pub bit_exact: bool,
     #[serde(default = "default_sample_rate")]
     pub sample_rate: u32,
     #[serde(default = "default_timing")]
@@ -1662,6 +1670,7 @@ fn run_live(
             options.capture_endpoint.clone(),
             options.sample_rate,
             equalizer.clone(),
+            options.bit_exact,
         )?)
     } else {
         None
@@ -1703,6 +1712,7 @@ fn run_live(
                 options.capture_endpoint.clone(),
                 options.sample_rate,
                 equalizer.clone(),
+                options.bit_exact,
             )?);
             paused = None;
             reason = "";
@@ -1728,6 +1738,7 @@ fn run_live(
                     pinned,
                     options.sample_rate,
                     equalizer.clone(),
+                    options.bit_exact,
                 ) {
                     Ok(capture) => source = Some(capture),
                     Err(_) if crate::applications::Process::verify(&application).is_err() => {
@@ -2130,6 +2141,7 @@ fn run_stream(
             options.capture_endpoint.clone(),
             rate,
             equalizer,
+            options.bit_exact,
         )?)
     } else {
         None
@@ -6724,6 +6736,7 @@ mod tests {
             adaptive_initial_latency_ms: None,
             gain: 0.1,
             equalizer: crate::equalizer::Settings::default(),
+            bit_exact: true,
             sample_rate: 44100,
             timing: "ptp".into(),
             group_id: None,
