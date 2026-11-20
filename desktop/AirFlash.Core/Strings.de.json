@@ -455,5 +455,12 @@
   "Receiver resolution failed: {0}. Discovery will retry with backoff.": "Empfängerauflösung fehlgeschlagen: {0}. Die Suche versucht es nach einer Wartezeit erneut.",
   "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "Zeitüberschreitung bei der Empfängerauflösung: {0}. Die Suche versucht es nach einer Wartezeit erneut.",
   "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "Einige Suchanfragen sind pausiert, weil native DNS-Ressourcen nicht sicher freigegeben werden können. Die Suche wird nach deren Freigabe fortgesetzt; andernfalls muss die App neu gestartet werden.",
-  "The receiver is unavailable.": "Empfänger ist nicht verfügbar."
+  "The receiver is unavailable.": "Empfänger ist nicht verfügbar.",
+  "Bit-exact passthrough": "Bitgenaue Weitergabe",
+  "Copy the capture untouched when its sample rate already matches the stream": "Aufnahme unverändert übernehmen, wenn ihre Abtastrate bereits dem Stream entspricht",
+  "No resampling and no dither: 16-bit samples reach HomePod unchanged. Clock drift is absorbed by one-frame corrections at smooth points in the signal. The first 5 ms after playback starts or resumes from silence is faded in, and an equalizer or master gain below 100% makes the path a processed one.": "Kein Resampling und kein Dithering: 16-Bit-Samples erreichen den HomePod unverändert. Taktabweichungen werden durch Ein-Frame-Korrekturen an gleichmäßigen Stellen im Signal ausgeglichen. Die ersten 5 ms nach dem Start oder nach dem Fortsetzen aus Stille werden eingeblendet; ein Equalizer oder eine Hauptlautstärke unter 100 % macht den Pfad zu einem bearbeiteten Pfad.",
+  "Audio chain": "Audiokette",
+  "bit-exact": "bitgenau",
+  "resampled": "neu abgetastet",
+  "{0} one-frame corrections": "{0} Ein-Frame-Korrekturen"
 }
