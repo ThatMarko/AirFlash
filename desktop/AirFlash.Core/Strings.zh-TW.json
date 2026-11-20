@@ -446,5 +446,6 @@
   "Saved mute: {0}; current mute: {1}": "原靜音狀態：{0}；目前靜音狀態：{1}",
   "The saved local audio recovery record is not supported. Review it before muting playback.": "不支援已儲存的本機音訊復原記錄。請在需要靜音的播放前檢查。",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "原靜音設定已還原。復原記錄仍需儲存。",
-  "Unmuted": "未靜音"
+  "Unmuted": "未靜音",
+  "Review local audio recovery before starting playback that mutes this PC.": "請先檢查本機音訊復原，再開始需要將此電腦靜音的播放。"
 }

@@ -824,8 +824,13 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
         try { await Endpoints.DrainAsync(); } catch (Exception error) { AppPaths.Log(error.ToString()); }
         await _settingsGate.WaitAsync(); _settingsGate.Release();
         try { await FlushVolumeAsync(); } catch (Exception error) { AppPaths.Log(error.ToString()); }
-        await Session.DisposeAsync();
-        if (_audio is IAsyncDisposable disposable) await disposable.DisposeAsync();
+        try { await Session.DisposeAsync(); }
+        finally
+        {
+            if (_audio is IAsyncDisposable disposable)
+                try { await disposable.DisposeAsync(); }
+                catch (Exception error) { AppPaths.Log("Local audio cleanup failed: " + error); }
+        }
     }
 }
 public sealed record SettingsApplyResult(AppSettings Saved, string? AudioError)

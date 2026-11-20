@@ -446,5 +446,6 @@
   "Saved mute: {0}; current mute: {1}": "Stato salvato: {0} · Stato attuale: {1}",
   "The saved local audio recovery record is not supported. Review it before muting playback.": "Il registro di ripristino dell’audio locale non è supportato. Controllalo prima di disattivare l’audio locale.",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "Lo stato di disattivazione salvato è stato ripristinato. Il registro di ripristino deve ancora essere salvato.",
-  "Unmuted": "Audio attivo"
+  "Unmuted": "Audio attivo",
+  "Review local audio recovery before starting playback that mutes this PC.": "Controlla il ripristino dell’audio locale prima di avviare una riproduzione che disattiva l’audio di questo PC."
 }

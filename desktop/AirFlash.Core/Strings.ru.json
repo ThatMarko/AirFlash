@@ -446,5 +446,6 @@
   "Saved mute: {0}; current mute: {1}": "Сохранённое состояние: {0} · Текущее состояние: {1}",
   "The saved local audio recovery record is not supported. Review it before muting playback.": "Сохранённая запись восстановления локального звука не поддерживается. Проверьте её прежде, чем отключать локальный звук.",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "Сохранённое состояние звука восстановлено. Запись восстановления ещё нужно сохранить.",
-  "Unmuted": "Звук включён"
+  "Unmuted": "Звук включён",
+  "Review local audio recovery before starting playback that mutes this PC.": "Проверьте восстановление локального звука перед запуском воспроизведения с отключением звука на этом ПК."
 }

@@ -364,8 +364,15 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         {
             if (_manualRecoveryRequired && intent == SessionStartIntent.Automatic) return;
         }
+        EnsureMuteReady(settings);
         log?.Invoke($"Session start reason={reason}; changed_fields={string.Join(",", changedFields ?? [])}");
         await StopLockedAsync().ConfigureAwait(false);
+        if (!MuteRecoveryAvailable(settings))
+        {
+            _receiver = null;
+            Publish(_generation, PlaybackState.Idle);
+            EnsureMuteReady(settings);
+        }
         lock (_sync) { if (intent == SessionStartIntent.Manual) _manualRecoveryRequired = false; }
         _settings = settings.Clone(); _receiver = receiver;
         var epoch = ++_generation;
@@ -430,7 +437,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
             if (_receiver is { IsSoftwareGroup: true } group && settings.SoftwareGroups.All(g => g.Id != group.Id))
             { await StopLockedAsync().ConfigureAwait(false); _receiver = null; _settings = settings.Clone(); Publish(_generation, PlaybackState.Idle); return; }
             var previous = _receiver;
-            if (_receiver is { IsSoftwareGroup: true } software)
+            var next = previous;
+            if (previous is { IsSoftwareGroup: true } software)
             {
                 var catalog = software.Members.Concat(settings.ManualReceivers.Select(m => new Receiver(m.Id, m.Name, m.Host, m.Port) { IsManual = true }));
                 var resolved = SoftwareStereo.Resolve(catalog, settings).First(g => g.Id == software.Id);
@@ -439,14 +447,13 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     await StopLockedAsync().ConfigureAwait(false); _receiver = null; _settings = settings.Clone();
                     Publish(_generation, PlaybackState.Error, L.Get("Stereo groups require two distinct independent receivers.")); return;
                 }
-                _receiver = resolved;
+                next = resolved;
             }
-            _settings = settings.Clone();
-            lock (_sync) ++_equalizerSequence;
-            if (_receiver is { } receiver && Snapshot.IsActive && Snapshot.State != PlaybackState.Pairing && ConnectionChanges(previous ?? receiver, old, receiver, settings) is { Length: > 0 } changes)
+            if (next is { } receiver && Snapshot.IsActive && Snapshot.State != PlaybackState.Pairing && ConnectionChanges(previous ?? receiver, old, receiver, settings) is { Length: > 0 } changes)
                 await StartLockedAsync(RestartReceiver(receiver, settings), settings, null, "settings_change", changes).ConfigureAwait(false);
             else
             {
+                lock (_sync) { _receiver = next; _settings = settings.Clone(); ++_equalizerSequence; }
                 await ApplyLocalMuteAsync().ConfigureAwait(false);
                 await SendGainAsync().ConfigureAwait(false);
                 await SendStandbyAsync().ConfigureAwait(false);
@@ -694,6 +701,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         var recovering = false;
         while (!cancellation.IsCancellationRequested)
         {
+            // A new process must not replace a mute obligation left by cleanup.
+            EnsureMuteReady(_settings);
             var attemptIntent = intent;
             intent = SessionStartIntent.Automatic;
             lock (_sync)
@@ -1149,6 +1158,13 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         try { addresses = await Dns.GetHostAddressesAsync(host, cancellation).ConfigureAwait(false); }
         catch (SocketException error) { throw new NetworkFailure(L.Format("Cannot resolve IPv4 address: {0} ({1})", host, error.Message)); }
         return addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)?.ToString() ?? throw new NetworkFailure(L.Format("Cannot resolve IPv4 address: {0}", host));
+    }
+    private bool MuteRecoveryAvailable(AppSettings settings) => !settings.ShouldMuteEndpoint
+        || audio is not IMuteRecoveryService recovery || recovery.Recovery.CanMute;
+    private void EnsureMuteReady(AppSettings settings)
+    {
+        if (!MuteRecoveryAvailable(settings))
+            throw new InvalidOperationException(L.Get("Review local audio recovery before starting playback that mutes this PC."));
     }
     private async Task RestoreAudioAsync()
     {

@@ -446,5 +446,6 @@
   "Saved mute: {0}; current mute: {1}": "저장된 상태: {0} · 현재 상태: {1}",
   "The saved local audio recovery record is not supported. Review it before muting playback.": "저장된 로컬 오디오 복구 기록은 지원되지 않습니다. 로컬 오디오를 음소거하기 전에 확인하세요.",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "저장된 음소거 설정을 복원했습니다. 복구 기록은 아직 저장해야 합니다.",
-  "Unmuted": "음소거 해제됨"
+  "Unmuted": "음소거 해제됨",
+  "Review local audio recovery before starting playback that mutes this PC.": "이 PC의 오디오를 음소거하는 재생을 시작하기 전에 로컬 오디오 복구 정보를 확인하세요."
 }

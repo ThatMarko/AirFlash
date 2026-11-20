@@ -446,5 +446,6 @@
   "Saved mute: {0}; current mute: {1}": "Gespeicherte Stummschaltung: {0}; aktuelle Stummschaltung: {1}",
   "The saved local audio recovery record is not supported. Review it before muting playback.": "Der gespeicherte Wiederherstellungsdatensatz wird nicht unterstützt. Prüfen Sie ihn vor einer Wiedergabe mit lokaler Stummschaltung.",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "Die gespeicherte Stummschaltung wurde wiederhergestellt. Der Wiederherstellungsdatensatz muss noch gespeichert werden.",
-  "Unmuted": "Nicht stummgeschaltet"
+  "Unmuted": "Nicht stummgeschaltet",
+  "Review local audio recovery before starting playback that mutes this PC.": "Prüfen Sie die lokale Audiowiederherstellung, bevor Sie eine Wiedergabe starten, die diesen PC stummschaltet."
 }

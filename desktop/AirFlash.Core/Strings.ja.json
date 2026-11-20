@@ -446,5 +446,6 @@
   "Saved mute: {0}; current mute: {1}": "保存された状態: {0} · 現在の状態: {1}",
   "The saved local audio recovery record is not supported. Review it before muting playback.": "保存済みのローカルオーディオ復元記録はサポートされていません。ローカル音声をミュートする前に確認してください。",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "保存されたミュート設定を復元しました。復元記録の保存が必要です。",
-  "Unmuted": "ミュート解除済み"
+  "Unmuted": "ミュート解除済み",
+  "Review local audio recovery before starting playback that mutes this PC.": "この PC の音声をミュートする再生を開始する前に、ローカルオーディオの復元情報を確認してください。"
 }
