@@ -1426,6 +1426,21 @@ fn clear_pipeline(pipeline: &mut Pipeline, mixer: Option<&mut Mixer>) {
     }
 }
 
+fn rebind_pipeline(
+    pipeline: &mut Pipeline,
+    mixer: &mut Mixer,
+    format: Format,
+    bit_exact: bool,
+) -> Result<()> {
+    if format.rate != mixer.rate {
+        *pipeline = Pipeline::new(pipeline.stream_rate, format, bit_exact)?;
+        *mixer = Mixer::new(format.rate);
+    }
+    // An endpoint can reopen at the same rate with a different sample format.
+    pipeline.source_is_pcm16 = format.tag == 1 && format.bits == 16;
+    Ok(())
+}
+
 /// The existing true-discontinuity behaviour: drop samples that belong to the
 /// broken stream, but keep the already-encoded queue semantics intact.
 fn mark_discontinuity(state: &Arc<Mutex<State>>) {
@@ -1766,10 +1781,7 @@ fn capture(
                         "capture stream formats differ"
                     );
                     format = new_format;
-                    if new_format.rate != mixer.rate {
-                        pipeline = Pipeline::new(stream_rate, new_format, bit_exact)?;
-                        mixer = Mixer::new(new_format.rate);
-                    }
+                    rebind_pipeline(&mut pipeline, &mut mixer, new_format, bit_exact)?;
                     bindings = new_bindings;
                     budget.succeeded();
                     let count = bindings.len() as u32;
@@ -3060,6 +3072,71 @@ pub(crate) mod tests {
         }
         let alias = resampled_gain(23_000.0, 48_000, 44_100);
         assert!(alias <= -40.0, "23 kHz leakage {alias:.1} dB");
+    }
+
+    fn assert_same_rate_format_rebind(old_pcm16: bool) {
+        for rate in [44100, 48000] {
+            let format = |pcm16| Format {
+                tag: if pcm16 { 1 } else { 3 },
+                channels: 2,
+                bits: if pcm16 { 16 } else { 32 },
+                rate,
+            };
+            let mut pipeline = Pipeline::new(rate, format(old_pcm16), true).unwrap();
+            let mut mixer = Mixer::new(rate);
+            let input = direct((rate / 100) as usize);
+            assert_eq!(pipeline.direct_chunk(&input, 0.0).1, old_pcm16);
+            clear_pipeline(&mut pipeline, Some(&mut mixer));
+            rebind_pipeline(&mut pipeline, &mut mixer, format(!old_pcm16), true).unwrap();
+            let (frames, clean) = pipeline.direct_chunk(&input, 0.0);
+            let source = source_with(rate, crate::equalizer::Settings::default());
+            {
+                let mut state = source.state.lock().unwrap();
+                for _ in 0..rate / 200 + 2 {
+                    state.splice.frame([0.0; 2], 1.0, false);
+                }
+                assert!(state.splice.transparent());
+                for [left, right] in frames.into_iter().take(FRAMES) {
+                    state.push_frame(Frame {
+                        left,
+                        right,
+                        qpc: qpc_ns(),
+                        clean,
+                    });
+                }
+            }
+            let (pcm, _) = source.packet(1.0).unwrap();
+            assert_eq!(
+                source.state.lock().unwrap().quantizer.dither_frames(),
+                if old_pcm16 { (2 * FRAMES) as u64 } else { 0 },
+                "quantization must follow the reopened capture format at {rate} Hz"
+            );
+            if !old_pcm16 {
+                let expected: Vec<u8> = (0..FRAMES)
+                    .flat_map(|i| {
+                        [
+                            crate::continuity::Quantizer::exact(input[0][i]),
+                            crate::continuity::Quantizer::exact(input[1][i]),
+                        ]
+                        .into_iter()
+                        .flat_map(i16::to_be_bytes)
+                    })
+                    .collect();
+                assert_eq!(pcm, expected, "reopened PCM16 must pass through exactly");
+            }
+            assert_eq!(clean, !old_pcm16);
+            assert!(pipeline.resampler.is_none());
+        }
+    }
+
+    #[test]
+    fn same_rate_rebind_from_pcm16_to_float_refreshes_quantization() {
+        assert_same_rate_format_rebind(true);
+    }
+
+    #[test]
+    fn same_rate_rebind_from_float_to_pcm16_refreshes_quantization() {
+        assert_same_rate_format_rebind(false);
     }
 
     #[test]
