@@ -447,5 +447,12 @@
   "The saved local audio recovery record is not supported. Review it before muting playback.": "Le registre de récupération de l’audio local n’est pas pris en charge. Vérifiez-le avant de couper le son local.",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "L’état de coupure du son enregistré a été restauré. Il reste à enregistrer le registre de récupération.",
   "Unmuted": "Son activé",
-  "Review local audio recovery before starting playback that mutes this PC.": "Vérifiez la récupération de l’audio local avant de lancer une lecture qui coupe le son de ce PC."
+  "Review local audio recovery before starting playback that mutes this PC.": "Vérifiez la récupération de l’audio local avant de lancer une lecture qui coupe le son de ce PC.",
+  "Bit-exact passthrough": "Transmission exacte au bit près",
+  "Copy the capture untouched when its sample rate already matches the stream": "Copier la capture telle quelle lorsque sa fréquence d’échantillonnage correspond déjà au flux",
+  "No resampling and no dither: 16-bit samples reach HomePod unchanged. Clock drift is absorbed by one-frame corrections at smooth points in the signal. The first 5 ms after playback starts or resumes from silence is faded in, and an equalizer or master gain below 100% makes the path a processed one.": "Ni rééchantillonnage ni dither : les échantillons 16 bits arrivent au HomePod inchangés. La dérive d’horloge est absorbée par des corrections d’une trame sur des passages réguliers du signal. Les 5 premières ms après le démarrage ou la reprise après un silence sont fondues en entrée, et un égaliseur ou un volume principal inférieur à 100 % transforme le trajet en trajet traité.",
+  "Audio chain": "Chaîne audio",
+  "bit-exact": "exact au bit",
+  "resampled": "rééchantillonné",
+  "{0} one-frame corrections": "{0} corrections d’une trame"
 }

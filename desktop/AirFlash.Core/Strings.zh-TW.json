@@ -447,5 +447,12 @@
   "The saved local audio recovery record is not supported. Review it before muting playback.": "不支援已儲存的本機音訊復原記錄。請在需要靜音的播放前檢查。",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "原靜音設定已還原。復原記錄仍需儲存。",
   "Unmuted": "未靜音",
-  "Review local audio recovery before starting playback that mutes this PC.": "請先檢查本機音訊復原，再開始需要將此電腦靜音的播放。"
+  "Review local audio recovery before starting playback that mutes this PC.": "請先檢查本機音訊復原，再開始需要將此電腦靜音的播放。",
+  "Bit-exact passthrough": "位元精確直通",
+  "Copy the capture untouched when its sample rate already matches the stream": "取樣率與串流一致時原樣複製擷取資料",
+  "No resampling and no dither: 16-bit samples reach HomePod unchanged. Clock drift is absorbed by one-frame corrections at smooth points in the signal. The first 5 ms after playback starts or resumes from silence is faded in, and an equalizer or master gain below 100% makes the path a processed one.": "不重新取樣也不加抖動：16 位元樣本原樣送達 HomePod。時鐘漂移藉由在訊號平緩處插入或刪除一個音框來吸收。播放開始或從靜音恢復後的前 5 ms 會淡入；開啟等化器或主音量低於 100% 時，這條路徑就會變成有處理的路徑。",
+  "Audio chain": "音訊鏈路",
+  "bit-exact": "位元精確",
+  "resampled": "已重新取樣",
+  "{0} one-frame corrections": "{0} 次單音框校正"
 }

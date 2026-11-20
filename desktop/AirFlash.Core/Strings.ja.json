@@ -447,5 +447,12 @@
   "The saved local audio recovery record is not supported. Review it before muting playback.": "保存済みのローカルオーディオ復元記録はサポートされていません。ローカル音声をミュートする前に確認してください。",
   "The saved mute setting was restored. The recovery record still needs to be saved.": "保存されたミュート設定を復元しました。復元記録の保存が必要です。",
   "Unmuted": "ミュート解除済み",
-  "Review local audio recovery before starting playback that mutes this PC.": "この PC の音声をミュートする再生を開始する前に、ローカルオーディオの復元情報を確認してください。"
+  "Review local audio recovery before starting playback that mutes this PC.": "この PC の音声をミュートする再生を開始する前に、ローカルオーディオの復元情報を確認してください。",
+  "Bit-exact passthrough": "ビット完全パススルー",
+  "Copy the capture untouched when its sample rate already matches the stream": "サンプルレートがストリームと一致している場合はキャプチャをそのまま通す",
+  "No resampling and no dither: 16-bit samples reach HomePod unchanged. Clock drift is absorbed by one-frame corrections at smooth points in the signal. The first 5 ms after playback starts or resumes from silence is faded in, and an equalizer or master gain below 100% makes the path a processed one.": "リサンプリングもディザも行わず、16 ビットのサンプルをそのまま HomePod へ届けます。クロックのずれは、信号の滑らかな箇所での 1 フレーム補正で吸収します。再生開始時と無音から復帰した最初の 5 ms はフェードインし、イコライザーまたはマスター音量が 100% 未満の場合は処理ありの経路になります。",
+  "Audio chain": "オーディオ経路",
+  "bit-exact": "ビット完全",
+  "resampled": "リサンプリング済み",
+  "{0} one-frame corrections": "{0} 回の 1 フレーム補正"
 }
