@@ -1114,10 +1114,6 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
     {
         public int Target { get; } = target;
     }
-    private sealed class NetworkFailure : IOException
-    {
-        public NetworkFailure(string message) : base(message) { }
-    }
     private static bool IsAuthenticationFailure(string message) => new[] { "pairing", "srp", "verification", "credentials", "signature", "identity", "authentication" }.Any(word => message.Contains(word, StringComparison.OrdinalIgnoreCase));
     private void SetConnection(IEngineConnection connection, string session) { lock (_sync) { _connection = connection; _sessionId = session; _equalizerReady = false; _sentStandby = null; _soundGlowSupported = false; } }
     private void ClearConnection(IEngineConnection connection) { lock (_sync) if (ReferenceEquals(_connection, connection)) { _connection = null; _sessionId = null; _equalizerReady = false; _sentStandby = null; _soundGlowSupported = false; } }
