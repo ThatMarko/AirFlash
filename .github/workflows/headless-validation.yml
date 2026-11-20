@@ -19,8 +19,8 @@ jobs:
         shell: pwsh
     env:
       REQUESTED_SOURCE: ${{ inputs.source_sha }}
-      # Explicit verified stable ancestor for inherited formatting comparisons.
-      FORMATTING_BASE: '60e3390c8e171a49ba842cd8ccc957d648e3823b'
+      # Known upstream snapshots, newest first. Historical branch inputs keep their own baseline.
+      FORMATTING_BASES: '7b4d4ee9a6170a3de9651bdb577296f65baeaba9 60e3390c8e171a49ba842cd8ccc957d648e3823b'
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
       DOTNET_GENERATE_ASPNET_CERTIFICATE: 'false'
@@ -48,8 +48,14 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $head -cne $env:REQUESTED_SOURCE) { throw 'Checkout differs from the requested commit.' }
           $tree = (git rev-parse 'HEAD^{tree}').Trim()
           if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the source tree.' }
-          git merge-base --is-ancestor $env:FORMATTING_BASE HEAD
-          if ($LASTEXITCODE -ne 0) { throw 'The formatting baseline must be an ancestor of the requested source.' }
+          $baseline = foreach ($candidate in $env:FORMATTING_BASES.Split(' ')) {
+            git merge-base --is-ancestor $candidate $head
+            if ($LASTEXITCODE -eq 0) { $candidate; break }
+            if ($LASTEXITCODE -ne 1) { throw "Cannot compare source with formatting baseline $candidate." }
+          }
+          if (-not $baseline) { throw 'The source needs a known upstream formatting baseline.' }
+          $env:FORMATTING_BASE = $baseline
+          "FORMATTING_BASE=$baseline" >> $env:GITHUB_ENV
           $baselineTree = (git rev-parse "$($env:FORMATTING_BASE)^{tree}").Trim()
           if ($LASTEXITCODE -ne 0) { throw 'Cannot identify the formatting baseline tree.' }
           $dirty = @(git status --porcelain --untracked-files=no)
