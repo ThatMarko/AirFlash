@@ -5,9 +5,24 @@ namespace AirFlash.Core;
 
 public enum PlaybackState { Idle, Connecting, Streaming, Standby, Pairing, Error, Preempted }
 public enum SessionStartIntent { Manual, Automatic }
+[method: System.Text.Json.Serialization.JsonConstructor]
 public sealed record StreamMetrics(double? CaptureToSendP95 = null, double? MaxQueueAge = null, long? Underruns = null, long? DroppedFrames = null, int? InputRate = null,
     long? Rebinds = null, long? SilentProbes = null, long? RebindStorms = null, string? InputFormat = null, bool? BitExact = null, long? Slips = null, double? SlipInterval = null)
 {
+    // Preserve callers compiled against the original eight-field record while
+    // retaining upstream's twelve-field primary constructor and deconstructor.
+    public StreamMetrics(double? CaptureToSendP95, double? MaxQueueAge, long? Underruns, long? DroppedFrames, int? InputRate,
+        long? Rebinds, long? SilentProbes, long? RebindStorms)
+        : this(CaptureToSendP95, MaxQueueAge, Underruns, DroppedFrames, InputRate, Rebinds, SilentProbes, RebindStorms, null, null, null, null) { }
+
+    public void Deconstruct(out double? CaptureToSendP95, out double? MaxQueueAge, out long? Underruns, out long? DroppedFrames, out int? InputRate,
+        out long? Rebinds, out long? SilentProbes, out long? RebindStorms)
+    {
+        CaptureToSendP95 = this.CaptureToSendP95; MaxQueueAge = this.MaxQueueAge;
+        Underruns = this.Underruns; DroppedFrames = this.DroppedFrames; InputRate = this.InputRate;
+        Rebinds = this.Rebinds; SilentProbes = this.SilentProbes; RebindStorms = this.RebindStorms;
+    }
+
     public ulong? PaddedFrames { get; init; }
     public ulong? FullyPaddedPackets { get; init; }
 }
@@ -1524,8 +1539,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                                     _diagnostics = _diagnostics with { CounterDeltaHistory = history };
                             }
                             var current = Snapshot;
-                            // Once per capture format: say out loud what the audio actually
-                            // goes through, so a quality report needs no engine log.
+                            // Preserve upstream's one-per-format audio-chain evidence.
                             if (parsed.InputFormat is { } chainInput && chainInput != current.Metrics?.InputFormat)
                                 log?.Invoke(ChainLine(parsed, sampleRate));
                             Publish(epoch, current.State, current.Message, metrics: parsed, isRetrying: current.IsRetrying);
