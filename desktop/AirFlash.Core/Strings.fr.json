@@ -450,5 +450,12 @@
   "Local padded output frames: {0}; wholly padded capture pulls: {1}": "Trames de sortie complétées localement : {0} · Blocs de capture entièrement complétés : {1}",
   "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "Le compteur de remplissage indique les trames manquantes à la fréquence de sortie avant égalisation. Un bloc entièrement complété remplace les 352 trames. Le silence capturé et le silence prévu pour un fondu ou une récupération ne représentent pas des trames manquantes. Ces compteurs concernent la capture locale. — indique une valeur indisponible.",
   "The receiver is unavailable.": "Le récepteur est indisponible.",
-  "The receiver selection is ambiguous.": "La sélection du récepteur est ambiguë."
+  "The receiver selection is ambiguous.": "La sélection du récepteur est ambiguë.",
+  "Bit-exact passthrough": "Transmission exacte au bit près",
+  "Copy the capture untouched when its sample rate already matches the stream": "Copier la capture telle quelle lorsque sa fréquence d’échantillonnage correspond déjà au flux",
+  "No resampling and no dither: 16-bit samples reach HomePod unchanged. Clock drift is absorbed by one-frame corrections at smooth points in the signal. The first 5 ms after playback starts or resumes from silence is faded in, and an equalizer or master gain below 100% makes the path a processed one.": "Ni rééchantillonnage ni dither : les échantillons 16 bits arrivent au HomePod inchangés. La dérive d’horloge est absorbée par des corrections d’une trame sur des passages réguliers du signal. Les 5 premières ms après le démarrage ou la reprise après un silence sont fondues en entrée, et un égaliseur ou un volume principal inférieur à 100 % transforme le trajet en trajet traité.",
+  "Audio chain": "Chaîne audio",
+  "bit-exact": "exact au bit",
+  "resampled": "rééchantillonné",
+  "{0} one-frame corrections": "{0} corrections d’une trame"
 }

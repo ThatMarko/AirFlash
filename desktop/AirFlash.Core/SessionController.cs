@@ -5,9 +5,24 @@ namespace AirFlash.Core;
 
 public enum PlaybackState { Idle, Connecting, Streaming, Standby, Pairing, Error, Preempted }
 public enum SessionStartIntent { Manual, Automatic }
+[method: System.Text.Json.Serialization.JsonConstructor]
 public sealed record StreamMetrics(double? CaptureToSendP95 = null, double? MaxQueueAge = null, long? Underruns = null, long? DroppedFrames = null, int? InputRate = null,
-    long? Rebinds = null, long? SilentProbes = null, long? RebindStorms = null)
+    long? Rebinds = null, long? SilentProbes = null, long? RebindStorms = null, string? InputFormat = null, bool? BitExact = null, long? Slips = null, double? SlipInterval = null)
 {
+    // Preserve callers compiled against the original eight-field record while
+    // retaining upstream's twelve-field primary constructor and deconstructor.
+    public StreamMetrics(double? CaptureToSendP95, double? MaxQueueAge, long? Underruns, long? DroppedFrames, int? InputRate,
+        long? Rebinds, long? SilentProbes, long? RebindStorms)
+        : this(CaptureToSendP95, MaxQueueAge, Underruns, DroppedFrames, InputRate, Rebinds, SilentProbes, RebindStorms, null, null, null, null) { }
+
+    public void Deconstruct(out double? CaptureToSendP95, out double? MaxQueueAge, out long? Underruns, out long? DroppedFrames, out int? InputRate,
+        out long? Rebinds, out long? SilentProbes, out long? RebindStorms)
+    {
+        CaptureToSendP95 = this.CaptureToSendP95; MaxQueueAge = this.MaxQueueAge;
+        Underruns = this.Underruns; DroppedFrames = this.DroppedFrames; InputRate = this.InputRate;
+        Rebinds = this.Rebinds; SilentProbes = this.SilentProbes; RebindStorms = this.RebindStorms;
+    }
+
     public ulong? PaddedFrames { get; init; }
     public ulong? FullyPaddedPackets { get; init; }
 }
@@ -899,6 +914,21 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
         finally { _equalizerWriter.Release(); }
     }
     private double Gain(Receiver receiver) => _muted ? 0 : _settings.Gain(_receiver?.Id ?? receiver.Id);
+    /// <summary>
+    /// One line that spells out every stage the audio passes through, so a
+    /// quality report can be written from the desktop log alone.
+    /// </summary>
+    private string ChainLine(StreamMetrics metrics, int rate)
+    {
+        var negotiated = _diagnostics.Negotiated is { Count: > 0 } list
+            ? $"{list[0].Text("codec", "auto")}/{list[0].Text("transport", "auto")}"
+            : "auto";
+        var path = metrics.BitExact == true ? "bit-exact" : "resample";
+        var dither = metrics.BitExact == true ? "no dither" : "tpdf dither";
+        var equalizer = _settings.Equalizer.Enabled ? "eq on" : "eq off";
+        var gain = _receiver is null ? "1.00" : $"{Gain(_receiver):0.00}";
+        return $"Audio chain: {metrics.InputFormat ?? "unknown"} -> {path} ({dither}) -> {negotiated} {rate} Hz -> gain {gain} -> {equalizer} -> slips {metrics.Slips ?? 0}";
+    }
     private async Task SendGainAsync()
     {
         IEngineConnection? connection; string? session;
@@ -1243,7 +1273,7 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                     try
                     {
                         var groupMode = receiver.PlaybackGroupMode;
-                        var startParameters = JsonSerializer.SerializeToNode(new { peers, group_mode = groupMode, group_id = receiver.IsGroup && !receiver.IsSoftwareGroup ? receiver.StereoId : null, source = settings.CaptureMode == "application" ? "application" : "loopback", capture_application_path = settings.CaptureMode == "application" ? settings.CaptureApplicationPath : null, capture_process_id = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.ProcessId : null, capture_process_started_at = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.StartedAt : null, standby = StandbyParameters(settings, receiver.Id), duration_ms = 0, latency_ms = _adaptiveBase, gain = Gain(receiver), timing = "ptp", capture_endpoint = settings.EffectiveEndpoint, sample_rate = sampleRate, equalizer = EffectiveEqualizer().WireParameters() })!.AsObject();
+                        var startParameters = JsonSerializer.SerializeToNode(new { peers, group_mode = groupMode, group_id = receiver.IsGroup && !receiver.IsSoftwareGroup ? receiver.StereoId : null, source = settings.CaptureMode == "application" ? "application" : "loopback", capture_application_path = settings.CaptureMode == "application" ? settings.CaptureApplicationPath : null, capture_process_id = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.ProcessId : null, capture_process_started_at = settings.CaptureMode == "application" ? settings.CaptureApplicationInstance?.StartedAt : null, standby = StandbyParameters(settings, receiver.Id), duration_ms = 0, latency_ms = _adaptiveBase, gain = Gain(receiver), timing = "ptp", capture_endpoint = settings.EffectiveEndpoint, sample_rate = sampleRate, bit_exact = settings.BitExactPassthrough, equalizer = EffectiveEqualizer().WireParameters() })!.AsObject();
                         if (forceLatency) startParameters["force_latency"] = true;
                         startParameters["intent"] = attemptIntent == SessionStartIntent.Manual ? "manual" : "automatic";
                         if (adaptiveMode && _confirmedLeadSupported)
@@ -1496,7 +1526,8 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                         {
                             var receivedAt = _clock.GetUtcNow();
                             var parsed = new StreamMetrics(metrics.Number("capture_to_send_p95_ms"), metrics.Number("max_queue_age_ms"), metrics.Integer("underrun_packets"), metrics.Integer("dropped_frames"), metrics.Integer("input_rate") is { } rate ? (int)rate : null,
-                                metrics.Integer("rebinds"), metrics.Integer("silent_probes"), metrics.Integer("rebind_storms"))
+                                metrics.Integer("rebinds"), metrics.Integer("silent_probes"), metrics.Integer("rebind_storms"),
+                                metrics.Text("input_format") is { Length: > 0 } format ? format : null, metrics.Boolean("bit_exact"), metrics.Integer("slips"), metrics.Number("slip_interval_s"))
                             {
                                 PaddedFrames = metrics.Unsigned("padded_frames"),
                                 FullyPaddedPackets = metrics.Unsigned("fully_padded_packets")
@@ -1508,6 +1539,9 @@ public sealed class SessionController(IEngineFactory factory, IAudioService audi
                                     _diagnostics = _diagnostics with { CounterDeltaHistory = history };
                             }
                             var current = Snapshot;
+                            // Preserve upstream's one-per-format audio-chain evidence.
+                            if (parsed.InputFormat is { } chainInput && chainInput != current.Metrics?.InputFormat)
+                                log?.Invoke(ChainLine(parsed, sampleRate));
                             Publish(epoch, current.State, current.Message, metrics: parsed, isRetrying: current.IsRetrying);
                         }
                         await CheckAdaptiveAsync(connection, session, epoch, cancellation).ConfigureAwait(false);

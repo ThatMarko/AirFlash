@@ -11,6 +11,9 @@ use rubato::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, VecDeque},
+    fs::File,
+    io::Write,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -65,6 +68,9 @@ struct Frame {
     left: f32,
     right: f32,
     qpc: u64,
+    /// True when the sample is still the untouched 16-bit capture value, so the
+    /// packetiser may skip the TPDF dither and stay bit-exact.
+    clean: bool,
 }
 struct QueuedFrame {
     frame: Frame,
@@ -111,6 +117,22 @@ pub struct Metrics {
     /// `silent_probe`, `stream_error`).
     #[serde(default)]
     pub last_rebind_reason: Option<String>,
+    /// Capture format as reported by WASAPI (`pcm16/44100hz/2ch`).
+    #[serde(default)]
+    pub input_format: Option<String>,
+    /// Direct path: the capture rate already equals the stream rate, so samples
+    /// are copied instead of resampled.
+    #[serde(default)]
+    pub bit_exact: bool,
+    /// One-frame clock corrections applied on the direct path.
+    #[serde(default)]
+    pub slips: u64,
+    /// Mean seconds between slips so far; `None` until the first one.
+    #[serde(default)]
+    pub slip_interval_s: Option<f64>,
+    /// Signed frame debt carried by the direct path right now.
+    #[serde(default)]
+    pub debt_frames: f64,
 }
 #[derive(Clone, Copy, Default, Serialize)]
 struct CapturePadding {
@@ -136,6 +158,78 @@ pub struct CaptureWarning {
     pub recovered: bool,
     pub message: String,
 }
+/// A raw copy of exactly what the packetiser hands to the encoder, for proving
+/// that the direct path is bit-exact. Opt-in through `AIRFLASH_PCM_DUMP=<path>`
+/// (same style as `AIRFLASH_CAPTURE_ENDPOINT`) and capped so a forgotten
+/// variable cannot fill the disk.
+const DUMP_MAX_FRAMES: u64 = 120 * 48_000;
+
+struct DumpWriter {
+    file: File,
+    sidecar: PathBuf,
+    rate: u32,
+    channels: u32,
+    bits: u32,
+    frames: u64,
+    capped: bool,
+}
+impl DumpWriter {
+    fn from_env(rate: u32) -> Option<Self> {
+        let path = std::env::var_os("AIRFLASH_PCM_DUMP")?;
+        Self::open(Path::new(&path), rate)
+    }
+    fn open(base: &Path, rate: u32) -> Option<Self> {
+        let name = base.file_name()?.to_string_lossy().into_owned();
+        let file = File::create(base.with_file_name(format!("{name}.raw"))).ok()?;
+        let writer = Self {
+            file,
+            sidecar: base.with_file_name(format!("{name}.json")),
+            rate,
+            channels: 2,
+            bits: 16,
+            frames: 0,
+            capped: false,
+        };
+        writer.write_sidecar();
+        Some(writer)
+    }
+    fn frame_bytes(&self) -> u64 {
+        u64::from(self.channels) * u64::from(self.bits) / 8
+    }
+    /// The packetiser emits big-endian samples; WAV and the analysis tooling are
+    /// little-endian, so the dump is byte-swapped on the way out.
+    fn write(&mut self, pcm: &[u8]) {
+        if self.capped {
+            return;
+        }
+        let frames = pcm.len() as u64 / self.frame_bytes();
+        if self.frames + frames > DUMP_MAX_FRAMES {
+            self.capped = true;
+            return;
+        }
+        let mut bytes = Vec::with_capacity(pcm.len());
+        for pair in pcm.chunks_exact(2) {
+            bytes.extend_from_slice(&[pair[1], pair[0]]);
+        }
+        if self.file.write_all(&bytes).is_err() {
+            self.capped = true;
+            return;
+        }
+        self.frames += frames;
+    }
+    fn write_sidecar(&self) {
+        let json = format!(
+            "{{\"rate\":{},\"channels\":{},\"bits\":{},\"frames\":{},\"capped\":{}}}\n",
+            self.rate, self.channels, self.bits, self.frames, self.capped
+        );
+        let _ = std::fs::write(&self.sidecar, json);
+    }
+}
+impl Drop for DumpWriter {
+    fn drop(&mut self) {
+        self.write_sidecar();
+    }
+}
 struct State {
     splice: crate::continuity::Splice,
     quantizer: crate::continuity::Quantizer,
@@ -152,6 +246,8 @@ struct State {
     padding: CapturePadding,
     ages: VecDeque<f64>,
     warnings: VecDeque<CaptureWarning>,
+    /// Opt-in raw PCM tap for bit-exactness proofs.
+    dump: Option<DumpWriter>,
 }
 impl State {
     fn push_frame(&mut self, frame: Frame) {
@@ -213,8 +309,9 @@ impl Loopback {
         endpoint: Option<String>,
         rate: u32,
         equalizer: crate::equalizer::Control,
+        bit_exact: bool,
     ) -> Result<Self> {
-        Self::start_target(Target::Endpoint(endpoint), rate, equalizer)
+        Self::start_target(Target::Endpoint(endpoint), rate, equalizer, bit_exact)
     }
     /// Capture one application target. `pinned` is true when the IPC request
     /// named a pid + creation time: while that instance lives, it is the only
@@ -224,6 +321,7 @@ impl Loopback {
         pinned: bool,
         rate: u32,
         equalizer: crate::equalizer::Control,
+        bit_exact: bool,
     ) -> Result<Self> {
         Self::start_target(
             Target::Application {
@@ -232,12 +330,14 @@ impl Loopback {
             },
             rate,
             equalizer,
+            bit_exact,
         )
     }
     fn start_target(
         target: Target,
         rate: u32,
         equalizer: crate::equalizer::Control,
+        bit_exact: bool,
     ) -> Result<Self> {
         let capacity = rate as usize * 60 / 1000;
         let queue_target = rate as usize * 20 / 1000;
@@ -257,6 +357,7 @@ impl Loopback {
             padding: CapturePadding::default(),
             ages: VecDeque::with_capacity(4000),
             warnings: VecDeque::new(),
+            dump: DumpWriter::from_env(rate),
         }));
         let stop = Arc::new(AtomicBool::new(false));
         let child_stop = stop.clone();
@@ -275,6 +376,7 @@ impl Loopback {
                 if let Err(e) = capture(
                     target,
                     rate,
+                    bit_exact,
                     child_stop,
                     &child_state,
                     &child_servo,
@@ -386,15 +488,32 @@ impl Loopback {
                     left: 0.0,
                     right: 0.0,
                     qpc: now,
+                    clean: false,
                 }
             };
             if frame.left.abs().max(frame.right.abs()) > 0.004 {
                 marker.get_or_insert(frame.qpc);
             }
+            // A 16-bit capture that was neither resampled, re-gained nor
+            // equalised is already on the 16-bit grid: dithering it again only
+            // adds noise, so the codes go through untouched.
+            let exact = !missing
+                && frame.clean
+                && gain == 1.0
+                && s.equalizer.transparent()
+                && s.splice.transparent();
             let processed = s.equalizer.frame([frame.left, frame.right]);
             for value in s.splice.frame(processed, gain, missing) {
-                out.extend(s.quantizer.quantize(value).to_be_bytes());
+                let code = if exact {
+                    crate::continuity::Quantizer::exact(value)
+                } else {
+                    s.quantizer.quantize(value)
+                };
+                out.extend(code.to_be_bytes());
             }
+        }
+        if let Some(dump) = &mut s.dump {
+            dump.write(&out);
         }
         // While this pull holds the lock, missing slots can only be a suffix.
         s.last_pull_ended_missing = force_silence || padded != 0;
@@ -570,6 +689,17 @@ struct Format {
     channels: usize,
     bits: usize,
     rate: u32,
+}
+impl Format {
+    /// Human-readable capture format for telemetry (`pcm16/44100/2ch`).
+    fn label(&self) -> String {
+        let kind = match (self.tag, self.bits) {
+            (3, bits) => format!("f{bits}"),
+            (1, bits) => format!("pcm{bits}"),
+            (tag, bits) => format!("tag{tag}/{bits}"),
+        };
+        format!("{kind}/{}/{}ch", self.rate, self.channels)
+    }
 }
 
 fn initialize_client(
@@ -1012,41 +1142,137 @@ impl Mixer {
     }
 }
 
+/// One clock correction on the direct path: the stream gains or loses exactly
+/// one frame, interpolated across a short window at the quietest point.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Slip {
+    Insert(usize),
+    Delete(usize),
+}
+/// Frames covered by one slip. 1.45 ms at 44.1 kHz: long enough that the
+/// interpolation error stays far below the noise floor, short enough that the
+/// local rate change is inaudible.
+const SLIP_WINDOW: usize = 64;
+/// Sustained correction above this means the capture clock is far from the
+/// stream clock, and the direct path hands the stream back to the resampler.
+const DIRECT_PPM_LIMIT: f64 = 200.0;
+/// Chunks the correction must stay above `DIRECT_PPM_LIMIT` before giving up
+/// (500 chunks = 5 s at the usual 10 ms chunk).
+const DIRECT_PPM_CHUNKS: u32 = 500;
+
 struct Pipeline {
-    resampler: SincFixedIn<f32>,
+    /// `None` on the direct path: the capture rate already equals the stream rate,
+    /// so samples are copied and never filtered.
+    resampler: Option<SincFixedIn<f32>>,
     inputs: [VecDeque<f32>; 2],
     input_times: VecDeque<u64>,
     chunk: usize,
     stream_rate: u32,
+    input_rate: u32,
+    /// The capture delivers 16-bit integers, so untouched samples stay on the grid.
+    source_is_pcm16: bool,
+    /// Frame debt: |debt| >= 1 means one slip is due. Fed by the same PI and
+    /// servo demand the resampler ratio used to consume.
+    debt: f64,
+    slips: u64,
+    started: Instant,
+    slow_chunks: u32,
 }
 impl Pipeline {
-    fn new(stream_rate: u32, rate: u32) -> Result<Self> {
-        let chunk = (rate / 100) as usize;
+    fn new(stream_rate: u32, format: Format, bit_exact: bool) -> Result<Self> {
+        let chunk = (format.rate / 100) as usize;
+        let direct = bit_exact && format.rate == stream_rate;
         Ok(Self {
-            resampler: SincFixedIn::<f32>::new(
-                stream_rate as f64 / rate as f64,
-                1.001,
-                SincInterpolationParameters {
-                    sinc_len: 64,
-                    f_cutoff: 0.9,
-                    interpolation: SincInterpolationType::Cubic,
-                    oversampling_factor: 128,
-                    window: WindowFunction::BlackmanHarris2,
-                },
-                chunk,
-                2,
-            )?,
+            resampler: if direct {
+                None
+            } else {
+                Some(Self::build_resampler(stream_rate, format.rate, chunk)?)
+            },
             inputs: [VecDeque::new(), VecDeque::new()],
             input_times: VecDeque::new(),
             chunk,
             stream_rate,
+            input_rate: format.rate,
+            source_is_pcm16: format.tag == 1 && format.bits == 16,
+            debt: 0.0,
+            slips: 0,
+            started: Instant::now(),
+            slow_chunks: 0,
         })
+    }
+    /// Rubato's own safe cutoff for a 256-tap sinc is 0.947, which keeps the
+    /// 44.1 kHz passband flat through 20 kHz instead of rolling off from 15 kHz.
+    fn build_resampler(stream_rate: u32, rate: u32, chunk: usize) -> Result<SincFixedIn<f32>> {
+        Ok(SincFixedIn::<f32>::new(
+            stream_rate as f64 / rate as f64,
+            1.001,
+            SincInterpolationParameters {
+                sinc_len: 256,
+                f_cutoff: 0.947,
+                interpolation: SincInterpolationType::Cubic,
+                oversampling_factor: 128,
+                window: WindowFunction::BlackmanHarris2,
+            },
+            chunk,
+            2,
+        )?)
     }
     fn reset(&mut self) {
         self.inputs[0].clear();
         self.inputs[1].clear();
         self.input_times.clear();
-        self.resampler.reset();
+        if let Some(resampler) = &mut self.resampler {
+            resampler.reset();
+        }
+        self.debt = 0.0;
+        self.slow_chunks = 0;
+        self.started = Instant::now();
+    }
+    /// Direct path: copy the chunk and apply at most one clock correction. The
+    /// returned flag says whether every frame is still the untouched 16-bit
+    /// capture value, which is what lets the packetiser skip the dither.
+    fn direct_chunk(&mut self, input: &[Vec<f32>], correction: f64) -> (Vec<[f32; 2]>, bool) {
+        let frames = input[0].len();
+        self.debt += correction * frames as f64;
+        let direction = if self.debt >= 1.0 {
+            1
+        } else if self.debt <= -1.0 {
+            -1
+        } else {
+            0
+        };
+        let slip = if direction == 0 {
+            None
+        } else {
+            place_slip(input, frames, direction)
+        };
+        if slip.is_some() {
+            self.debt -= direction as f64;
+            self.slips += 1;
+        }
+        let mut out = Vec::with_capacity(frames + 1);
+        match slip {
+            Some(slip) => apply_slip(input, frames, slip, &mut out),
+            None => out.extend((0..frames).map(|i| [input[0][i], input[1][i]])),
+        }
+        (out, self.source_is_pcm16 && slip.is_none())
+    }
+    /// Give up bit-exactness when the clocks differ too much to absorb with a
+    /// slip every second: hand the stream to the resampler for the rest of the
+    /// session and let the splice fade cover the switch.
+    fn fallback(&mut self, state: &Arc<Mutex<State>>) -> Result<()> {
+        self.resampler = Some(Self::build_resampler(
+            self.stream_rate,
+            self.input_rate,
+            self.chunk,
+        )?);
+        self.debt = 0.0;
+        self.slow_chunks = 0;
+        let mut shared = state.lock().unwrap();
+        shared.boundary_pending = true;
+        shared.metrics.bit_exact = false;
+        shared.metrics.last_discontinuity = Some("bit_exact_fallback".into());
+        Ok(())
     }
     fn push(&mut self, time: u64, left: f32, right: f32) {
         self.inputs[0].push_back(left);
@@ -1086,24 +1312,111 @@ impl Pipeline {
             // deficit; both controllers already speak that sign.
             let correction = ((queue_ppm + servo_ppm) / 1e6).clamp(-0.0005, 0.0005);
             drift.lock().unwrap().observe(now, have as f64);
-            self.resampler
-                .set_resample_ratio_relative(1.0 + correction, true)?;
-            let output = self.resampler.process(&input, None)?;
-            let delay =
-                self.resampler.output_delay() as u64 * 1_000_000_000 / self.stream_rate as u64;
-            let mut shared = state.lock().unwrap();
-            for (i, (&left, &right)) in output[0].iter().zip(&output[1]).enumerate() {
-                shared.push_frame(Frame {
-                    left,
-                    right,
-                    qpc: start
-                        .saturating_sub(delay)
-                        .saturating_add(i as u64 * 1_000_000_000 / self.stream_rate as u64),
-                });
+            if let Some(resampler) = &mut self.resampler {
+                resampler.set_resample_ratio_relative(1.0 + correction, true)?;
+                let output = resampler.process(&input, None)?;
+                let delay =
+                    resampler.output_delay() as u64 * 1_000_000_000 / self.stream_rate as u64;
+                let mut shared = state.lock().unwrap();
+                shared.metrics.bit_exact = false;
+                for (i, (&left, &right)) in output[0].iter().zip(&output[1]).enumerate() {
+                    shared.push_frame(Frame {
+                        left,
+                        right,
+                        qpc: start
+                            .saturating_sub(delay)
+                            .saturating_add(i as u64 * 1_000_000_000 / self.stream_rate as u64),
+                        clean: false,
+                    });
+                }
+            } else {
+                let (frames, clean) = self.direct_chunk(&input, correction);
+                let mut shared = state.lock().unwrap();
+                shared.metrics.bit_exact = true;
+                shared.metrics.slips = self.slips;
+                shared.metrics.debt_frames = self.debt;
+                shared.metrics.slip_interval_s = (self.slips > 0)
+                    .then(|| self.started.elapsed().as_secs_f64() / self.slips as f64);
+                for (i, [left, right]) in frames.into_iter().enumerate() {
+                    shared.push_frame(Frame {
+                        left,
+                        right,
+                        qpc: start
+                            .saturating_add(i as u64 * 1_000_000_000 / self.stream_rate as u64),
+                        clean,
+                    });
+                }
+            }
+            let sustained = (queue_ppm + servo_ppm).abs() > DIRECT_PPM_LIMIT;
+            self.slow_chunks = if sustained {
+                self.slow_chunks.saturating_add(1)
+            } else {
+                0
+            };
+            if self.resampler.is_none() && self.slow_chunks >= DIRECT_PPM_CHUNKS {
+                self.fallback(state)?;
             }
         }
         Ok(())
     }
+}
+
+/// Pick the window start that disturbs the signal least: quiet, and flat enough
+/// that interpolating across it cannot be heard.
+fn place_slip(input: &[Vec<f32>], frames: usize, direction: i32) -> Option<Slip> {
+    if frames < SLIP_WINDOW + 4 {
+        return None;
+    }
+    let last = frames - SLIP_WINDOW - 2;
+    let mut best = (f32::INFINITY, 1usize);
+    for n in 1..=last {
+        let level = (input[0][n - 1].abs() + input[1][n - 1].abs()) * 0.5;
+        let slope = (input[0][n] - input[0][n - 1]).abs() + (input[1][n] - input[1][n - 1]).abs();
+        let score = level + slope;
+        if score < best.0 {
+            best = (score, n);
+        }
+    }
+    Some(if direction > 0 {
+        Slip::Insert(best.1)
+    } else {
+        Slip::Delete(best.1)
+    })
+}
+
+/// Copy `frames` stereo frames, inserting or deleting exactly one frame inside
+/// the window at `slip`. Everything outside the window is untouched.
+fn apply_slip(input: &[Vec<f32>], frames: usize, slip: Slip, out: &mut Vec<[f32; 2]>) {
+    let (start, produced) = match slip {
+        Slip::Insert(start) => (start, SLIP_WINDOW + 1),
+        Slip::Delete(start) => (start, SLIP_WINDOW - 1),
+    };
+    out.extend((0..start).map(|i| [input[0][i], input[1][i]]));
+    for j in 0..produced {
+        let position = j as f64 * SLIP_WINDOW as f64 / produced as f64;
+        let whole = position.floor();
+        let index = start + whole as usize;
+        out.push(hermite(input, index, (position - whole) as f32));
+    }
+    out.extend((start + SLIP_WINDOW..frames).map(|i| [input[0][i], input[1][i]]));
+}
+
+/// Catmull-Rom interpolation; `frac == 0` returns `input[index]` exactly.
+fn hermite(input: &[Vec<f32>], index: usize, frac: f32) -> [f32; 2] {
+    let (t, t2, t3) = (frac, frac * frac, frac * frac * frac);
+    let weights = [
+        0.5 * (-t3 + 2.0 * t2 - t),
+        0.5 * (3.0 * t3 - 5.0 * t2 + 2.0),
+        0.5 * (-3.0 * t3 + 4.0 * t2 + t),
+        0.5 * (t3 - t2),
+    ];
+    let mut sample = [0.0f32; 2];
+    for (offset, weight) in weights.into_iter().enumerate() {
+        let source = index + offset - 1;
+        sample[0] += input[0][source] * weight;
+        sample[1] += input[1][source] * weight;
+    }
+    sample.map(|value| value.clamp(-1.0, 1.0))
 }
 
 fn clear_pipeline(pipeline: &mut Pipeline, mixer: Option<&mut Mixer>) {
@@ -1111,6 +1424,21 @@ fn clear_pipeline(pipeline: &mut Pipeline, mixer: Option<&mut Mixer>) {
     if let Some(mixer) = mixer {
         mixer.reset();
     }
+}
+
+fn rebind_pipeline(
+    pipeline: &mut Pipeline,
+    mixer: &mut Mixer,
+    format: Format,
+    bit_exact: bool,
+) -> Result<()> {
+    if format.rate != mixer.rate {
+        *pipeline = Pipeline::new(pipeline.stream_rate, format, bit_exact)?;
+        *mixer = Mixer::new(format.rate);
+    }
+    // An endpoint can reopen at the same rate with a different sample format.
+    pipeline.source_is_pcm16 = format.tag == 1 && format.bits == 16;
+    Ok(())
 }
 
 /// The existing true-discontinuity behaviour: drop samples that belong to the
@@ -1304,6 +1632,7 @@ fn drain_multi(
 fn capture(
     target: Target,
     stream_rate: u32,
+    bit_exact: bool,
     stop: Arc<AtomicBool>,
     state: &Arc<Mutex<State>>,
     servo: &Arc<Mutex<crate::servo::LatenessServo>>,
@@ -1335,11 +1664,12 @@ fn capture(
         }),
         "capture stream formats differ"
     );
-    let mut pipeline = Pipeline::new(stream_rate, format.rate)?;
+    let mut pipeline = Pipeline::new(stream_rate, format, bit_exact)?;
     let mut mixer = Mixer::new(format.rate);
     {
         let mut s = state.lock().unwrap();
         s.metrics.input_rate = format.rate;
+        s.metrics.input_format = Some(format.label());
         s.metrics.capture_instances = bindings.len() as u32;
     }
     let _ = ready.send(Ok(()));
@@ -1451,10 +1781,7 @@ fn capture(
                         "capture stream formats differ"
                     );
                     format = new_format;
-                    if new_format.rate != mixer.rate {
-                        pipeline = Pipeline::new(stream_rate, new_format.rate)?;
-                        mixer = Mixer::new(new_format.rate);
-                    }
+                    rebind_pipeline(&mut pipeline, &mut mixer, new_format, bit_exact)?;
                     bindings = new_bindings;
                     budget.succeeded();
                     let count = bindings.len() as u32;
@@ -1462,6 +1789,7 @@ fn capture(
                     {
                         let mut s = state.lock().unwrap();
                         s.metrics.input_rate = format.rate;
+                        s.metrics.input_format = Some(format.label());
                         s.metrics.capture_instances = count;
                         s.metrics.rebinds = rebinds;
                         s.metrics.rebind_failures = failures;
@@ -1847,26 +2175,17 @@ pub(crate) mod tests {
     #[test]
     fn mixer_sums_instances_on_one_grid_and_fills_gaps_with_exact_silence() {
         let mut mixer = Mixer::new(1000);
-        let mut pipeline = Pipeline {
-            resampler: SincFixedIn::<f32>::new(
-                1.0,
-                1.001,
-                SincInterpolationParameters {
-                    sinc_len: 64,
-                    f_cutoff: 0.9,
-                    interpolation: SincInterpolationType::Cubic,
-                    oversampling_factor: 128,
-                    window: WindowFunction::BlackmanHarris2,
-                },
-                100,
-                2,
-            )
-            .unwrap(),
-            inputs: [VecDeque::new(), VecDeque::new()],
-            input_times: VecDeque::new(),
-            chunk: 100,
-            stream_rate: 1000,
-        };
+        let mut pipeline = Pipeline::new(
+            1000,
+            Format {
+                tag: 1,
+                channels: 2,
+                bits: 16,
+                rate: 1000,
+            },
+            false,
+        )
+        .unwrap();
         mixer.add(1_000_000, 0.5, -0.5);
         mixer.add(1_000_000, 0.25, 0.25);
         mixer.add(3_000_000, 0.1, 0.1);
@@ -1910,7 +2229,7 @@ pub(crate) mod tests {
         );
         let equalizer =
             crate::equalizer::Control::new(crate::equalizer::Settings::default(), 44100).unwrap();
-        let source = Loopback::start(Some(endpoint), 44100, equalizer).unwrap();
+        let source = Loopback::start(Some(endpoint), 44100, equalizer, false).unwrap();
         let deadline = Instant::now() + Duration::from_secs(2);
         let mut nonzero = false;
         while Instant::now() < deadline {
@@ -1951,6 +2270,7 @@ pub(crate) mod tests {
                 padding: CapturePadding::default(),
                 ages: VecDeque::new(),
                 warnings: VecDeque::new(),
+                dump: None,
             })),
             stop: Arc::new(AtomicBool::new(false)),
             servo: Arc::new(Mutex::new(crate::servo::LatenessServo::default())),
@@ -2009,6 +2329,7 @@ pub(crate) mod tests {
                 left: amplitude,
                 right: amplitude,
                 qpc: qpc_ns(),
+                clean: false,
             });
         }
     }
@@ -2033,6 +2354,7 @@ pub(crate) mod tests {
                 left: sample,
                 right: sample,
                 qpc,
+                clean: false,
             });
         }
     }
@@ -2080,6 +2402,7 @@ pub(crate) mod tests {
                     left: 0.0,
                     right: 0.0,
                     qpc,
+                    clean: false,
                 });
             }
         }
@@ -2322,6 +2645,7 @@ pub(crate) mod tests {
                 left: 0.01,
                 right: 0.01,
                 qpc: qpc_ns(),
+                clean: false,
             });
         }
         assert!(source.packet(0.1).unwrap().0.iter().any(|b| *b != 0));
@@ -2344,6 +2668,7 @@ pub(crate) mod tests {
                 left: 0.25,
                 right: -0.25,
                 qpc: qpc_ns(),
+                clean: false,
             });
         }
         source.packet(0.5).unwrap();
@@ -2374,6 +2699,7 @@ pub(crate) mod tests {
                     left: 0.01,
                     right: 0.01,
                     qpc: 0,
+                    clean: false,
                 });
             }
             assert_eq!(s.frames.len(), CAPACITY);
@@ -2411,6 +2737,46 @@ pub(crate) mod tests {
             assert_eq!(before_join, before);
             assert_eq!(source.metrics().transition_count, before + 1);
             assert_eq!(source.capture_metrics_report().padding.padded_frames, 0);
+        }
+    }
+    #[test]
+    fn clean_rebind_audio_stays_exact_outside_the_splice_at_both_rates() {
+        for rate in [44100, 48000] {
+            let source = source_with(rate, crate::equalizer::Settings::default());
+            let join = 23;
+            {
+                let mut state = source.state.lock().unwrap();
+                for _ in 0..rate / 200 + 2 {
+                    state.splice.frame([0.0; 2], 1.0, false);
+                }
+                assert!(state.splice.transparent());
+                let push = |state: &mut State, count, code: i16| {
+                    for _ in 0..count {
+                        state.push_frame(Frame {
+                            left: f32::from(code) / 32768.0,
+                            right: f32::from(code) / 32768.0,
+                            qpc: qpc_ns(),
+                            clean: true,
+                        });
+                    }
+                };
+                push(&mut state, FRAMES + join, 8192);
+                state.note_rebind("endpoint_lost");
+                push(&mut state, FRAMES, -8192);
+            }
+            let (old, _) = source.packet(1.0).unwrap();
+            assert!(old.chunks_exact(2).all(|p| p == 8192i16.to_be_bytes()));
+            let before = source.metrics().transition_count;
+            let (joined, _) = source.packet(1.0).unwrap();
+            let code =
+                |frame: usize| i16::from_be_bytes([joined[frame * 4], joined[frame * 4 + 1]]);
+            assert!((0..join).all(|frame| code(frame) == 8192));
+            assert!((i32::from(code(join)) - i32::from(code(join - 1))).abs() <= 2);
+            let settled = join + rate as usize / 200 + 2;
+            assert!((settled..FRAMES).all(|frame| code(frame) == -8192));
+            assert_eq!(source.metrics().transition_count, before + 1);
+            assert_eq!(source.capture_metrics_report().padding.padded_frames, 0);
+            assert_eq!(source.state.lock().unwrap().ages.len(), 2 * FRAMES);
         }
     }
     #[test]
@@ -2466,6 +2832,7 @@ pub(crate) mod tests {
                     left: 0.01,
                     right: 0.01,
                     qpc: qpc_ns(),
+                    clean: false,
                 });
             }
             let queued = s.frames.len();
@@ -2513,5 +2880,293 @@ pub(crate) mod tests {
         assert_eq!(warnings[0].code, "capture_process_exited");
         assert!(warnings[0].recovered);
         assert!(source.take_warnings().is_empty());
+    }
+
+    fn direct(frames: usize) -> Vec<Vec<f32>> {
+        (0..2)
+            .map(|channel| {
+                (0..frames)
+                    .map(|i| {
+                        let code = ((i as i32 * 7919 + channel * 104_729) % 60_000 - 30_000) as i16;
+                        f32::from(code) / 32768.0
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    fn stereo(input: &[Vec<f32>], frames: usize) -> Vec<[f32; 2]> {
+        (0..frames).map(|i| [input[0][i], input[1][i]]).collect()
+    }
+
+    #[test]
+    fn the_direct_path_copies_sixteen_bit_samples_verbatim() {
+        let mut pipeline = Pipeline::new(
+            44_100,
+            Format {
+                tag: 1,
+                channels: 2,
+                bits: 16,
+                rate: 44_100,
+            },
+            true,
+        )
+        .unwrap();
+        assert!(
+            pipeline.resampler.is_none(),
+            "1:1 must not build a resampler"
+        );
+        let input = direct(441);
+        let (out, clean) = pipeline.direct_chunk(&input, 0.0);
+        assert!(clean, "an untouched chunk stays eligible for exact output");
+        assert_eq!(out, stereo(&input, 441));
+    }
+
+    #[test]
+    fn bit_exact_frames_reach_the_packetiser_byte_for_byte() {
+        let source = source();
+        let codes: Vec<i16> = (0..FRAMES as i32)
+            .map(|i| (i * 331 % 60_000 - 30_000) as i16)
+            .collect();
+        let mut expected = Vec::new();
+        for code in &codes {
+            expected.extend(code.to_be_bytes());
+            expected.extend(code.to_be_bytes());
+        }
+        {
+            let mut s = source.state.lock().unwrap();
+            // Burn the startup fade: it is the one documented exception.
+            for _ in 0..crate::rtp::RATE / 200 + 2 {
+                s.splice.frame([0.0; 2], 1.0, false);
+            }
+            assert!(s.splice.transparent());
+            for code in &codes {
+                let value = f32::from(*code) / 32768.0;
+                s.push_frame(Frame {
+                    left: value,
+                    right: value,
+                    qpc: qpc_ns(),
+                    clean: true,
+                });
+            }
+        }
+        let (pcm, _) = source.packet(1.0).unwrap();
+        assert_eq!(pcm, expected, "16-bit codes must survive unchanged");
+        assert_eq!(source.metrics().slips, 0);
+    }
+
+    #[test]
+    fn a_slip_moves_exactly_one_frame_and_leaves_the_rest_untouched() {
+        let frames = 441;
+        let sine: Vec<f32> = (0..frames)
+            .map(|i| 0.5 * (2.0 * std::f32::consts::PI * 1000.0 * i as f32 / 44_100.0).sin())
+            .collect();
+        let input = vec![sine.clone(), sine.clone()];
+        for direction in [1, -1] {
+            let slip = place_slip(&input, frames, direction).unwrap();
+            let start = match slip {
+                Slip::Insert(start) | Slip::Delete(start) => start,
+            };
+            let mut out = Vec::new();
+            apply_slip(&input, frames, slip, &mut out);
+            let produced = SLIP_WINDOW + usize::from(direction > 0) - usize::from(direction < 0);
+            assert_eq!(
+                out.len(),
+                (frames as i32 + direction) as usize,
+                "a slip moves the stream by one frame"
+            );
+            assert_eq!(&out[..start], &stereo(&input, frames)[..start]);
+            // Past the window the stream is copied, one frame later or earlier.
+            assert_eq!(
+                &out[start + produced..],
+                &stereo(&input, frames)[start + SLIP_WINDOW..],
+                "everything outside the window is copied"
+            );
+            assert_eq!(out[start], stereo(&input, frames)[start]);
+            assert!(
+                out.iter()
+                    .all(|frame| frame.iter().all(|s| s.is_finite() && s.abs() <= 0.51)),
+                "interpolation must not overshoot the source"
+            );
+        }
+        assert_eq!(hermite(&input, 10, 0.0), [input[0][10], input[1][10]]);
+    }
+
+    #[test]
+    fn the_direct_path_turns_twenty_ppm_into_about_one_slip_per_second() {
+        let mut pipeline = Pipeline::new(
+            44_100,
+            Format {
+                tag: 1,
+                channels: 2,
+                bits: 16,
+                rate: 44_100,
+            },
+            true,
+        )
+        .unwrap();
+        let input = direct(441);
+        let chunks = 1000; // ten seconds of 10 ms chunks
+        let mut produced = 0;
+        for _ in 0..chunks {
+            let (out, clean) = pipeline.direct_chunk(&input, 20e-6);
+            produced += out.len();
+            assert_eq!(out.len(), if clean { 441 } else { 442 });
+            assert!(pipeline.debt.abs() < 1.0, "debt {}", pipeline.debt);
+        }
+        let slips = pipeline.slips;
+        assert!(
+            (7..=11).contains(&slips),
+            "20 ppm over ten seconds is 8.8 frames, got {slips}"
+        );
+        assert_eq!(produced, 441 * chunks + slips as usize);
+    }
+
+    /// Peak gain of the production resampler at one frequency, measured after the
+    /// filter state has settled.
+    fn resampled_gain(frequency: f64, in_rate: u32, out_rate: u32) -> f64 {
+        let chunk = (in_rate / 100) as usize;
+        let mut resampler = Pipeline::build_resampler(out_rate, in_rate, chunk).unwrap();
+        let mut phase = 0.0f64;
+        // Two seconds of warm-up, then one second of measurement: a 20 Hz tone
+        // needs at least a full second before its RMS means anything.
+        let (mut energy, mut samples) = (0.0f64, 0usize);
+        for block in 0..300 {
+            let input: Vec<Vec<f32>> = (0..2)
+                .map(|_| {
+                    (0..chunk)
+                        .map(|_| {
+                            let value = 0.5 * (phase * std::f64::consts::TAU).sin() as f32;
+                            phase = (phase + frequency / f64::from(in_rate)).fract();
+                            value
+                        })
+                        .collect()
+                })
+                .collect();
+            let out = resampler.process(&input, None).unwrap();
+            if block >= 200 {
+                energy += out[0]
+                    .iter()
+                    .map(|v| f64::from(*v) * f64::from(*v))
+                    .sum::<f64>();
+                samples += out[0].len();
+            }
+        }
+        let rms = (energy / samples as f64).sqrt();
+        20.0 * (rms / (0.5 / std::f64::consts::SQRT_2)).max(1e-12).log10()
+    }
+
+    #[test]
+    fn the_resampler_is_flat_to_twenty_kilohertz_at_one_to_one() {
+        for frequency in [20.0, 1000.0, 15_000.0, 19_000.0, 20_000.0] {
+            let db = resampled_gain(frequency, 44_100, 44_100);
+            assert!(db.abs() <= 0.1, "{frequency} Hz offset {db:.3} dB");
+        }
+    }
+
+    #[test]
+    fn the_resampler_keeps_the_passband_and_rejects_aliases() {
+        for frequency in [1000.0, 15_000.0, 20_000.0] {
+            let db = resampled_gain(frequency, 48_000, 44_100);
+            assert!(db >= -0.3, "{frequency} Hz offset {db:.3} dB");
+        }
+        let alias = resampled_gain(23_000.0, 48_000, 44_100);
+        assert!(alias <= -40.0, "23 kHz leakage {alias:.1} dB");
+    }
+
+    fn assert_same_rate_format_rebind(old_pcm16: bool) {
+        for rate in [44100, 48000] {
+            let format = |pcm16| Format {
+                tag: if pcm16 { 1 } else { 3 },
+                channels: 2,
+                bits: if pcm16 { 16 } else { 32 },
+                rate,
+            };
+            let mut pipeline = Pipeline::new(rate, format(old_pcm16), true).unwrap();
+            let mut mixer = Mixer::new(rate);
+            let input = direct((rate / 100) as usize);
+            assert_eq!(pipeline.direct_chunk(&input, 0.0).1, old_pcm16);
+            clear_pipeline(&mut pipeline, Some(&mut mixer));
+            rebind_pipeline(&mut pipeline, &mut mixer, format(!old_pcm16), true).unwrap();
+            let (frames, clean) = pipeline.direct_chunk(&input, 0.0);
+            let source = source_with(rate, crate::equalizer::Settings::default());
+            {
+                let mut state = source.state.lock().unwrap();
+                for _ in 0..rate / 200 + 2 {
+                    state.splice.frame([0.0; 2], 1.0, false);
+                }
+                assert!(state.splice.transparent());
+                for [left, right] in frames.into_iter().take(FRAMES) {
+                    state.push_frame(Frame {
+                        left,
+                        right,
+                        qpc: qpc_ns(),
+                        clean,
+                    });
+                }
+            }
+            let (pcm, _) = source.packet(1.0).unwrap();
+            assert_eq!(
+                source.state.lock().unwrap().quantizer.dither_frames(),
+                if old_pcm16 { (2 * FRAMES) as u64 } else { 0 },
+                "quantization must follow the reopened capture format at {rate} Hz"
+            );
+            if !old_pcm16 {
+                let expected: Vec<u8> = (0..FRAMES)
+                    .flat_map(|i| {
+                        [
+                            crate::continuity::Quantizer::exact(input[0][i]),
+                            crate::continuity::Quantizer::exact(input[1][i]),
+                        ]
+                        .into_iter()
+                        .flat_map(i16::to_be_bytes)
+                    })
+                    .collect();
+                assert_eq!(pcm, expected, "reopened PCM16 must pass through exactly");
+            }
+            assert_eq!(clean, !old_pcm16);
+            assert!(pipeline.resampler.is_none());
+        }
+    }
+
+    #[test]
+    fn same_rate_rebind_from_pcm16_to_float_refreshes_quantization() {
+        assert_same_rate_format_rebind(true);
+    }
+
+    #[test]
+    fn same_rate_rebind_from_float_to_pcm16_refreshes_quantization() {
+        assert_same_rate_format_rebind(false);
+    }
+
+    #[test]
+    fn differing_rates_keep_the_resampler() {
+        let pipeline = Pipeline::new(
+            44_100,
+            Format {
+                tag: 1,
+                channels: 2,
+                bits: 16,
+                rate: 48_000,
+            },
+            true,
+        )
+        .unwrap();
+        assert!(pipeline.resampler.is_some(), "48 kHz capture must resample");
+        let float = Pipeline::new(
+            44_100,
+            Format {
+                tag: 3,
+                channels: 2,
+                bits: 32,
+                rate: 44_100,
+            },
+            true,
+        )
+        .unwrap();
+        assert!(
+            float.resampler.is_none() && !float.source_is_pcm16,
+            "a float capture is copied but cannot be bit-exact"
+        );
     }
 }
