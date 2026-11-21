@@ -52,6 +52,7 @@ internal static class UiDiagnostics
             Check(Values(window) == ("—", "—") && app.Snapshot.Metrics is { PaddedFrames: null, FullyPaddedPackets: null },
                 "older capture events retain underruns and leave both new Monitor counters unavailable", checks);
             await CopyAsync(window, app, writer, store, factory, audio, checks, "Streaming with old producer");
+            await VerifyMonitorChainAsync(window, app, factory, checks);
 
             await MetricsAsync(app, factory, 8, ("padded_frames", 353UL)); await Pump();
             Check(Values(window) == ("353", "—"), "live Monitor independently updates padded output frames when whole-pull count is absent", checks);
@@ -158,6 +159,41 @@ internal static class UiDiagnostics
         var blocks = Descendants(window).OfType<TextBlock>().ToArray();
         return (blocks.Single(block => block.Name == "MonitorPaddedFramesValue").Text,
             blocks.Single(block => block.Name == "MonitorFullyPaddedPacketsValue").Text);
+    }
+
+    private static async Task VerifyMonitorChainAsync(SettingsWindow window, AppViewModel app, Factory factory, List<string> checks)
+    {
+        var value = Descendants(window).OfType<TextBlock>().Single(block =>
+            System.Windows.Data.BindingOperations.GetBinding(block, TextBlock.TextProperty)?.Path?.Path == "App.MonitorChain");
+        var notifications = 0;
+        void Changed(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName == nameof(AppViewModel.MonitorChain)) notifications++;
+        }
+        app.PropertyChanged += Changed;
+        try
+        {
+            var rate = app.Snapshot.StreamRate;
+            var first = $"pcm16/{rate}/2ch";
+            await MetricsAsync(app, factory, 701, ("input_rate", rate), ("input_format", first), ("bit_exact", true), ("slips", 0L));
+            await Pump();
+            Check(value.Text == app.MonitorChain && value.Text.Contains(first, StringComparison.Ordinal)
+                && value.Text.Contains(L.Get("bit-exact"), StringComparison.Ordinal),
+                "open Monitor updates its actual audio-chain binding for the first capture format", checks);
+            var previous = value.Text;
+            var next = $"float32/{rate}/2ch";
+            await MetricsAsync(app, factory, 702, ("input_rate", rate), ("input_format", next), ("bit_exact", false), ("slips", 2L));
+            await Pump();
+            Check(value.Text == app.MonitorChain && value.Text != previous && value.Text.Contains(next, StringComparison.Ordinal)
+                && value.Text.Contains(L.Get("resampled"), StringComparison.Ordinal),
+                "open Monitor refreshes the audio-chain binding when the capture format and path change", checks);
+            await MetricsAsync(app, factory, 703, ("input_rate", rate), ("input_format", next), ("bit_exact", false), ("slips", 3L));
+            await Pump();
+            Check(notifications == 3 && value.Text == app.MonitorChain
+                && value.Text.Contains(L.Format("{0} one-frame corrections", 3), StringComparison.Ordinal),
+                "audio-chain notifications also refresh correction counts without a format change", checks);
+        }
+        finally { app.PropertyChanged -= Changed; }
     }
     private sealed record PaddingGeometry(string Name, double CardWidth, double InnerWidth, double GlyphWidth,
         double ValueWidth, double ValueHeight, double RequiredHeight, int RenderedCharacters, bool AllGlyphsInsideValue, double CardViewportTop, double CardHeight,
