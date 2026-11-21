@@ -459,5 +459,13 @@
   "Local padded output frames": "本地填补输出帧数",
   "Local padded output frames: {0}; wholly padded capture pulls: {1}": "本地填补输出帧数：{0}；全量填补捕获次数：{1}",
   "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "填补计数记录均衡处理前缺失的输出采样率帧。全量填补表示一次捕获中的 352 帧均缺失。实际捕获的静音以及计划内的淡出或恢复静音不属于捕获缺失。这些是本地捕获计数；不可用的计数显示为 —。",
-  "Wholly padded capture pulls": "全量填补捕获次数"
+  "Wholly padded capture pulls": "全量填补捕获次数",
+  "Bit-exact passthrough": "位精确直通",
+  "Copy the capture untouched when its sample rate already matches the stream": "采样率与串流一致时原样复制采集数据",
+  "No resampling and no dither: 16-bit samples reach HomePod unchanged. Clock drift is absorbed by one-frame corrections at smooth points in the signal. The first 5 ms after playback starts or resumes from silence is faded in, and an equalizer or master gain below 100% makes the path a processed one.": "不重采样也不加抖动：16 位样本原样送达 HomePod。时钟漂移通过在信号平缓处插入或删除一帧来吸收。播放开始或从静音恢复后的前 5 ms 会淡入；开启均衡器或主音量低于 100% 时，这条通路就变成有处理的通路。",
+  "Audio chain": "音频链路",
+  "bit-exact": "位精确",
+  "resampled": "已重采样",
+  "{0} one-frame corrections": "{0} 次单帧校正",
+  "Review local audio recovery before starting playback that mutes this PC.": "请先检查本地音频恢复，再开始需要将此电脑静音的播放。"
 }
