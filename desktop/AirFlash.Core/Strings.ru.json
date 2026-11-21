@@ -462,5 +462,6 @@
   "Audio chain": "Аудиотракт",
   "bit-exact": "побитово",
   "resampled": "с ресемплингом",
-  "{0} one-frame corrections": "Коррекций на один кадр: {0}"
+  "{0} one-frame corrections": "Коррекций на один кадр: {0}",
+  "Review local audio recovery before starting playback that mutes this PC.": "Проверьте восстановление локального звука перед запуском воспроизведения с отключением звука на этом ПК."
 }

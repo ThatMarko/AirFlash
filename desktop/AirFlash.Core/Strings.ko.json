@@ -462,5 +462,6 @@
   "Audio chain": "오디오 체인",
   "bit-exact": "비트 정확",
   "resampled": "리샘플링됨",
-  "{0} one-frame corrections": "1프레임 보정 {0}회"
+  "{0} one-frame corrections": "1프레임 보정 {0}회",
+  "Review local audio recovery before starting playback that mutes this PC.": "이 PC의 오디오를 음소거하는 재생을 시작하기 전에 로컬 오디오 복구 정보를 확인하세요."
 }

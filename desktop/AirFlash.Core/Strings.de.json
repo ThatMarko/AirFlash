@@ -462,5 +462,6 @@
   "Audio chain": "Audiokette",
   "bit-exact": "bitgenau",
   "resampled": "neu abgetastet",
-  "{0} one-frame corrections": "{0} Ein-Frame-Korrekturen"
+  "{0} one-frame corrections": "{0} Ein-Frame-Korrekturen",
+  "Review local audio recovery before starting playback that mutes this PC.": "Prüfen Sie die lokale Audiowiederherstellung, bevor Sie eine Wiedergabe starten, die diesen PC stummschaltet."
 }

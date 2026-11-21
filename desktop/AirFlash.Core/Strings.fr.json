@@ -462,5 +462,6 @@
   "Audio chain": "Chaîne audio",
   "bit-exact": "exact au bit",
   "resampled": "rééchantillonné",
-  "{0} one-frame corrections": "{0} corrections d’une trame"
+  "{0} one-frame corrections": "{0} corrections d’une trame",
+  "Review local audio recovery before starting playback that mutes this PC.": "Vérifiez la récupération de l’audio local avant de lancer une lecture qui coupe le son de ce PC."
 }

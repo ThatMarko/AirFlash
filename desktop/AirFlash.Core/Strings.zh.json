@@ -462,5 +462,6 @@
   "Audio chain": "音频链路",
   "bit-exact": "位精确",
   "resampled": "已重采样",
-  "{0} one-frame corrections": "{0} 次单帧校正"
+  "{0} one-frame corrections": "{0} 次单帧校正",
+  "Review local audio recovery before starting playback that mutes this PC.": "请先检查本地音频恢复，再开始需要将此电脑静音的播放。"
 }

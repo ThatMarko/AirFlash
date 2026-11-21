@@ -462,5 +462,6 @@
   "Audio chain": "オーディオ経路",
   "bit-exact": "ビット完全",
   "resampled": "リサンプリング済み",
-  "{0} one-frame corrections": "{0} 回の 1 フレーム補正"
+  "{0} one-frame corrections": "{0} 回の 1 フレーム補正",
+  "Review local audio recovery before starting playback that mutes this PC.": "この PC の音声をミュートする再生を開始する前に、ローカルオーディオの復元情報を確認してください。"
 }
