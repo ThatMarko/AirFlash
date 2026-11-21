@@ -455,5 +455,12 @@
   "Receiver resolution failed: {0}. Discovery will retry with backoff.": "レシーバーの名前解決に失敗しました: {0}。しばらく待ってから検出を再試行します。",
   "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "レシーバーの名前解決がタイムアウトしました: {0}。しばらく待ってから検出を再試行します。",
   "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "ネイティブ DNS リソースを安全に解放できないため、一部の検出要求を一時停止しています。リソースが解放されると検出を再開します。再開しない場合は AirFlash を再起動してください。",
-  "The receiver is unavailable.": "レシーバーを使用できません。"
+  "The receiver is unavailable.": "レシーバーを使用できません。",
+  "Bit-exact passthrough": "ビット完全パススルー",
+  "Copy the capture untouched when its sample rate already matches the stream": "サンプルレートがストリームと一致している場合はキャプチャをそのまま通す",
+  "No resampling and no dither: 16-bit samples reach HomePod unchanged. Clock drift is absorbed by one-frame corrections at smooth points in the signal. The first 5 ms after playback starts or resumes from silence is faded in, and an equalizer or master gain below 100% makes the path a processed one.": "リサンプリングもディザも行わず、16 ビットのサンプルをそのまま HomePod へ届けます。クロックのずれは、信号の滑らかな箇所での 1 フレーム補正で吸収します。再生開始時と無音から復帰した最初の 5 ms はフェードインし、イコライザーまたはマスター音量が 100% 未満の場合は処理ありの経路になります。",
+  "Audio chain": "オーディオ経路",
+  "bit-exact": "ビット完全",
+  "resampled": "リサンプリング済み",
+  "{0} one-frame corrections": "{0} 回の 1 フレーム補正"
 }

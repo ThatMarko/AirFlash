@@ -455,5 +455,12 @@
   "Receiver resolution failed: {0}. Discovery will retry with backoff.": "Не удалось определить адрес приёмника: {0}. Поиск повторится после задержки.",
   "Receiver resolution timed out: {0}. Discovery will retry with backoff.": "Истекло время определения адреса приёмника: {0}. Поиск повторится после задержки.",
   "Some discovery requests are paused because native DNS ownership cannot be safely released. Discovery resumes if ownership settles; restarting the app is the final recovery.": "Некоторые запросы поиска приостановлены, потому что ресурсы DNS нельзя безопасно освободить. Поиск возобновится после освобождения ресурсов. Если поиск не возобновится, перезапустите AirFlash.",
-  "The receiver is unavailable.": "Приёмник недоступен."
+  "The receiver is unavailable.": "Приёмник недоступен.",
+  "Bit-exact passthrough": "Побитовая передача без обработки",
+  "Copy the capture untouched when its sample rate already matches the stream": "Копировать захват без изменений, если его частота дискретизации уже совпадает с потоком",
+  "No resampling and no dither: 16-bit samples reach HomePod unchanged. Clock drift is absorbed by one-frame corrections at smooth points in the signal. The first 5 ms after playback starts or resumes from silence is faded in, and an equalizer or master gain below 100% makes the path a processed one.": "Без ресемплинга и без дизеринга: 16-битные отсчёты доходят до HomePod без изменений. Дрейф тактовой частоты поглощается коррекциями на один кадр в плавных местах сигнала. Первые 5 мс после запуска или после возобновления из тишины плавно нарастают, а эквалайзер или общая громкость ниже 100 % делают тракт обрабатываемым.",
+  "Audio chain": "Аудиотракт",
+  "bit-exact": "побитово",
+  "resampled": "с ресемплингом",
+  "{0} one-frame corrections": "Коррекций на один кадр: {0}"
 }
