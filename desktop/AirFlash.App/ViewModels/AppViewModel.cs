@@ -698,6 +698,7 @@ public sealed class AppViewModel : ObservableObject, IAsyncDisposable
             [nameof(MonitorUnderruns)] = MonitorUnderruns, [nameof(MonitorDrops)] = MonitorDrops,
             [nameof(MonitorPaddedFrames)] = MonitorPaddedFrames, [nameof(MonitorFullyPaddedPackets)] = MonitorFullyPaddedPackets,
             [nameof(MonitorRate)] = MonitorRate, [nameof(MonitorStreamRate)] = MonitorStreamRate,
+            [nameof(MonitorChain)] = MonitorChain,
             [nameof(MonitorRecoveries)] = MonitorRecoveries,
             [nameof(MonitorSkipped)] = MonitorSkipped, [nameof(MonitorReconnects)] = MonitorReconnects,
             [nameof(MonitorSessionUptime)] = MonitorSessionUptime, [nameof(MonitorWarnings)] = MonitorWarnings,
