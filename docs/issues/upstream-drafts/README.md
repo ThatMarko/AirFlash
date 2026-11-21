@@ -1,10 +1,10 @@
 # Upstream issue drafts and prepared review branches
 
-## Published upstream issue and draft PR — 2026-11-18
+## Focused upstream candidates
 
-ThatMarko opened umbrella issue #56 and draft PR #57 in Ding-Kyoma/AirFlash. The PR proposes seven commits from `codex/pr-ready` at `d47fe72` against upstream `main` at `60e3390` (v0.7.0). Its eight-section review guide links the Windows qualification for the submitted commit. Merging the PR closes #56. [Upstream issue #56](https://github.com/Ding-Kyoma/AirFlash/issues/56) · [Upstream draft PR #57](https://github.com/Ding-Kyoma/AirFlash/pull/57)
+The maintainer closed the combined PR on November 18 and requested smaller, independent fixes. Issue #56 tracks that conversation. The seven submitted commits remain available at `d47fe72`. The fork continues to use `codex/pr-ready` for combined testing. [Maintainer feedback](https://github.com/Ding-Kyoma/AirFlash/pull/57#issuecomment-6991002047) · [Issue #56](https://github.com/Ding-Kyoma/AirFlash/issues/56) · [Focused branches and review order](split-review.md)
 
-Earlier issues #6, #7, #14 and #24 were already closed when #57 opened. PR #25 supplied PIN normalization and HAP credential lookup fixes. The new PR follows up on stored receiver passwords and prompt lifetime. Issues #37, #43 and #55 remain open with their own acceptance criteria. The November 17 review records the earlier candidate and its desktop fixture repairs. [Earlier integration review](../RELIABILITY-REVIEW-2026-11-05.md#november-17-upstream-v070-sync)
+The original submission proposed seven commits against upstream `60e3390` (v0.7.0). Its eight-section guide links the qualification for that submitted commit. Issues #6, #7, #14 and #24 had already closed. PR #25 supplied PIN normalization and HAP credential lookup fixes. The later branch covers stored receiver passwords and prompt lifetime. Issues #37, #43 and #55 had separate acceptance criteria at submission. The entries below preserve their original dates and bases. [November 17 integration review](../RELIABILITY-REVIEW-2026-11-05.md#november-17-upstream-v070-sync)
 
 ## Historical prepared package — 2026-11-06
 
