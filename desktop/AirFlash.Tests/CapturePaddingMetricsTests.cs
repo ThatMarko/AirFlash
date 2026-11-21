@@ -36,6 +36,32 @@ public sealed class CapturePaddingMetricsTests
         Assert.Null(metrics.FullyPaddedPackets);
     }
 
+    [Fact]
+    public void UpstreamTwelveFieldConstructionAndDeconstructionRemainAvailable()
+    {
+        var metrics = new StreamMetrics(2.5, 8.5, 3, 4, 48000, 5, 6, 7, "pcm16/48000/2ch", true, 8, 9.5);
+        var (p95, age, underruns, drops, rate, rebinds, probes, storms, format, exact, slips, interval) = metrics;
+        Assert.Equal((2.5, 8.5, 3L, 4L, 48000, 5L, 6L, 7L, "pcm16/48000/2ch", true, 8L, 9.5),
+            (p95, age, underruns, drops, rate, rebinds, probes, storms, format, exact, slips, interval));
+        var named = new StreamMetrics(InputFormat: "float32/44100/2ch", BitExact: false);
+        Assert.Equal("float32/44100/2ch", named.InputFormat);
+        Assert.Null(named.InputRate);
+        Type[] original = [typeof(double?), typeof(double?), typeof(long?), typeof(long?), typeof(int?), typeof(long?), typeof(long?), typeof(long?)];
+        Assert.NotNull(typeof(StreamMetrics).GetConstructor(original));
+        var upstream = typeof(StreamMetrics).GetConstructor([.. original, typeof(string), typeof(bool?), typeof(long?), typeof(double?)]);
+        Assert.NotNull(upstream);
+        Assert.All(upstream.GetParameters(), parameter => Assert.True(parameter.IsOptional));
+    }
+
+    [Fact]
+    public void ChainMetadataAndPaddingRoundTripTogether()
+    {
+        var metrics = new StreamMetrics(2.5, 8.5, 3, 4, 48000, 5, 6, 7, "pcm16/48000/2ch", true, 8, 9.5)
+        { PaddedFrames = ulong.MaxValue, FullyPaddedPackets = 2 };
+        var json = JsonSerializer.Serialize(metrics, AppSettings.JsonOptions);
+        Assert.Equal(metrics, JsonSerializer.Deserialize<StreamMetrics>(json, AppSettings.JsonOptions));
+    }
+
     [Theory]
     [InlineData(44100)]
     [InlineData(48000)]
