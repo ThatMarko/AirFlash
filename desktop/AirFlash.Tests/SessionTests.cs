@@ -1014,6 +1014,7 @@ public sealed class SessionTests
         var settings = Settings(); settings.Options("a").Volume = 25; await controller.StartAsync(Pod(), settings); await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
         var command = process.Commands.Single(c => c.Command == "start"); Assert.Equal(.1, command.Parameters.Number("gain")); Assert.Equal(200, command.Parameters.Number("latency_ms"));
         Assert.Equal(44100, command.Parameters.Number("sample_rate"));
+        Assert.True(command.Parameters.Boolean("bit_exact"));
         Assert.Equal(JsonValueKind.Array, command.Parameters.GetProperty("peers")[0].GetProperty("codecs").ValueKind);
     }
     [Fact]
@@ -1054,6 +1055,33 @@ public sealed class SessionTests
         Assert.Contains("uptime_s=300", await advisory.Task.WaitAsync(limit));
     }
 
+    [Fact]
+    public async Task BitExactPassthroughDefaultsToOnAndFollowsTheSetting()
+    {
+        foreach (var enabled in new[] { true, false })
+        {
+            var process = new FakeConnection();
+            await using var controller = TestSessionController.Create(new FakeFactory(process), new FakeAudio(), timing: Fast);
+            var settings = Settings(); settings.BitExactPassthrough = enabled;
+            await controller.StartAsync(Pod(), settings); await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+            Assert.Equal(enabled, process.Commands.Single(c => c.Command == "start").Parameters.Boolean("bit_exact"));
+        }
+    }
+    [Fact]
+    public async Task CaptureMetricsExposeTheChainAndLogItOncePerFormat()
+    {
+        var process = new FakeConnection(); var logs = new ConcurrentQueue<string>();
+        await using var controller = TestSessionController.Create(new FakeFactory(process), new FakeAudio(), logs.Enqueue, Fast);
+        await controller.StartAsync(Pod(), Settings()); await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
+        process.EmitData(new { @event = "capture_metrics", metrics = new { input_rate = 44100, input_format = "pcm16/44100/2ch", bit_exact = true, slips = 2 } });
+        await Until(() => controller.Snapshot.Metrics?.InputFormat == "pcm16/44100/2ch");
+        var metrics = controller.Snapshot.Metrics!;
+        Assert.True(metrics.BitExact); Assert.Equal(2, metrics.Slips);
+        Assert.Contains(logs, line => line.StartsWith("Audio chain:") && line.Contains("pcm16/44100/2ch") && line.Contains("bit-exact"));
+        process.EmitData(new { @event = "capture_metrics", metrics = new { input_rate = 44100, input_format = "pcm16/44100/2ch", bit_exact = true, slips = 3 } });
+        await Until(() => controller.Snapshot.Metrics?.Slips == 3);
+        Assert.Single(logs, line => line.StartsWith("Audio chain:"));
+    }
     [Fact]
     public async Task RememberedVolumeIsSentWhenTheEngineSupportsRestoration()
     {
