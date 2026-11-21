@@ -459,5 +459,13 @@
   "Local padded output frames": "Tramas de salida rellenadas localmente",
   "Local padded output frames: {0}; wholly padded capture pulls: {1}": "Tramas de salida rellenadas localmente: {0}. Bloques de captura rellenados por completo: {1}",
   "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "El relleno cuenta las tramas que faltan a la frecuencia de salida antes de la ecualización. Un bloque rellenado por completo sustituye las 352 tramas. El silencio capturado y el silencio programado para el fundido o la recuperación no cuentan como captura faltante. Estos contadores son de la captura local. Los valores no disponibles se muestran como —.",
-  "Wholly padded capture pulls": "Bloques de captura rellenados por completo"
+  "Wholly padded capture pulls": "Bloques de captura rellenados por completo",
+  "Bit-exact passthrough": "Paso directo bit a bit",
+  "Copy the capture untouched when its sample rate already matches the stream": "Copiar la captura sin cambios cuando su frecuencia de muestreo ya coincide con la del flujo",
+  "No resampling and no dither: 16-bit samples reach HomePod unchanged. Clock drift is absorbed by one-frame corrections at smooth points in the signal. The first 5 ms after playback starts or resumes from silence is faded in, and an equalizer or master gain below 100% makes the path a processed one.": "Sin remuestreo ni dither: las muestras de 16 bits llegan al HomePod sin cambios. La deriva del reloj se absorbe con correcciones de una trama en puntos suaves de la señal. Los primeros 5 ms tras el inicio o tras reanudar desde el silencio reciben un fundido de entrada, y un ecualizador o un volumen maestro por debajo del 100 % convierte la ruta en una ruta procesada.",
+  "Audio chain": "Cadena de audio",
+  "bit-exact": "bit a bit",
+  "resampled": "remuestreado",
+  "{0} one-frame corrections": "{0} correcciones de una trama",
+  "Review local audio recovery before starting playback that mutes this PC.": "Revisa la recuperación del audio local antes de iniciar la reproducción que silencia este equipo."
 }

@@ -459,5 +459,13 @@
   "Local padded output frames": "ローカルで補完した出力フレーム",
   "Local padded output frames: {0}; wholly padded capture pulls: {1}": "ローカルで補完した出力フレーム: {0} · 全フレームを補完したキャプチャブロック: {1}",
   "Padding counts missing output-rate frames before equalization. A wholly padded pull replaces all 352 frames. Captured silence and scheduled fade or recovery silence are not missing capture. These are local capture counts; unavailable counters show —.": "補完数は、イコライザー適用前に出力レートで不足したフレームの数です。完全に補完されたブロックでは全 352 フレームを置き換えます。キャプチャした無音やフェード・復元用の無音は含みません。ここではローカルキャプチャを集計します。取得できない値は — と表示します。",
-  "Wholly padded capture pulls": "全フレームを補完したキャプチャブロック"
+  "Wholly padded capture pulls": "全フレームを補完したキャプチャブロック",
+  "Bit-exact passthrough": "ビット完全パススルー",
+  "Copy the capture untouched when its sample rate already matches the stream": "サンプルレートがストリームと一致している場合はキャプチャをそのまま通す",
+  "No resampling and no dither: 16-bit samples reach HomePod unchanged. Clock drift is absorbed by one-frame corrections at smooth points in the signal. The first 5 ms after playback starts or resumes from silence is faded in, and an equalizer or master gain below 100% makes the path a processed one.": "リサンプリングもディザも行わず、16 ビットのサンプルをそのまま HomePod へ届けます。クロックのずれは、信号の滑らかな箇所での 1 フレーム補正で吸収します。再生開始時と無音から復帰した最初の 5 ms はフェードインし、イコライザーまたはマスター音量が 100% 未満の場合は処理ありの経路になります。",
+  "Audio chain": "オーディオ経路",
+  "bit-exact": "ビット完全",
+  "resampled": "リサンプリング済み",
+  "{0} one-frame corrections": "{0} 回の 1 フレーム補正",
+  "Review local audio recovery before starting playback that mutes this PC.": "この PC の音声をミュートする再生を開始する前に、ローカルオーディオの復元情報を確認してください。"
 }
