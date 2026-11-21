@@ -1073,10 +1073,11 @@ public sealed class SessionTests
         var process = new FakeConnection(); var logs = new ConcurrentQueue<string>();
         await using var controller = TestSessionController.Create(new FakeFactory(process), new FakeAudio(), logs.Enqueue, Fast);
         await controller.StartAsync(Pod(), Settings()); await Until(() => controller.Snapshot.State == PlaybackState.Streaming);
-        process.EmitData(new { @event = "capture_metrics", metrics = new { input_rate = 44100, input_format = "pcm16/44100/2ch", bit_exact = true, slips = 2 } });
+        process.EmitData(new { @event = "capture_metrics", metrics = new { input_rate = 44100, input_format = "pcm16/44100/2ch", bit_exact = true, slips = 2, padded_frames = 353UL, fully_padded_packets = 1UL } });
         await Until(() => controller.Snapshot.Metrics?.InputFormat == "pcm16/44100/2ch");
         var metrics = controller.Snapshot.Metrics!;
         Assert.True(metrics.BitExact); Assert.Equal(2, metrics.Slips);
+        Assert.Equal(353UL, metrics.PaddedFrames); Assert.Equal(1UL, metrics.FullyPaddedPackets);
         Assert.Contains(logs, line => line.StartsWith("Audio chain:") && line.Contains("pcm16/44100/2ch") && line.Contains("bit-exact"));
         process.EmitData(new { @event = "capture_metrics", metrics = new { input_rate = 44100, input_format = "pcm16/44100/2ch", bit_exact = true, slips = 3 } });
         await Until(() => controller.Snapshot.Metrics?.Slips == 3);
