@@ -1,18 +1,14 @@
 # Focused fork branches
 
-**Recover malformed saved speaker groups** is the first proposed upstream PR. There are five regression inputs, nine added lines and one removed line. [Review the entire patch](https://github.com/ThatMarko/AirFlash/compare/7b4d4ee9a6170a3de9651bdb577296f65baeaba9...ae3fd0a7fc984b7f70fd45f63dfcce1a5db8f7dd)
+## Upstream review queue
 
-## Draft for the first submission
+Three independent pull requests opened against upstream `7b4d4ee` on November 22, 2026. The settings fix is first in review. The other two are drafts so the maintainer can review one fix at a time.
 
-Loading saved settings can throw when a speaker group has a null ID or a multi-room member is missing. A stereo row can also pass validation with an invalid member collection. Validate this data before dereferencing it or accepting the row. The existing recovery path then preserves the original settings bytes and returns usable defaults.
-
-Five regression cases failed with the unchanged upstream implementation on `7b4d4ee9`. Repeating the same 104 settings recovery tests with the patch gave 104 passes. Tests use temporary files. [Fork Windows qualification](https://github.com/ThatMarko/AirFlash/actions/runs/44820629050)
-
-## How to submit
-
-1. Start with the settings patch. Wait for the maintainer’s decision before opening a second upstream PR.
-2. Propose preserving stored receiver-password read failures next. The change is confined to the credential reader and its tests. Genuine absence still permits the existing fallback. A failure after opening the file retains its error. [Password diff](https://github.com/ThatMarko/AirFlash/compare/7b4d4ee9a6170a3de9651bdb577296f65baeaba9...678e264027888313dd34d854d85569040e5055e8)
-3. The two-file PATH-host fix is the next independent tooling option. It tests multiple .NET executables on PATH using fake hosts. [Host selection diff](https://github.com/ThatMarko/AirFlash/compare/7b4d4ee9a6170a3de9651bdb577296f65baeaba9...102e2d962a69be1f114f1410cc79b62ace018825)
+| Order | Change | Regression evidence |
+| --- | --- | --- |
+| 1 | [#61 · Recover from malformed saved speaker groups](https://github.com/Ding-Kyoma/AirFlash/pull/61) | Five malformed inputs failed on unchanged upstream. All 104 settings recovery cases passed with the two-file fix. [Windows run](https://github.com/ThatMarko/AirFlash/actions/runs/44820629050) |
+| 2 | [#62 · Preserve stored receiver password read errors](https://github.com/Ding-Kyoma/AirFlash/pull/62) | Three native tests cover missing and unreadable files, replacing the path after open, the size limit and corrupt password data. [Windows run](https://github.com/ThatMarko/AirFlash/actions/runs/44820811665) |
+| 3 | [#63 · Use the first dotnet executable on PATH](https://github.com/Ding-Kyoma/AirFlash/pull/63) | Both multiple-host cases failed on upstream. All five Windows PATH and precedence cases passed with the one-line host selection change. [Windows run](https://github.com/ThatMarko/AirFlash/actions/runs/44856742594) |
 
 These 31 branches can be reviewed in parallel on the fork. Upstream submission remains a case-by-case decision. Several branches carry prerequisites and shared fixtures. Before each upstream submission, compare the listed base and head, refresh against the then-current upstream main and rerun the relevant checks. A squash merge can retain the behavior under a different commit ID. Large DNS, session, and mute-recovery changes warrant a design discussion first. The journal and the startup/UI recovery flow must ship together.
 
