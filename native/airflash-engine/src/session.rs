@@ -4404,6 +4404,37 @@ mod tests {
         drop(receiver);
         server.join().unwrap();
     }
+    fn observe_group_audio(
+        receivers: &[UdpSocket],
+        cancel: &Cancellation,
+    ) -> std::io::Result<usize> {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        let mut heard = 0;
+        let mut packet = [0; 4096];
+        for receiver in receivers {
+            loop {
+                if cancel.is_cancelled() || Instant::now() >= deadline {
+                    return Ok(heard);
+                }
+                match receiver.recv(&mut packet) {
+                    // The fixture sends sync and audio to the same socket.
+                    Ok(n) if n >= 12 && packet[0] >> 6 == 2 && packet[1] & 0x7f == 96 => {
+                        heard += 1;
+                        break;
+                    }
+                    Ok(_) => {}
+                    Err(e)
+                        if matches!(
+                            e.kind(),
+                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                        ) => {}
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        Ok(heard)
+    }
+
     #[test]
     fn confirmed_ours_resumes_after_clock_recovery_but_a_teardown_still_yields() {
         for signal in [
@@ -4479,9 +4510,24 @@ mod tests {
             let hosts: Vec<_> = members.iter().map(|m| m.peer.host).collect();
             let timer = followed_test_clock(&hosts);
             let events = std::sync::Mutex::new(Vec::new());
+            let receivers: Vec<_> = servers
+                .iter()
+                .map(|(rx, _)| rx.try_clone().unwrap())
+                .collect();
+            let cancel = Cancellation::default();
+            let observer = thread::spawn({
+                let cancel = cancel.clone();
+                move || {
+                    let received = observe_group_audio(&receivers, &cancel);
+                    cancel.cancel();
+                    received
+                }
+            });
+            // Ownership recovery uses the streaming scheduler. End the successful
+            // case once both peers have received audio after the ownership check.
             let result = send_packets(
-                &summary_options("", "native_stereo", 4000),
-                &Cancellation::default(),
+                &summary_options("", "native_stereo", 0),
+                &cancel,
                 &std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0.0f32.to_bits())),
                 crate::volume::Control::default(),
                 None,
@@ -4494,7 +4540,7 @@ mod tests {
                 &vec![0; FRAMES * 2],
                 None,
                 &|event| {
-                    if event["code"] == "recovery_original_fault" {
+                    if event["code"] == "recovery_original_fault" && event["recovered"] == false {
                         // Make every required clock ready before the next
                         // media-loop iteration consumes the ClockLost signal.
                         replay_ready_clock(&timer, &hosts, 0, 1_000_000);
@@ -4505,68 +4551,64 @@ mod tests {
                     events.lock().unwrap().push(event);
                 },
             );
-            let teardown = matches!(signal, Some(preemption::Signal::UnexpectedTeardown));
-            if teardown {
-                let fault = result.unwrap_err().downcast::<Fault>().unwrap();
-                assert_eq!(fault.code, "preempted");
-                assert!(!fault.retryable);
-                assert!(members.iter().all(|m| m.media.metrics.packets_sent == 0));
-                assert!(members[0].health.ownership_uncertain());
-            } else {
-                assert!(matches!(&result, Ok(StreamEnd::Finished)), "{result:?}");
-                assert!(members.iter().all(|m| m.media.metrics.packets_sent > 0));
-                assert!(members.iter().all(|m| !m.health.ownership_uncertain()));
-            }
-            let events = events.lock().unwrap();
-            assert!(
-                events
-                    .iter()
-                    .any(|e| e["code"] == "recovery_original_fault")
-            );
-            if teardown {
-                // A receiver TEARDOWN is still a takeover, no matter how fresh
-                // PTP is; the resumed-media path must stay shut.
-                assert!(
-                    !events
-                        .iter()
-                        .any(|e| e["code"] == "recovery_original_fault" && e["recovered"] == true)
-                );
-                assert!(
-                    !events
-                        .iter()
-                        .any(|e| e["event"] == "clock_status" && e["phase"] == "ready")
-                );
-                assert!(
-                    events
-                        .iter()
-                        .any(|e| e["event"] == "warning" && e["code"] == "recovery_decision")
-                );
-            } else {
-                // The ownership probe confirmed ours; only then may fresh PTP
-                // resume media. Fresh PTP alone is not an ownership verdict.
-                assert!(
-                    events
-                        .iter()
-                        .any(|e| e["code"] == "recovery_original_fault" && e["recovered"] == true)
-                );
-                assert!(
-                    events
-                        .iter()
-                        .any(|e| e["event"] == "clock_status" && e["phase"] == "ready")
-                );
-                assert!(
-                    !events
-                        .iter()
-                        .any(|e| e["event"] == "warning" && e["code"] == "recovery_decision")
-                );
-            }
-            drop(events);
+            cancel.cancel();
+            let received = observer.join().unwrap();
+            let media: Vec<_> = members
+                .iter()
+                .map(|m| m.media.metrics.packets_sent)
+                .collect();
+            let uncertain: Vec<_> = members
+                .iter()
+                .map(|m| m.health.ownership_uncertain())
+                .collect();
             drop(members);
             probe_stop.cancel();
             probe_server.join().unwrap();
             for (receiver, server) in servers {
                 drop(receiver);
                 server.join().unwrap();
+            }
+            let received = received.unwrap();
+            let teardown = matches!(signal, Some(preemption::Signal::UnexpectedTeardown));
+            if teardown {
+                let fault = result.unwrap_err().downcast::<Fault>().unwrap();
+                assert_eq!(fault.code, "preempted");
+                assert!(!fault.retryable);
+                assert_eq!(received, 0);
+                assert!(media.iter().all(|&sent| sent == 0));
+                assert!(uncertain[0]);
+            } else {
+                assert!(matches!(&result, Ok(StreamEnd::Finished)), "{result:?}");
+                assert_eq!(
+                    received,
+                    hosts.len(),
+                    "both receivers must receive RTP audio"
+                );
+                assert!(media.iter().all(|&sent| sent > 0));
+                assert!(uncertain.iter().all(|&flag| !flag));
+            }
+            let events = events.into_inner().unwrap();
+            let loss = events
+                .iter()
+                .position(|e| e["code"] == "recovery_original_fault" && e["recovered"] == false)
+                .expect("clock loss must enter ownership recovery");
+            let ready = events
+                .iter()
+                .position(|e| e["event"] == "clock_status" && e["phase"] == "ready");
+            let recovered = events
+                .iter()
+                .position(|e| e["code"] == "recovery_original_fault" && e["recovered"] == true);
+            let decision = events
+                .iter()
+                .any(|e| e["event"] == "warning" && e["code"] == "recovery_decision");
+            if teardown {
+                assert!(ready.is_none() && recovered.is_none());
+                assert!(decision);
+            } else {
+                let ready = ready.expect("ownership confirmed and clock ready");
+                let recovered = recovered.expect("clock recovery reported");
+                assert!(loss < ready && ready < recovered);
+                assert!(!decision);
             }
         }
     }
