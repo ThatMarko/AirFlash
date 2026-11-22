@@ -55,6 +55,22 @@ impl Control {
 mod tests {
     use super::*;
     #[test]
+    fn sustained_activity_postpones_standby_until_a_full_interval_after_the_last_audio() {
+        let control = Control::new(Settings {
+            enabled: true,
+            silence_seconds: 10.0,
+        });
+        let second = 1_000_000_000;
+        for tick in 1..=30 {
+            let activity = tick * second;
+            assert!(!control.should_pause(activity + second - 1, activity, 0));
+        }
+        let last = 30 * second;
+        assert!(!control.should_pause(last + 10 * second - 1, last, 0));
+        assert!(control.should_pause(last + 10 * second, last, 0));
+    }
+
+    #[test]
     fn activity_and_live_edits_control_release_and_resume() {
         let control = Control::new(Settings {
             enabled: true,
