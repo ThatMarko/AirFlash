@@ -1,16 +1,16 @@
 # Focused fork branches
 
-## Upstream review queue
+## Independent upstream pull requests
 
-Three independent pull requests opened against upstream `7b4d4ee` on November 22, 2026. The settings fix is first in review. The other two are drafts so the maintainer can review one fix at a time.
+As of November 25, 2026, all three PRs are ready for review against upstream `7b4d4ee`. Each PR's GitHub test merge has the same tree as its branch head. The changes touch five distinct paths in total. All six merge orders produced the same Git tree.
 
-| Order | Change | Regression evidence |
-| --- | --- | --- |
-| 1 | [#61 · Recover from malformed saved speaker groups](https://github.com/Ding-Kyoma/AirFlash/pull/61) | Five malformed inputs failed on unchanged upstream. All 104 settings recovery cases passed with the two-file fix. [Windows run](https://github.com/ThatMarko/AirFlash/actions/runs/44820629050) |
-| 2 | [#62 · Preserve stored receiver password read errors](https://github.com/Ding-Kyoma/AirFlash/pull/62) | Three native tests cover missing and unreadable files, replacing the path after open, the size limit and corrupt password data. [Windows run](https://github.com/ThatMarko/AirFlash/actions/runs/44820811665) |
-| 3 | [#63 · Use the first dotnet executable on PATH](https://github.com/Ding-Kyoma/AirFlash/pull/63) | Both multiple-host cases failed on upstream. All five Windows PATH and precedence cases passed with the one-line host selection change. [Windows run](https://github.com/ThatMarko/AirFlash/actions/runs/44856742594) |
+| Change | Regression evidence |
+| --- | --- |
+| [#61 · Recover from malformed saved speaker groups](https://github.com/Ding-Kyoma/AirFlash/pull/61) | Six cases failed on unchanged upstream, including a valid group followed by a malformed one. At `8437d98` all 105 settings recovery cases and all 692 Core tests passed locally on Windows. [Upstream run](https://github.com/Ding-Kyoma/AirFlash/actions/runs/45679791431) |
+| [#62 · Preserve stored receiver password read errors](https://github.com/Ding-Kyoma/AirFlash/pull/62) | Three native tests cover missing and unreadable files, replacing the path after open, the size limit and corrupt password data. [Upstream run](https://github.com/Ding-Kyoma/AirFlash/actions/runs/45061472503) |
+| [#63 · Use the first dotnet executable on PATH](https://github.com/Ding-Kyoma/AirFlash/pull/63) | Both multiple-host cases failed on upstream. All five Windows PATH and precedence cases passed with the one-line host selection change. [Upstream run](https://github.com/Ding-Kyoma/AirFlash/actions/runs/45061552090) |
 
-The upstream run for #61 stopped in two native session tests. On base `7b4d4ee`, a delayed recovery callback and audio arriving during stereo drain reproduced the respective failed assertions. The separate fork branch `codex/test-native-session-timing` changes only tests. On `070497a`, the revised fixtures passed three repetitions, and all three deliberately broken behaviors were detected. The full Windows run passed 365 Rust tests (two ignored) and 686 Core tests. [Upstream failure](https://github.com/Ding-Kyoma/AirFlash/actions/runs/45061320283/job/137327663407) · [Test-only diff](https://github.com/ThatMarko/AirFlash/compare/7b4d4ee9a6170a3de9651bdb577296f65baeaba9...070497a1f0c72a9205a16a491eebfd510f482813) · [Timing experiments](https://github.com/ThatMarko/AirFlash/actions/runs/45100187710) · [Windows suite](https://github.com/ThatMarko/AirFlash/actions/runs/45099904761)
+The first upstream run for #61, at `ae3fd0a`, stopped in two native session tests. On base `7b4d4ee`, a delayed recovery callback and audio arriving during stereo drain reproduced the respective failed assertions. The separate fork branch `codex/test-native-session-timing` changes only tests. On `070497a`, the revised fixtures passed three repetitions, and all three deliberately broken behaviors were detected. The full Windows run passed 365 Rust tests (two ignored) and 686 Core tests. [Upstream failure](https://github.com/Ding-Kyoma/AirFlash/actions/runs/45061320283/job/137327663407) · [Test-only diff](https://github.com/ThatMarko/AirFlash/compare/7b4d4ee9a6170a3de9651bdb577296f65baeaba9...070497a1f0c72a9205a16a491eebfd510f482813) · [Timing experiments](https://github.com/ThatMarko/AirFlash/actions/runs/45100187710) · [Windows suite](https://github.com/ThatMarko/AirFlash/actions/runs/45099904761)
 
 These 31 branches can be reviewed in parallel on the fork. Upstream submission remains a case-by-case decision. Several branches carry prerequisites and shared fixtures. Before each upstream submission, compare the listed base and head, refresh against the then-current upstream main and rerun the relevant checks. A squash merge can retain the behavior under a different commit ID. Large DNS, session, and mute-recovery changes warrant a design discussion first. The journal and the startup/UI recovery flow must ship together.
 
@@ -24,7 +24,7 @@ On the combined commit, 1,447 Core, 258 Python and 423 Rust tests passed on Wind
 
 ## Topic comparisons
 
-Each link opens the changes for that topic against its review base. For the mute recovery flow, the comparison includes its journal prerequisite. Current run links identify exact refreshed sources. The review base is pinned in each row. A base other than upstream includes prerequisites and changes what will appear in an upstream PR. Repeat standalone checks at submission time.
+This table records the 31 topic heads as assembled. The table above links the current PR revisions. Each comparison below opens the changes for that topic against its original review base. For the mute recovery flow, the comparison includes its journal prerequisite. Current run links identify exact refreshed sources. The review base is pinned in each row. A base other than upstream includes prerequisites and changes what will appear in an upstream PR. Repeat standalone checks at submission time.
 
 | Topic | Fork branch and head | Review base | Files | Verification |
 | --- | --- | --- | ---: | --- |
